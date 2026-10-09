@@ -1,0 +1,21 @@
+[package]
+name = "ravet-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit standalone audio device adapter for RAVET"
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-signal.workspace = true
+ravet-audio-file = { path = "../ravet-audio-file" }
+ravet-graph = { path = "../ravet-graph" }
+cpal = "=0.18.2"
+rtrb = "=0.4.0"
+
+[dev-dependencies]
+allocation-counter = "=0.8.1"
+
+[lints]
+workspace = true

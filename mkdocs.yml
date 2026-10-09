@@ -1,0 +1,65 @@
+site_name: RAVET
+site_description: Portable audio framework — guides, contracts, features and API reference
+copyright: RAVET · GPL-3.0-only · Public APIs are provisional
+use_directory_urls: true
+docs_dir: target/docs-source
+site_dir: target/docs-site
+exclude_docs: |
+  !.github/**
+  !templates/**
+hooks:
+  - scripts/docs/site.py
+watch:
+  - docs
+  - crates
+  - examples
+  - native
+  - tools
+  - scripts/docs
+  - Cargo.toml
+  - Cargo.lock
+  - README.md
+  - CONTRIBUTING.md
+  - LICENSING.md
+  - AGENTS.md
+  - PROJECT_HANDOFF.md
+theme:
+  name: material
+  font: false
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+validation:
+  nav:
+    omitted_files: ignore
+  links:
+    not_found: warn
+    anchors: warn

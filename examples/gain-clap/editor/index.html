@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>RAVET Gain</title>
+<style>
+:root{color-scheme:dark;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ravet-foreground);background:var(--ravet-background)}*{box-sizing:border-box}body{margin:0;padding:24px;width:100%;height:100vh;min-width:480px;min-height:390px;display:flex;flex-direction:column}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}h1{font-size:23px;font-weight:650;letter-spacing:-.6px;margin:0}header small{color:var(--ravet-muted);font-size:11px;letter-spacing:2px}.bypass{display:flex;align-items:center;gap:8px;font-size:13px}input[type=checkbox]{accent-color:var(--ravet-accent);width:16px;height:16px}.gain{background:var(--ravet-panel);border:1px solid var(--ravet-border);border-radius:12px;padding:18px;margin-bottom:17px}.gain-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.gain-row label{font-size:15px;font-weight:600}input[type=number]{width:84px;background:var(--ravet-background);border:1px solid var(--ravet-border);border-radius:6px;color:#fff;padding:7px;font:inherit;text-align:right}input[type=range]{width:100%;accent-color:var(--ravet-accent);margin:0}.ends{display:flex;justify-content:space-between;margin-top:7px;font-size:11px;color:var(--ravet-muted)}.meters{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px}.meter-card{border:1px solid var(--ravet-border);border-radius:10px;padding:13px;background:var(--ravet-raised)}.meter-card h2{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ravet-muted);margin:0 0 11px}.channel{display:grid;grid-template-columns:13px 1fr;gap:6px;align-items:center;margin-top:8px}.channel span{font-size:11px;color:var(--ravet-muted)}meter{width:100%;height:10px;accent-color:var(--ravet-accent)}.reading{margin-left:19px;font-variant-numeric:tabular-nums;font-size:10px;color:var(--ravet-muted);margin-top:3px}footer{font-size:11px;display:flex;justify-content:space-between;color:var(--ravet-muted);margin-top:15px}#status[data-error=true]{color:#ffb8a3}input:focus-visible{outline:2px solid var(--ravet-accent);outline-offset:3px}
+</style></head><body>
+<header><div><small>RAVET</small><h1>Gain</h1></div><label class="bypass"><input id="bypass" type="checkbox">Bypass</label></header>
+<section class="gain" aria-label="Gain control"><div class="gain-row"><label for="gain">Amplitude</label><div><input id="gain-number" type="number" aria-label="Gain multiplier" min="0" max="4" step="0.001" value="1"> ×</div></div><input id="gain" type="range" aria-label="Gain amplitude" min="0" max="4" step="0.001" value="1"><div class="ends"><span>0 ×</span><span>Unity 1 ×</span><span>4 ×</span></div></section>
+<section class="meters" aria-label="Audio meters"><div class="meter-card"><h2>Input</h2><div class="channel"><span>L</span><meter id="input-0" aria-label="Left input RMS" min="0" max="1" value="0"></meter></div><div class="reading" id="input-reading-0">Peak −∞ · RMS −∞ dB</div><div class="channel"><span>R</span><meter id="input-1" aria-label="Right input RMS" min="0" max="1" value="0"></meter></div><div class="reading" id="input-reading-1">Peak −∞ · RMS −∞ dB</div></div><div class="meter-card"><h2>Output</h2><div class="channel"><span>L</span><meter id="output-0" aria-label="Left output RMS" min="0" max="1" value="0"></meter></div><div class="reading" id="output-reading-0">Peak −∞ · RMS −∞ dB</div><div class="channel"><span>R</span><meter id="output-1" aria-label="Right output RMS" min="0" max="1" value="0"></meter></div><div class="reading" id="output-reading-1">Peak −∞ · RMS −∞ dB</div></div></section>
+<footer><span id="status" role="status">Connecting…</span><span>Sample peak / block RMS</span></footer>
+<!-- RAVET_CONTROLS -->
+<script>
+const gain=document.getElementById('gain'), number=document.getElementById('gain-number'), bypass=document.getElementById('bypass'), status=document.getElementById('status');
+function setText(node,text){if(node.textContent!==text)node.textContent=text}
+function send(id,value,type='edit'){if(!Number.isFinite(value))return;try{window.webkit.messageHandlers.ravet.postMessage({type,id,value})}catch{setText(status,'Editor bridge unavailable');status.dataset.error='true';return false}}
+const post=message=>send(message.id,message.value,message.type);
+const slider=new RavetControls.Slider(gain,number,{id:1,minimum:0,maximum:4,step:0.001},post);
+const toggle=new RavetControls.Toggle(bypass,2,post);
+const meterControls={};
+for(const kind of ['input','output'])for(let i=0;i<2;i++){
+ meterControls[`${kind}-${i}`]=new RavetControls.AccessibleMeter(document.getElementById(`${kind}-${i}`),document.getElementById(`${kind}-reading-${i}`),{label:`${i===0?'Left':'Right'} ${kind} level`});
+ meterControls[`${kind}-${i}`].update({peak:0,rms:0,nonfinite:false});
+}
+window.ravetUpdate=state=>{
+ if(!state||!Number.isFinite(state.gain)||typeof state.bypassed!=='boolean')return;
+ slider.update(state.gain);
+ toggle.update(state.bypassed);
+ for(const kind of ['input','output'])for(let i=0;i<2;i++)meterControls[`${kind}-${i}`].update(state[kind]?.[i]);
+ status.dataset.error=String(Boolean(state.error));setText(status,state.error||(state.pending?'Awaiting host…':(state.bypassed?'Bypassed':'Ready')));
+};
+</script></body></html>

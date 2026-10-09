@@ -1,0 +1,16 @@
+[package]
+name = "ravet-runtime-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Narrow native ABI for Rust RAVET control-thread runtime services"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+ravet-runtime = { path = "../ravet-runtime" }

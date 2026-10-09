@@ -1,0 +1,58 @@
+<style>
+#io-settings{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ravet-foreground);background:var(--ravet-panel);border:1px solid var(--ravet-border);border-radius:10px;padding:23px;width:610px;max-width:94vw;max-height:90vh;box-shadow:0 20px 90px #000a;overflow:auto}
+#io-settings::backdrop{background:#050b1080}#io-settings *{box-sizing:border-box}#io-settings .io-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}#io-settings h2{font-size:17px;color:var(--ravet-foreground);text-transform:none;letter-spacing:0;margin:0}#io-settings .io-row{display:grid;grid-template-columns:165px 1fr;align-items:center;gap:12px;margin:13px 0}#io-settings .io-label{text-align:right;color:var(--ravet-foreground);font-size:13px}#io-settings select,#io-settings button{font:inherit;color:inherit;border:1px solid var(--ravet-border);border-radius:6px;background:var(--ravet-raised);padding:7px;min-width:0}#io-settings select{width:100%}#io-settings .io-list{border:1px solid var(--ravet-border);background:var(--ravet-raised);padding:5px 9px;max-height:137px;overflow:auto}#io-settings .io-list label{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:13px;color:var(--ravet-foreground)}#io-settings input[type=checkbox]{accent-color:var(--ravet-accent);width:17px;height:17px;margin:0}#io-settings .io-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:19px}#io-settings .io-start{background:var(--ravet-accent);color:var(--ravet-accent-text);border-color:var(--ravet-accent);font-weight:600}#io-settings .io-note{font-size:11px;line-height:1.5;color:var(--ravet-muted);margin:12px 0 0}#io-settings [hidden]{display:none!important}#io-settings :focus-visible{outline:2px solid var(--ravet-accent);outline-offset:2px}#io-settings button:disabled,#io-settings select:disabled{opacity:.55}#io-settings .io-close{padding:2px 7px;font-size:18px;line-height:1.1}#io-settings .io-test-row{display:flex;gap:8px}#io-settings .io-test-row select{flex:1}
+@media(max-width:580px){#io-settings .io-row{grid-template-columns:130px 1fr;gap:8px}#io-settings{padding:16px}}
+</style>
+<dialog id="io-settings" aria-labelledby="settings-title">
+ <div class="io-header"><h2 id="settings-title">Audio/MIDI Settings</h2><button id="close-settings" class="io-close" aria-label="Close audio and MIDI settings">×</button></div>
+ <div id="io-audio-fields">
+  <div class="io-row"><label class="io-label" for="audio-output">Output:</label><select id="audio-output"><option value="">Choose an output…</option></select></div>
+  <div class="io-row"><span class="io-label" id="output-channels-label">Active output channels:</span><div id="output-channels" class="io-list" role="group" aria-labelledby="output-channels-label">Choose an output.</div></div>
+  <div id="input-device-row" class="io-row" hidden><label class="io-label" for="audio-input">Input:</label><select id="audio-input"></select></div>
+  <div id="input-channels-row" class="io-row" hidden><span class="io-label" id="input-channels-label">Active input channels:</span><div id="input-channels" class="io-list" role="group" aria-labelledby="input-channels-label"></div></div>
+  <div class="io-row"><label class="io-label" for="sample-rate">Sample rate:</label><select id="sample-rate"></select></div>
+  <div class="io-row"><label class="io-label" for="buffer-size">Audio buffer size:</label><select id="buffer-size"></select></div>
+ </div>
+ <div id="midi-inputs-row" class="io-row" hidden><span class="io-label" id="midi-inputs-label">Active MIDI inputs:</span><div id="midi-inputs" class="io-list" role="group" aria-labelledby="midi-inputs-label"></div></div>
+ <p id="io-unavailable" class="io-note" hidden>This application does not use audio or MIDI devices.</p>
+ <p class="io-note" id="io-routing-note"></p>
+ <div class="io-actions"><button id="refresh">Refresh devices</button><button id="stop" disabled>Stop audio</button><button id="start" class="io-start">Start audio</button></div>
+ <p id="settings-status" class="io-note" role="status">Choose an output and press Start.</p>
+</dialog>
+<script>
+(()=>{
+ 'use strict';const get=id=>document.getElementById(id),dialog=get('io-settings');let io={},running=false,inventory='',starting=false,restored=false;
+ const send=(action,extra={})=>{try{window.webkit.messageHandlers.ravet.postMessage({type:'action',action,...extra});return true}catch{get('settings-status').textContent='Native settings bridge unavailable';return false}};
+ const chosen=id=>Array.from(get(id).querySelectorAll('input:checked'),n=>n.value);
+ const select=(id,items,first)=>{const node=get(id),old=node.value;node.replaceChildren();if(first)node.add(new Option(first[1],first[0]));for(const item of items)node.add(new Option(item.name,String(item.id)));if(Array.from(node.options).some(o=>o.value===old))node.value=old;};
+ function checks(id,items,selected){const root=get(id),old=new Set(chosen(id));root.replaceChildren();for(const [index,item] of items.entries()){const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=item.id;check.checked=old.size?old.has(String(item.id)):selected(index);check.disabled=running;label.append(check,document.createTextNode(item.name));root.append(label);}}
+ const device=(direction)=>io[direction]?.find(d=>d.id===get(direction==='outputs'?'audio-output':'audio-input').value);
+ function channels(id,count,prefix){const items=[];for(let n=0;n<count;n+=2)items.push({id:n,name:`${prefix} ${n+1}${n+1<count?' + '+(n+2):''}`});checks(id,items,i=>i===0);if(!items.length)get(id).textContent='No active device.';}
+ function buffers(){const out=device('outputs'),rate=Number(get('sample-rate').value),old=get('buffer-size').value;get('buffer-size').replaceChildren();get('buffer-size').add(new Option('Device default','0'));for(const frames of out?.buffers||[])get('buffer-size').add(new Option(`${frames} samples (${(1000*frames/rate).toFixed(1)} ms)`,String(frames)));if(Array.from(get('buffer-size').options).some(o=>o.value===old))get('buffer-size').value=old;}
+ function configuration(){const out=device('outputs'),input=device('inputs');channels('output-channels',out?.channels||0,'Out');channels('input-channels',input?.channels||0,'In');const rates=(out?.rates||[]).map(rate=>({id:rate,name:`${rate} Hz`}));const oldRate=get('sample-rate').value;select('sample-rate',rates);if(out&&!rates.some(r=>String(r.id)===oldRate))get('sample-rate').value=String(out.default_rate);buffers();get('input-channels-row').hidden=!input;}
+ const selection=()=>({version:1,output:get('audio-output').value,input:get('audio-input').value,sample_rate:Number(get('sample-rate').value),buffer_size:Number(get('buffer-size').value),output_pairs:chosen('output-channels').map(Number),input_pairs:chosen('input-channels').map(Number),midis:chosen('midi-inputs')});
+ function save(){try{window.webkit.messageHandlers.ravetSettings.postMessage(selection())}catch{}}
+ function restore(saved){if(restored||!saved||saved.version!==1||!inventory)return;restored=true;
+  for(const [id,key] of [['audio-output','output'],['audio-input','input']]){const node=get(id);node.value=Array.from(node.options).some(o=>o.value===saved[key])?saved[key]:'';}
+  configuration();
+  for(const [id,key] of [['sample-rate','sample_rate'],['buffer-size','buffer_size']]){if(id==='buffer-size')buffers();const node=get(id),value=String(saved[key]);if(Array.from(node.options).some(o=>o.value===value))node.value=value;}
+  for(const [id,key] of [['output-channels','output_pairs'],['input-channels','input_pairs'],['midi-inputs','midis']])if(Array.isArray(saved[key])){const selected=new Set(saved[key].map(String));for(const check of get(id).querySelectorAll('input'))check.checked=selected.has(check.value);}
+ }
+ window.ravetRestoreSettings=saved=>{window.ravetSavedSettings=saved;restore(saved)};
+ get('audio-output').onchange=()=>{get('output-channels').replaceChildren();configuration();save()};get('audio-input').onchange=()=>{get('input-channels').replaceChildren();configuration();save()};get('sample-rate').onchange=()=>{buffers();save()};
+ for(const id of ['buffer-size','output-channels','input-channels','midi-inputs'])get(id).addEventListener('change',save);
+ window.ravetOpenSettings=()=>{if(typeof window.ravetSettingsWillOpen==='function')window.ravetSettingsWillOpen();if(!dialog.open)dialog.showModal();return true};
+ get('close-settings').onclick=()=>dialog.close();dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
+ window.ravetStartAudio=()=>{if(!get('audio-output').value){window.ravetOpenSettings();return true}save();starting=send('start',selection());return starting};get('start').onclick=window.ravetStartAudio;
+ get('stop').onclick=()=>send('stop');get('refresh').onclick=()=>send('refresh');
+ window.ravetUpdateSettings=state=>{
+  if(!state?.io)return;io=state.io;running=Boolean(state.running);const audio=io.audio!==false,input=io.input!==false,midi=io.midi!==false;
+  get('io-audio-fields').hidden=!audio;get('input-device-row').hidden=!audio||!input||!io.inputs?.length;get('midi-inputs-row').hidden=!midi||!io.midis?.length;get('io-unavailable').hidden=audio||midi;get('start').hidden=!audio;get('stop').hidden=!audio;
+  const key=JSON.stringify(io);if(key!==inventory){inventory=key;select('audio-output',io.outputs||[],['','Choose an output…']);select('audio-input',io.inputs||[],['','No input']);checks('midi-inputs',io.midis||[],()=>false);configuration();restore(window.ravetSavedSettings);}
+  for(const node of dialog.querySelectorAll('select,input'))node.disabled=running;get('start').disabled=running;get('stop').disabled=!running;get('refresh').disabled=running;
+  get('settings-status').textContent=state.status||'';get('io-routing-note').textContent=io.note||'';
+  if(starting){starting=false;if(running)dialog.close();}
+ };
+ const update=window.ravetUpdate;window.ravetUpdate=state=>{window.ravetUpdateSettings(state);if(typeof update==='function')update(state);};
+})();
+</script>

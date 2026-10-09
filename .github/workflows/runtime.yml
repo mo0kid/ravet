@@ -1,0 +1,74 @@
+name: Runtime contracts
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_BUILD_JOBS: '2'
+  CARGO_TARGET_DIR: target
+
+jobs:
+  workspace:
+    name: Workspace (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Linux audio and MIDI build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+      - name: Install stable Rust and check tools
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Check formatting
+        run: cargo +stable fmt --all -- --check
+      - name: Test workspace contracts
+        run: cargo +stable test --workspace --all-targets --all-features --locked
+      - name: Check lint contracts
+        run: cargo +stable clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test documentation examples
+        run: cargo +stable test --workspace --doc --all-features --locked
+      - name: Build warning-free API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo +stable doc --workspace --no-deps --all-features --locked
+
+  macos-clap:
+    name: macOS CLAP bundle contracts
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Select stable Rust for bundle helper
+        run: rustup default stable
+      - name: Build development-signed CLAP bundle
+        run: python3 scripts/bundle-clap.py
+      - name: Exercise the actual bundle ABI
+        run: cargo +stable run -p ravet-clap-smoke --locked -- "target/clap/release/RAVET Gain.clap"
+
+      - name: Build development-signed MIDI instrument bundle
+        run: python3 scripts/bundle-clap.py --plugin sine
+      - name: Exercise the actual MIDI instrument ABI
+        run: cargo +stable run -p ravet-sine-clap --example validate --locked -- "target/clap/release/RAVET Sine.clap"
+
+      - name: Exercise guarded native editor hosting
+        run: cargo +stable run -p ravet-editor-smoke --example hosted --locked -- "target/clap/release/RAVET Gain.clap"

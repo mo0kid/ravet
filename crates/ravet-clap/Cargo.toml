@@ -1,0 +1,21 @@
+[package]
+license.workspace = true
+name = "ravet-clap"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Provisional CLAP bridge for portable RAVET effects"
+
+[lints]
+workspace = true
+
+[dependencies]
+ravet-foundation.workspace = true
+clack-plugin.workspace = true
+clack-extensions = { workspace = true, features = ["clack-plugin", "params"] }
+
+
+[dev-dependencies]
+clack-host = { workspace = true, features = ["clack-plugin"] }
+ravet-instrument = { path = "../ravet-instrument" }
+allocation-counter = "=0.8.1"

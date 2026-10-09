@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>ravet_gain_au</string>
+<key>CFBundleIdentifier</key><string>org.ravet.gain.au</string>
+<key>CFBundleName</key><string>RAVET Gain AU</string>
+<key>CFBundlePackageType</key><string>BNDL</string>
+<key>CFBundleVersion</key><string>0.1.0</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>AudioUnit Version</key><string>0.1.0</string>
+<key>AudioComponents</key><array><dict>
+<key>factoryFunction</key><string>AUWrapperFactory</string>
+<key>description</key><string>RAVET Gain</string>
+<key>manufacturer</key><string>Ravt</string>
+<key>name</key><string>RAVET: Gain</string>
+<key>subtype</key><string>RvGn</string>
+<key>type</key><string>aufx</string>
+<key>version</key><integer>256</integer>
+<key>sandboxSafe</key><true/>
+</dict></array>
+<key>AudioUnit SupportedNumChannels</key><array>
+<dict><key>Inputs</key><string>1</string><key>Outputs</key><string>1</string></dict>
+<dict><key>Inputs</key><string>2</string><key>Outputs</key><string>2</string></dict>
+</array>
+</dict></plist>

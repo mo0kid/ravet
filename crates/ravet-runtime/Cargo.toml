@@ -1,0 +1,18 @@
+[package]
+name = "ravet-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit control-thread files, HTTP, owned tasks and timers for RAVET"
+
+[lints]
+workspace = true
+
+[dependencies]
+tempfile = "=3.27.0"
+serde_json = "=1.0.151"
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[dev-dependencies]
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std"] }

@@ -1,0 +1,12 @@
+/target/
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Proprietary consumers belong in separate private sibling projects.
+/examples/shine/
+/private/
+
+# External framework comparison plans belong in private sibling notes.
+/docs/*-parity.md
+/docs/*-comparison.md

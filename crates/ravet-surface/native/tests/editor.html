@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>RAVET editor lifecycle fixture</title><body><output>Waiting</output><script>
+window.updateCount=0;window.ravetUpdate=state=>{++window.updateCount;window.lastValue=state.value;document.querySelector('output').textContent=state.value;if(!window.reported){window.reported=true;window.webkit.messageHandlers.ravet.postMessage({type:'updated'})}};
+window.webkit.messageHandlers.ravet.postMessage({type:'ready'});
+</script></body></html>

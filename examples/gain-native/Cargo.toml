@@ -1,0 +1,29 @@
+[package]
+name = "ravet-gain-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Narrow native ABI for the portable RAVET gain reference"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-gain = { path = "../gain" }
+
+[dev-dependencies]
+allocation-counter = "=0.8.1"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[features]
+default = []
+native-editor = ["dep:ravet-webview", "dep:ravet-surface", "dep:serde_json"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ravet-webview = { path = "../../crates/ravet-webview", optional = true }
+ravet-surface = { workspace = true, optional = true }
+serde_json = { version = "=1.0.151", optional = true }

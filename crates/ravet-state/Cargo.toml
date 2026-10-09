@@ -1,0 +1,10 @@
+[package]
+name = "ravet-state"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit control-thread observable trees, transactions, undo and preset records"
+
+[lints]
+workspace = true

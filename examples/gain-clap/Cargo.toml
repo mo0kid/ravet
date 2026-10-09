@@ -1,0 +1,37 @@
+[package]
+license.workspace = true
+name = "ravet-gain-clap"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "CLAP export of the RAVET gain reference processor"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["native-editor"]
+native-editor = ["dep:ravet-webview", "dep:serde_json", "clack-extensions/gui"]
+
+# Only isolated ABI/native modules permit Clack's unsafe export/callback code.
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-surface.workspace = true
+ravet-gain = { path = "../gain" }
+ravet-clap = { path = "../../crates/ravet-clap" }
+clack-plugin.workspace = true
+clack-extensions = { workspace = true, features = ["clack-plugin", "audio-ports", "audio-ports-config", "params", "state"] }
+
+[dev-dependencies]
+clack-host = { workspace = true, features = ["clack-plugin"] }
+clack-extensions = { workspace = true, features = ["clack-host"] }
+allocation-counter = "=0.8.1"
+ravet-clap-smoke = { path = "../../tools/clap-smoke" }
+clap-sys = "=0.5.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ravet-webview = { path = "../../crates/ravet-webview", optional = true }
+serde_json = { version = "=1.0.151", optional = true }

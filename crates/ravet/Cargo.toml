@@ -1,0 +1,19 @@
+[package]
+license.workspace = true
+name = "ravet"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Rust Audio Visual Engineering Toolkit"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+text = ["ravet-surface/text"]
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-signal.workspace = true
+ravet-surface.workspace = true

@@ -1,0 +1,48 @@
+[package]
+name = "ravet-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit CLAP discovery, trusted hosting and prepared native audio ownership"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+clack-host.workspace = true
+rtrb = "=0.4.0"
+ravet-foundation.workspace = true
+clack-extensions = { workspace = true, features = ["clack-host", "gui", "params", "audio-ports", "latency", "tail", "note-ports"] }
+
+[dev-dependencies.clack-extensions]
+workspace = true
+features = ["clack-host", "audio-ports", "state"]
+
+[dev-dependencies]
+allocation-counter = "=0.8.1"
+ravet-graph = { path = "../ravet-graph" }
+clack-plugin.workspace = true
+clack-host = { workspace = true, features = ["clack-plugin"] }
+ravet-gain-clap = { path = "../../examples/gain-clap" }
+ravet-sidechain-clap = { path = "../../examples/sidechain-clap" }
+ravet-sine-clap = { path = "../../examples/sine-clap" }
+
+[[example]]
+name = "graph-fixture"
+path = "examples/graph-fixture.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "gesture-fixture"
+path = "examples/gesture-fixture.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "parameter-fixture"
+path = "examples/parameter-fixture.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "modulation-fixture"
+crate-type = ["cdylib"]

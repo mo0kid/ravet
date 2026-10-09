@@ -1,0 +1,7 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>RAVET portable editor probe</title><body><output>Waiting</output><script>
+const post=x=>window.webkit.messageHandlers.ravet.postMessage(x);
+let updates=0;
+window.ravetUpdate=state=>{document.querySelector('output').textContent=state.value;post({type:'updated',value:state.value,count:++updates,width:innerWidth,height:innerHeight})};
+post({type:'ready'});
+setTimeout(()=>{location.href='https://example.invalid/';setTimeout(()=>post({type:'stillLocal'}),150)},300);
+</script></body></html>

@@ -1,0 +1,10 @@
+[package]
+name = "ravet-osc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit bounded OSC packet codecs and worker-thread UDP transport"
+
+[lints]
+workspace = true

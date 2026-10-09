@@ -1,0 +1,49 @@
+[workspace]
+members = [
+    "crates/ravet",
+    "crates/ravet-foundation",
+    "crates/ravet-signal",
+    "crates/ravet-surface",
+    "crates/ravet-data",
+    "crates/ravet-state",
+    "crates/ravet-audio-file",
+    "crates/ravet-instrument",
+    "crates/ravet-graph",
+    "crates/ravet-osc",
+    "crates/ravet-midi-device",
+    "crates/ravet-core-midi",
+    "crates/ravet-preset",
+    "crates/ravet-host",
+    "crates/ravet-webview",
+    "examples/gain",
+    "examples/gain-native",
+    "crates/ravet-clap",
+    "examples/gain-clap",
+    "examples/sine-clap",
+    "examples/sidechain-clap",
+    "examples/tutorials",
+    "tools/clap-smoke",
+    "tools/editor-smoke",
+    "crates/ravet-device",
+    "crates/ravet-runtime",
+    "crates/ravet-runtime-ffi",
+    "tools/device-probe",
+]
+resolver = "3"
+
+[workspace.package]
+license = "GPL-3.0-only"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+ravet-foundation = { path = "crates/ravet-foundation" }
+ravet-signal = { path = "crates/ravet-signal" }
+ravet-surface = { path = "crates/ravet-surface" }
+clack-plugin = "=0.2.0"
+clack-host = "=0.2.0"
+clack-extensions = "=0.2.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
