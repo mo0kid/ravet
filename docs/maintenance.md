@@ -45,6 +45,13 @@ record when capabilities need different statuses. For removals, retain the stabl
 ID when useful for explaining the scope change; update status and references so
 the catalogue cannot continue advertising removed behavior.
 
+Registry order determines the feature overview and the order within each status
+section. Prioritize reusable processing, graphs, plug-in integration and DSP,
+followed by state, MIDI, devices, files, UI and runtime services. Place reference
+implementations and teaching examples below framework capabilities, then
+development tools, plans and exclusions. Insert new records beside related
+capabilities rather than at the top of the overview.
+
 Regenerate and verify from the workspace root:
 
 ```sh

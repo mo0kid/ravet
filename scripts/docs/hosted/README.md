@@ -24,7 +24,11 @@ directory can be supplied through `api_dir`.
 The existing website publisher reads these modules through its `--source`
 checkout. Its output is disposable and excluded from the website's Git history.
 Keep the complete build output for local preview or deployment; never edit it as
-the source of a documentation change. No core source pages, decision records,
+the source of a documentation change. This publisher produces a static snapshot:
+after editing guides or regenerating `docs/FEATURES.md`, rerun the website's
+`scripts/build-ravet.py --source ../ravet` before refreshing its local preview.
+A PHP or static HTTP server does not rebuild the snapshot automatically.
+No core source pages, decision records,
 internal handoffs, work logs or draft commercial agreements are published by
 this generator. The selected teaching sources are rendered with exact line
 numbers and recorded hashes.

@@ -3207,3 +3207,17 @@ artifacts. Hash comparison confirms every other backed-up working file is
 unchanged. GitHub's commit API still resolves the old private root by SHA, so
 server-side deletion is unresolved and visibility remains private. A purge
 request draft with the original commit IDs is retained in the private backup.
+
+
+## Feature overview priority — 9 October 2026
+
+Reordered the feature registry so portable processing, graphs, plug-in
+integration and DSP lead the overview. Framework state, MIDI, devices, files,
+UI and runtime services precede references and teaching examples; tools, plans
+and exclusions follow. All 172 published feature records retain their IDs,
+statuses, descriptions, limits and evidence. The maintenance guide records
+the ordering policy, and the hosted tooling guide explains static rebuilds.
+
+Validation: documentation checker, all 12 checker regression tests, both
+hosted-navigation tests and whitespace checks pass. Local website rebuild
+and browser verification also confirmed the intended order.
