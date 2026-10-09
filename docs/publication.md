@@ -39,12 +39,16 @@ and uncommitted work were backed up in a private sibling directory outside this
 checkout. Keep that backup private and never push its refs or merge its commits
 into the cleaned history. Other existing clones must use the cleaned history too.
 
-The private remote's `main` is replaced with the clean root using an explicit
+The private remote's `main` was replaced with the clean root using an explicit
 force-with-lease. This ref rewrite does not change repository visibility and does
 not prove that hosted caches, pull-request refs, forks or other clones were
 purged. Before making an existing remote public, resolve any remaining hosted
 copies through the provider, or use a new public repository with only the cleaned
 history. See [GitHub's history-removal guidance](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
+
+A post-rewrite GitHub API check still resolves the original private root commit
+by SHA. Keep the existing remote private until its remaining hosted copies are
+removed, or publish only the cleaned history to a new repository.
 
 The publication checker makes no visibility changes, history rewrites or public
 pushes. Private consumer validation is not a public support claim.

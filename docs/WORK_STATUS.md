@@ -3195,3 +3195,15 @@ The private remote's main branch is updated with an explicit force-with-lease;
 repository visibility remains private. Hosted cached commits and other clones
 require separate review before publication; a branch rewrite is not evidence of
 server-side object deletion. See [the publication guide](publication.md).
+
+
+Cleanup validation: the publication checker passes across all remaining local
+refs, the documentation checker passes for both the working tree and an isolated
+export of the clean committed root, all 28 Python regression tests pass, and Git
+object integrity checks pass. The original private root is absent from the local
+object database after reflog expiry and garbage collection. The remote advertises
+only the clean main branch; GitHub reports no pull requests, releases or workflow
+artifacts. Hash comparison confirms every other backed-up working file is
+unchanged. GitHub's commit API still resolves the old private root by SHA, so
+server-side deletion is unresolved and visibility remains private. A purge
+request draft with the original commit IDs is retained in the private backup.
