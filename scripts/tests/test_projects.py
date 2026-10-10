@@ -36,3 +36,29 @@ class ProjectTemplates(unittest.TestCase):
                 self.assertFalse(destination.exists())
             with self.assertRaises(ValueError):
                 MODULE.create_project(ROOT / "target/generated-consumer", "x", "GPL-3.0-only")
+
+
+    def test_embedded_rust_pi_and_arduino_are_separate_consumers(self):
+        with tempfile.TemporaryDirectory(prefix="ravet-embedded-project-") as temporary:
+            for kind in ["embedded-rust", "pi-linux", "arduino"]:
+                destination = Path(temporary) / kind
+                MODULE.create_project(destination, "public-fixture", "GPL-3.0-only", kind)
+                if kind == "arduino":
+                    self.assertTrue((destination / "OfflineGain/OfflineGain.ino").is_file())
+                    self.assertTrue((destination / "libraries/RAVETEmbedded/src/RavetEmbedded.h").is_file())
+                    self.assertFalse((destination / "Cargo.toml").exists())
+                else:
+                    manifest = tomllib.loads((destination / "Cargo.toml").read_text())
+                    self.assertEqual(manifest["workspace"], {})
+                    self.assertFalse(manifest["package"]["publish"])
+                    self.assertNotIn("ravet", manifest["dependencies"])
+                    for name in ["ravet-foundation", "ravet-embedded-gain"]:
+                        self.assertFalse(manifest["dependencies"][name]["default-features"])
+                    self.assertIn("#![no_std]", (destination / "src/lib.rs").read_text())
+                    self.assertEqual((destination / "src/main.rs").exists(), kind == "pi-linux")
+                with self.assertRaises(FileExistsError):
+                    MODULE.create_project(destination, "public-fixture", "GPL-3.0-only", kind)
+            destination = Path(temporary) / "invalid"
+            with self.assertRaises(ValueError):
+                MODULE.create_project(destination, "public-fixture", "GPL-3.0-only", "unknown")
+            self.assertFalse(destination.exists())

@@ -8,3 +8,10 @@ description = "Portable processor contracts and shared audio types for RAVET"
 
 [lints]
 workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+libm = { version = "=0.2.16", default-features = false }

@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicU32, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RingError {
@@ -16,6 +16,16 @@ struct Ring {
     samples: Vec<AtomicU32>,
     head: Position,
     tail: Position,
+    producer_retired: AtomicBool,
+}
+pub(crate) struct QueueIdentity(Arc<Ring>);
+impl QueueIdentity {
+    pub(crate) fn producer_retired(&self) -> bool {
+        self.0.producer_retired.load(Ordering::Acquire)
+    }
+    pub(crate) fn matches(&self, producer: &AudioProducer) -> bool {
+        Arc::ptr_eq(&self.0, &producer.ring)
+    }
 }
 /// Unique producer. Only one thread may push; teardown follows callback stop.
 pub struct AudioProducer {
@@ -42,6 +52,7 @@ pub fn audio_ring(
         samples: (0..frames * channels).map(|_| AtomicU32::new(0)).collect(),
         head: Position(AtomicUsize::new(0)),
         tail: Position(AtomicUsize::new(0)),
+        producer_retired: AtomicBool::new(false),
     });
     Ok((
         AudioProducer {
@@ -92,7 +103,23 @@ impl AudioProducer {
         Ok(frames)
     }
 }
+impl Drop for AudioProducer {
+    fn drop(&mut self) {
+        self.ring.producer_retired.store(true, Ordering::Release);
+    }
+}
 impl AudioConsumer {
+    pub(crate) fn queue_identity(&self) -> QueueIdentity {
+        QueueIdentity(Arc::clone(&self.ring))
+    }
+    /// True after the unique producer has been dropped. It cannot be resurrected;
+    /// no later frames can be published. Already queued frames remain readable.
+    /// This acquire snapshot is allocation/lock/I/O free, but endpoint Drop itself
+    /// may deallocate and must follow callback shutdown. Leaked producers never
+    /// retire and cannot establish this stopped-input proof.
+    pub fn producer_retired(&self) -> bool {
+        self.ring.producer_retired.load(Ordering::Acquire)
+    }
     pub fn channels(&self) -> usize {
         self.ring.channels
     }

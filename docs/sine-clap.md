@@ -16,7 +16,7 @@ See [portable synthesis and expression](midi.md) for DSP/voice policy.
 
 ```sh
 python3 scripts/bundle-clap.py --plugin sine --profile release
-CARGO_BUILD_JOBS=2 cargo run -p ravet-sine-clap --example validate --locked -- \
+CARGO_BUILD_JOBS=2 cargo run -p ravet-sine-clap --example validate-sine --locked -- \
   'target/clap/release/RAVET Sine.clap'
 ```
 

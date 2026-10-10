@@ -4,7 +4,7 @@ use ravet_foundation::{
 #[test]
 fn standard_ranges_and_wildcard_scope_validate_without_clamping() {
     let cases = [
-        (Expr::Volume, f64::from_bits(1), 4.),
+        (Expr::Volume, 0., 4.),
         (Expr::Pan, 0., 1.),
         (Expr::Tuning, -120., 120.),
         (Expr::Vibrato, 0., 1.),
@@ -40,7 +40,9 @@ fn standard_ranges_and_wildcard_scope_validate_without_clamping() {
             assert!(!expression.is_valid_value(value));
         }
     }
-    assert!(!Expr::Volume.is_valid_value(0.));
+    assert!(Expr::Volume.is_valid_value(-0.));
+    assert!(Expr::Volume.is_valid_value(f64::from_bits(1)));
+    assert!(!Expr::Volume.is_valid_value(-f64::from_bits(1)));
     assert!(
         !NoteTarget {
             channel: Some(16),
@@ -67,7 +69,7 @@ fn standard_ranges_and_wildcard_scope_validate_without_clamping() {
         data: EventData::NoteExpression {
             target: NoteTarget::default(),
             expression: Expr::Volume,
-            value: 0.,
+            value: -f64::from_bits(1),
         },
         ..good
     };

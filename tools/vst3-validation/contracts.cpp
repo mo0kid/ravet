@@ -5,6 +5,7 @@
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 void require(bool condition, const char *message) {
   if (!condition)
@@ -157,10 +158,68 @@ void nativeMeterContracts(HostApplication& host) {
   std::cout<<"PASS native VST3 meters: f32/f64 host queues/controller metadata/delivery"<<std::endl;
 }
 #endif
+void cachedNativeStateContracts(HostApplication &host) {
+  for (int32 precision : {kSample32, kSample64}) {
+    GainProcessor processor;
+    require(processor.initialize(&host) == kResultOk, "cached native initialize");
+    ProcessSetup setup{kRealtime, precision, 8, 48000.};
+    require(processor.setupProcessing(setup) == kResultOk && processor.setActive(true) == kResultOk && processor.setProcessing(true) == kResultOk, "cached native preparation");
+    restore(processor, .5f, 0);
+    std::array<float, 8> input32{}, left32{}, right32{}; input32.fill(.25f);
+    std::array<double, 8> input64{}, left64{}, right64{}; input64.fill(1e200);
+    float *in32[]{input32.data(), input32.data()}, *out32[]{left32.data(), right32.data()};
+    double *in64[]{input64.data(), input64.data()}, *out64[]{left64.data(), right64.data()};
+    AudioBusBuffers input{}, output{}; input.numChannels = output.numChannels = 2;
+    if (precision == kSample64) { input.channelBuffers64 = in64; output.channelBuffers64 = out64; }
+    else { input.channelBuffers32 = in32; output.channelBuffers32 = out32; }
+    ProcessData data{}; data.symbolicSampleSize = precision; data.numSamples = 8; data.numInputs = data.numOutputs = 1; data.inputs = &input; data.outputs = &output;
+    require(processor.getProcessContextRequirements() == ravet::vst3::nativeTransportRequirements, "setup-time transport requirements");
+    ProcessContext context{};
+    context.sampleRate = 48000.; context.projectTimeSamples = std::numeric_limits<int64_t>::min();
+    context.projectTimeMusic = -0.25; context.tempo = std::numeric_limits<double>::infinity();
+    context.timeSigNumerator = 7; context.timeSigDenominator = 8;
+    context.state = ProcessContext::kPlaying | ProcessContext::kProjectTimeMusicValid | ProcessContext::kTempoValid | ProcessContext::kTimeSigValid;
+    data.processContext = &context;
+    require(processor.process(data) == kResultFalse, "malformed transport rejects before pending restore or DSP");
+    snapshot(processor, .5f, 0);
+    require(precision == kSample64 ? left64[0] == 0. : left32[0] == 0.f, "malformed transport silences supported output");
+    context.tempo = 123.5;
+    // Cross-channel output overlap rejects before pending restore/DSP. Fault
+    // cleanup may clear the supported alias, then a corrected callback proceeds.
+    if (precision == kSample64) out64[1] = out64[0]; else out32[1] = out32[0];
+    require(processor.process(data) == kResultFalse, "output overlap rejects before pending restore or DSP");
+    snapshot(processor, .5f, 0);
+    if (precision == kSample64) out64[1] = right64.data(); else out32[1] = right32.data();
+    ParameterChanges malformed(2); int32 index = 0;
+    malformed.addParameterData(gainID, index)->addPoint(0, .75, index);
+    malformed.addParameterData(9999, index)->addPoint(0, std::numeric_limits<double>::quiet_NaN(), index);
+    data.inputParameterChanges = &malformed;
+    require(processor.process(data) == kResultFalse, "unknown malformed queue rejects complete callback");
+    snapshot(processor, .5f, 0);
+    data.inputParameterChanges = nullptr;
+    require(processor.process(data) == kResultOk, "first accepted callback recalls state");
+    require(precision == kSample64 ? left64[0] == .5e200 : left32[0] == .125f, "accepted complete recall audio");
+    // A newer complete recall arriving after setup wins on the first zero-frame
+    // callback. An unchanged publication then retains the automation ramp.
+    processor.setProcessing(false); processor.setActive(false);
+    require(processor.setupProcessing(setup) == kResultOk && processor.setActive(true) == kResultOk && processor.setProcessing(true) == kResultOk, "same-precision reprepare");
+    restore(processor, 1.5f, 0);
+    data.numSamples = 0; data.numInputs = data.numOutputs = 0; data.inputs = data.outputs = nullptr;
+    require(processor.process(data) == kResultOk, "pending restore on zero-frame callback"); snapshot(processor, 1.5f, 0);
+    ParameterChanges automation(1); automation.addParameterData(gainID, index)->addPoint(0, .5, index); data.inputParameterChanges = &automation;
+    require(processor.process(data) == kResultOk, "zero-frame automation on prepared generic owner"); snapshot(processor, 2.f, 0);
+    data.numSamples = 8; data.numInputs = data.numOutputs = 1; data.inputs = &input; data.outputs = &output; data.inputParameterChanges = nullptr;
+    require(processor.process(data) == kResultOk, "ramp retained after snapshot");
+    require(precision == kSample64 ? left64[0] > 1.5e200 && left64[0] < 2e200 : left32[0] > .375f && left32[0] < .5f, "snapshot/reflection does not reapply unchanged state");
+    processor.setProcessing(false); processor.setActive(false); processor.terminate();
+  }
+  std::cout << "PASS native VST3 cached state: raw unknown queue preflight, prepared restore scheduling, zero-frame recall/automation and retained ramps at both precisions\n";
+}
 int main() {
   try {
     HostApplication host;
     native64Contracts(host);
+    cachedNativeStateContracts(host);
 #if defined(__APPLE__) && defined(RAVET_NATIVE_WEB_EDITOR)
     nativeMeterContracts(host);
 #endif

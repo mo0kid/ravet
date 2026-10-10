@@ -271,54 +271,113 @@ impl SvgDrawing {
             return Err(TextError::InvalidInput);
         }
         let run = font.shape(text, options)?;
-        let scale = options.size / f64::from(font.units_per_em());
         let saved = (self.document.len(), self.commands);
-        let result = (|| {
-            for glyph in run.glyphs() {
-                let transform = |(x, y): (f64, f64)| {
-                    (
-                        baseline.0 + glyph.x + x * scale,
-                        baseline.1 - glyph.y - y * scale,
-                    )
-                };
-                let path = font
-                    .outline_glyph(glyph.id)?
-                    .into_iter()
-                    .map(|segment| match segment {
-                        PathCommand::MoveTo(x, y) => {
-                            let (x, y) = transform((x, y));
-                            PathCommand::MoveTo(x, y)
-                        }
-                        PathCommand::LineTo(x, y) => {
-                            let (x, y) = transform((x, y));
-                            PathCommand::LineTo(x, y)
-                        }
-                        PathCommand::QuadraticTo { control, end } => PathCommand::QuadraticTo {
-                            control: transform(control),
-                            end: transform(end),
-                        },
-                        PathCommand::CubicTo { first, second, end } => PathCommand::CubicTo {
-                            first: transform(first),
-                            second: transform(second),
-                            end: transform(end),
-                        },
-                        PathCommand::Close => PathCommand::Close,
-                    })
-                    .collect::<Vec<_>>();
-                if !path.is_empty() {
-                    self.path(&path, color).map_err(|error| match error {
-                        DrawingError::InvalidInput => TextError::InvalidInput,
-                        DrawingError::Capacity => TextError::Capacity,
-                    })?;
-                }
-            }
-            Ok(())
-        })();
+        let result = self.outline_run(font, &run, options.size, baseline, color);
         if result.is_err() {
             self.document.truncate(saved.0);
             self.commands = saved.1;
         }
         result
+    }
+    /// Wrap and render a complete local TrueType paragraph as filled outline paths.
+    /// Baseline is the first line's origin (SVG Y down); complete layout/drawing
+    /// failure restores document bytes and command count. Returns the measured
+    /// layout for caller inspection. Existing drawing/path limits still apply.
+    /// No text/font URL is emitted; accessible meaning remains consumer-owned.
+    #[cfg(feature = "text")]
+    pub fn paragraph_text(
+        &mut self,
+        font: &crate::text::TextFont,
+        text: &str,
+        text_options: crate::text::TextOptions<'_>,
+        paragraph_options: crate::paragraph::ParagraphOptions,
+        baseline: (f64, f64),
+        color: Color,
+    ) -> Result<crate::paragraph::ParagraphLayout, crate::text::TextError> {
+        use crate::text::TextError;
+        if !baseline.0.is_finite() || !baseline.1.is_finite() {
+            return Err(TextError::InvalidInput);
+        }
+        let layout =
+            crate::paragraph::ParagraphLayout::new(font, text, text_options, paragraph_options)?;
+        let saved = (self.document.len(), self.commands);
+        let result = (|| {
+            for line in layout.lines() {
+                for run in line.runs() {
+                    self.outline_run(
+                        font,
+                        run.shape(),
+                        text_options.size,
+                        (
+                            baseline.0 + line.baseline().0 + run.x(),
+                            baseline.1 + line.baseline().1,
+                        ),
+                        color,
+                    )?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.document.truncate(saved.0);
+            self.commands = saved.1;
+            return Err(error);
+        }
+        Ok(layout)
+    }
+    #[cfg(feature = "text")]
+    fn outline_run(
+        &mut self,
+        font: &crate::text::TextFont,
+        run: &crate::text::ShapedText,
+        size: f64,
+        baseline: (f64, f64),
+        color: Color,
+    ) -> Result<(), crate::text::TextError> {
+        use crate::text::TextError;
+        if !baseline.0.is_finite() || !baseline.1.is_finite() {
+            return Err(TextError::InvalidInput);
+        }
+        let scale = size / f64::from(font.units_per_em());
+        for glyph in run.glyphs() {
+            let transform = |(x, y): (f64, f64)| {
+                (
+                    baseline.0 + glyph.x + x * scale,
+                    baseline.1 - glyph.y - y * scale,
+                )
+            };
+            let path = font
+                .outline_glyph(glyph.id)?
+                .into_iter()
+                .map(|segment| match segment {
+                    PathCommand::MoveTo(x, y) => {
+                        let (x, y) = transform((x, y));
+                        PathCommand::MoveTo(x, y)
+                    }
+                    PathCommand::LineTo(x, y) => {
+                        let (x, y) = transform((x, y));
+                        PathCommand::LineTo(x, y)
+                    }
+                    PathCommand::QuadraticTo { control, end } => PathCommand::QuadraticTo {
+                        control: transform(control),
+                        end: transform(end),
+                    },
+                    PathCommand::CubicTo { first, second, end } => PathCommand::CubicTo {
+                        first: transform(first),
+                        second: transform(second),
+                        end: transform(end),
+                    },
+                    PathCommand::Close => PathCommand::Close,
+                })
+                .collect::<Vec<_>>();
+            if !path.is_empty() {
+                self.path(&path, color).map_err(|error| match error {
+                    DrawingError::InvalidInput => TextError::InvalidInput,
+                    DrawingError::Capacity => TextError::Capacity,
+                })?;
+            }
+        }
+        Ok(())
     }
     /// Draw escaped text <=4096 bytes at a baseline. Font family <=128 nonempty
     /// bytes, finite positive size and CSS numeric weight 1..1000 are required.

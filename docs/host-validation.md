@@ -176,3 +176,34 @@ is actual DAW forwarding evidence; no visual/assistive-tech/deadline claim. See
 Guard fixtures execute with an optional installed Lua interpreter to verify
 missing/incorrect marker and nonempty project rejection before host mutation.
 See [decision 0101](decisions/0101-guarded-native-host-validation.md).
+
+The native meter harness logs its enumerated FX count and public Gain candidate
+names before the discovery assertion, making disposable-cache/path problems
+visible without logging unrelated plug-in names. On macOS arm64, the native
+REAPER VST path setting is `vstpath_arm64`; `vstpath64` alone does not configure
+that host. Prefer its VST preferences for a committed path and scan.
+
+
+## VST3 performance instrument harness
+
+After building the [performance instrument](../examples/performance-vst3/README.md),
+configure only its public bundle in a disposable REAPER resource with the
+`prepare.py` marker. Run `performance-instrument.lua` in a new empty project.
+Missing/incorrect markers and existing tracks reject before host mutation.
+The harness mutes all project hardware sends, generates a timed A4 MIDI note,
+renders stereo through the verified apply-FX action, recalls a saved Level state
+and renders two held automation values. It saves synthetic projects/rendered
+takes and `performance-host.log` inside the prepared resource. Playback remains
+stopped. Run `python3 tools/reaper-validation/check-performance-render.py
+/absolute/path/to/test-resource` to verify actual PCM stereo peaks/RMS, A4
+frequency and pre/post-note silence. The checker rejects incomplete host logs
+and file paths outside the synthetic resource.
+
+The isolated REAPER 7.82/macOS arm64 fixture passed all three 48 kHz renders and
+independent sample checks locally on 9 October 2026. An earlier live check stalled
+with no advancing transport; it supplied no live audio evidence. Offline render
+checks do not require functioning live device playback.
+
+This fixture exercises REAPER's MIDI-to-VST3 note delivery. It does not establish
+DAW note-expression editing, custom editor/accessibility behavior, physical audio
+quality or deadline performance. SDK note-expression validation is separate.

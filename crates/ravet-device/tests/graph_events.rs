@@ -321,7 +321,7 @@ fn expression_batches_preserve_f64_scope_and_reject_invalid_whole_prefixes() {
                 data: EventData::NoteExpression {
                     target: NoteTarget::default(),
                     expression: NoteExpression::Volume,
-                    value: 0.,
+                    value: -f64::from_bits(1),
                 },
             },
         ];
@@ -334,6 +334,45 @@ fn expression_batches_preserve_f64_scope_and_reject_invalid_whole_prefixes() {
         assert!(consumer.next_batch().is_none());
     });
     assert_eq!(counts.count_total, 0);
+}
+
+#[test]
+fn zero_volume_mute_and_subnormal_survive_complete_portable_handoff() {
+    use ravet_foundation::{NoteExpression, NoteId, NoteTarget};
+    let (mut producer, mut consumer) = graph_event_queue(config()).unwrap();
+    for value in [0_f64, -0., f64::from_bits(1)] {
+        let events = [Event {
+            frame_offset: 2,
+            data: EventData::NoteExpression {
+                target: NoteTarget {
+                    id: Some(NoteId(u32::MAX)),
+                    ..Default::default()
+                },
+                expression: NoteExpression::Volume,
+                value,
+            },
+        }];
+        let counts = allocation_counter::measure(|| {
+            for tag in 0..1000 {
+                producer
+                    .try_publish(tag, Transport::default(), &events)
+                    .unwrap();
+                let batch = consumer.next_batch().unwrap();
+                let EventData::NoteExpression {
+                    value: restored,
+                    target,
+                    ..
+                } = batch.events()[0].data
+                else {
+                    panic!("wrong expression kind");
+                };
+                assert_eq!(restored.to_bits(), value.to_bits());
+                assert_eq!(target.id, Some(NoteId(u32::MAX)));
+                batch.acknowledge();
+            }
+        });
+        assert_eq!((counts.count_total, counts.bytes_total), (0, 0));
+    }
 }
 
 #[test]

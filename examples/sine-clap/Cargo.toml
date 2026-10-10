@@ -9,6 +9,10 @@ description = "CLAP MIDI instrument export of the portable sine synthesis refere
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[example]]
+name = "validate-sine"
+path = "examples/validate.rs"
+
 [lints.rust]
 unsafe_code = "deny"
 

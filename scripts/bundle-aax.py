@@ -25,7 +25,7 @@ def main():
     target = pathlib.Path(metadata["target_directory"])
     build = target / "aax/release"
     subprocess.run(["cmake", "-S", str(root / "examples/gain-vst3"), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release", f"-DRAVET_VST3_SDK={sdk}", f"-DRAVET_AAX_SDK={aax}", f"-DRAVET_GAIN_LIBRARY={target / 'release/libravet_gain_native.a'}"], check=True)
-    subprocess.run(["cmake", "--build", str(build), "--target", "ravet_gain_aax", "ravet_vst3_contracts", "--parallel", "2"], check=True)
+    subprocess.run(["cmake", "--build", str(build), "--target", "ravet_gain_aax", "ravet_vst3_contracts", "ravet_vst3_schema_contracts", "ravet_vst3_parameter_input", "ravet_vst3_parameter_input_fast", "ravet_vst3_transport", "ravet_vst3_transport_fast", "ravet_vst3_performance_input", "ravet_vst3_performance_input_fast", "ravet_vst3_performance_output", "ravet_vst3_performance_output_fast", "ravet_vst3_native_audio", "ravet_vst3_native_audio_fast", "--parallel", "2"], check=True)
     subprocess.run(["ctest", "--test-dir", str(build), "--output-on-failure"], check=True)
     artifact = build / "AAXPLUGIN/Release/ravet_gain_aax.aaxplugin"
     notices = artifact / "Contents/Resources/notices"

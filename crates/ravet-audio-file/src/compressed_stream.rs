@@ -11,7 +11,7 @@ use symphonia::core::{
     probe::Hint,
 };
 const MAX_SAMPLES: usize = 16_777_216;
-struct DecoderState {
+struct ReplayState {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
     track: u32,
@@ -25,7 +25,7 @@ struct DecoderState {
     maximum: usize,
     eof: bool,
 }
-impl DecoderState {
+impl ReplayState {
     fn new(encoded: Arc<[u8]>, maximum: usize) -> Result<Self, AudioFileError> {
         let source = MediaSourceStream::new(Box::new(Cursor::new(encoded)), Default::default());
         let format = symphonia::default::get_probe()
@@ -178,16 +178,59 @@ impl DecoderState {
         Ok(())
     }
 }
+enum DecoderState {
+    Replay(ReplayState),
+    Indexed(crate::compressed_indexed::IndexedState),
+}
+impl DecoderState {
+    fn channels(&self) -> usize {
+        match self {
+            Self::Replay(s) => s.channels(),
+            Self::Indexed(s) => s.channels(),
+        }
+    }
+    fn sample_rate(&self) -> u32 {
+        match self {
+            Self::Replay(s) => s.spec.expect("initial packet").rate,
+            Self::Indexed(s) => s.sample_rate(),
+        }
+    }
+    fn position(&self) -> usize {
+        match self {
+            Self::Replay(s) => s.position,
+            Self::Indexed(s) => s.position(),
+        }
+    }
+    fn declared(&self) -> Option<u64> {
+        match self {
+            Self::Replay(s) => s.declared,
+            Self::Indexed(s) => s.declared(),
+        }
+    }
+    fn eof(&self) -> bool {
+        match self {
+            Self::Replay(s) => s.eof,
+            Self::Indexed(s) => s.eof(),
+        }
+    }
+    fn read(&mut self, output: &mut [f32]) -> Result<usize, AudioFileError> {
+        match self {
+            Self::Replay(s) => s.read(output),
+            Self::Indexed(s) => s.read(output),
+        }
+    }
+}
 /// Lazy decoded single-default-track FLAC/MP3/Vorbis reader. Requires `compressed`.
 /// Encoded input is copied once (1..64 MiB); decoded frames are capped by caller
 /// 1..16,777,216 and total interleaved samples <=16,777,216. Decoded packet capacity
 /// <=65536 frames, channels 1..64/rate 1..768000. Backend allocations remain its own
 /// contract. No file/network I/O, resampling, speaker remapping or callback use.
 /// Gapless trims apply; EOF checks declared duration/decoder integrity. Changing
-/// configurations/chained resets reject. Seek replays a fresh decoder from start,
-/// bounded by these limits, and swaps only on success; it is not an indexed seek.
+/// configurations/chained resets reject. The default constructor uses replay seeks.
+/// `new_indexed_flac` instead verifies the whole native FLAC stream once and retains
+/// a bounded compressed-packet index; both modes swap seek candidates only on success.
 pub struct CompressedReader {
-    encoded: Arc<[u8]>,
+    encoded: Option<Arc<[u8]>>,
     state: DecoderState,
     failed: bool,
 }
@@ -200,29 +243,60 @@ impl CompressedReader {
             return Err(AudioFileError::Capacity);
         }
         let encoded: Arc<[u8]> = Arc::from(encoded);
-        let state = DecoderState::new(Arc::clone(&encoded), maximum_frames)?;
+        let state = DecoderState::Replay(ReplayState::new(Arc::clone(&encoded), maximum_frames)?);
         Ok(Self {
-            encoded,
+            encoded: Some(encoded),
             state,
             failed: false,
         })
     }
+    /// Build an exact native-FLAC compressed-packet index on the calling worker.
+    /// Copies 1..64 MiB input temporarily, decodes/verifies every packet once and
+    /// retains at most 65,536 compressed packets / 64 MiB payload plus index metadata.
+    /// No complete PCM clip or original container copy is retained. Caller frame
+    /// and 16,777,216-sample limits still apply. A nonzero declared FLAC frame
+    /// count is required. MP3, Vorbis and Ogg-FLAC reject.
+    /// Subsequent seeks binary-search packet timestamps and decode only the
+    /// containing packet (at most 65,536 frames); EOF seeks decode none. All methods
+    /// still allocate on a worker and supply no file/device or deadline guarantee.
+    pub fn new_indexed_flac(encoded: &[u8], maximum_frames: usize) -> Result<Self, AudioFileError> {
+        if encoded.is_empty()
+            || encoded.len() > 67_108_864
+            || !(1..=MAX_SAMPLES).contains(&maximum_frames)
+        {
+            return Err(AudioFileError::Capacity);
+        }
+        let state =
+            crate::compressed_indexed::IndexedState::new(Arc::from(encoded), maximum_frames)?;
+        Ok(Self {
+            encoded: None,
+            state: DecoderState::Indexed(state),
+            failed: false,
+        })
+    }
+    /// Number of verified retained FLAC packets, or `None` in default replay mode.
+    pub fn indexed_packets(&self) -> Option<usize> {
+        match &self.state {
+            DecoderState::Replay(_) => None,
+            DecoderState::Indexed(s) => Some(s.packet_count()),
+        }
+    }
     pub fn sample_rate(&self) -> u32 {
-        self.state.spec.expect("initial packet").rate
+        self.state.sample_rate()
     }
     pub fn channels(&self) -> u16 {
         self.state.channels() as u16
     }
     pub fn position_frames(&self) -> usize {
-        self.state.position
+        self.state.position()
     }
     pub fn declared_frames(&self) -> Option<u64> {
-        self.state.declared
+        self.state.declared()
     }
     /// True only after EOF duration/integrity checks complete. Queued/read-ahead
     /// audio may still need playback; cursor equality alone is not this signal.
     pub fn end_of_file(&self) -> bool {
-        self.state.eof
+        self.state.eof()
     }
     /// Read up to 65536 whole interleaved frames. Success leaves the unused output
     /// tail unchanged; zero-sized output makes no progress. Invalid buffer lengths
@@ -247,20 +321,29 @@ impl CompressedReader {
             }
         }
     }
-    /// Exact decoded-frame seek including the end position; past-end/failed replay
-    /// preserves the old decoder, cursor and poison state. O(target) worker decode
-    /// and temporary backend/pending storage; never call during audio processing.
+    /// Exact decoded-frame seek including EOF; failure preserves old decoder,
+    /// cursor and poison state. Default mode replays O(target) worker frames;
+    /// indexed FLAC mode searches the immutable index and decodes one packet.
+    /// Both modes allocate candidate backend/pending storage outside audio.
     pub fn seek_frame(&mut self, frame: usize) -> Result<(), AudioFileError> {
-        if frame > self.state.maximum
-            || self
-                .state
-                .declared
-                .is_some_and(|declared| frame as u64 > declared)
-        {
-            return Err(AudioFileError::Capacity);
-        }
-        let mut candidate = DecoderState::new(Arc::clone(&self.encoded), self.state.maximum)?;
-        candidate.skip(frame)?;
+        let candidate = match &self.state {
+            DecoderState::Replay(state) => {
+                if frame > state.maximum
+                    || state
+                        .declared
+                        .is_some_and(|declared| frame as u64 > declared)
+                {
+                    return Err(AudioFileError::Capacity);
+                }
+                let mut candidate = ReplayState::new(
+                    Arc::clone(self.encoded.as_ref().expect("replay input")),
+                    state.maximum,
+                )?;
+                candidate.skip(frame)?;
+                DecoderState::Replay(candidate)
+            }
+            DecoderState::Indexed(state) => DecoderState::Indexed(state.seek(frame)?),
+        };
         self.state = candidate;
         self.failed = false;
         Ok(())

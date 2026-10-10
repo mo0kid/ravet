@@ -31,12 +31,12 @@ pub enum ProgramError {
         error: ParameterError,
     },
 }
-impl std::fmt::Display for ProgramError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ProgramError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "parameter program error: {self:?}")
     }
 }
-impl std::error::Error for ProgramError {}
+impl core::error::Error for ProgramError {}
 
 /// Borrowed 1..128-program bank with 1..1024 parameters and <=65536 values total.
 /// Preparation rejects duplicate IDs/addresses and strictly validates every

@@ -4,15 +4,19 @@
 //! Prepare/teardown allocate; normal processing/reset/restore do not. Native
 //! pointers must obey `include/RavetGain.h`; malformed foreign pointers cannot
 //! be made safe by null checks. Unwinding panics are contained, without a
-//! real-time guarantee for exceptional handlers. This is not a generic SDK ABI.
+//! real-time guarantee for exceptional handlers. Prepared planar processing uses
+//! `ravet-native`, including its shared legacy parameter decoder; these product
+//! C symbols/state remain specific to Gain.
 
 #[allow(unsafe_code)]
 mod abi {
     use ravet_foundation::{
-        AudioBuffer, AudioLayout, Event, EventData, ParameterId, ProcessBlock, ProcessConfig,
-        ProcessStatus, Processor, Transport,
+        AudioLayout, Event, EventData, ParameterId, ProcessConfig, ProcessStatus, Processor,
+        Transport,
     };
     use ravet_gain::{GainProcessor, GainProcessor64, parameter_schema, state};
+    pub use ravet_native::NativeParameterEvent as NativeEvent;
+    use ravet_native::{NativeAudioAdapter, NativePlanarBus, decode_parameter_events};
     use std::{
         panic::{AssertUnwindSafe, catch_unwind},
         ptr, slice,
@@ -39,13 +43,6 @@ mod abi {
         pub output: [NativeMeterReading; 2],
     }
     const MAX_EVENTS: usize = 1024;
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    pub struct NativeEvent {
-        pub offset: u32,
-        pub id: u32,
-        pub value: f32,
-    }
     // One ABI implementation keeps validation, copied-input aliasing and fault
     // behavior identical across native sample precisions. Control/state stays f32.
     macro_rules! native_precision {
@@ -56,10 +53,8 @@ mod abi {
                 use super::*;
                 pub struct $handle {
                     processor: $processor,
-                    scratch: [Vec<$sample>; 2],
+                    adapter: Option<NativeAudioAdapter<$sample>>,
                     events: Vec<Event>,
-                    channels: usize,
-                    maximum_frames: usize,
                 }
                 /// Copy coherent meter data under the same exclusive serialized
                 /// ownership as processing. Does not allocate or reset readings.
@@ -104,10 +99,8 @@ mod abi {
                     fn new() -> Self {
                         Self {
                             processor: $processor::new(5.0).expect("valid smoothing"),
-                            scratch: [Vec::new(), Vec::new()],
+                            adapter: None,
                             events: Vec::new(),
-                            channels: 0,
-                            maximum_frames: 0,
                         }
                     }
                 }
@@ -144,27 +137,28 @@ mod abi {
                         return 1;
                     };
                     catch_unwind(AssertUnwindSafe(|| {
-                        handle.processor.deactivate();
-                        handle.channels = 0;
-                        handle.maximum_frames = 0;
+                        handle.adapter = None;
                         if !(1..=2).contains(&channels) || !(1..=65536).contains(&frames) {
+                            handle.processor.deactivate();
                             return 1;
                         }
                         let Ok(layout) = AudioLayout::new(channels as usize, channels as usize)
                         else {
+                            handle.processor.deactivate();
                             return 1;
                         };
                         let Ok(config) =
                             ProcessConfig::new(rate, frames as usize, MAX_EVENTS, layout)
                         else {
+                            handle.processor.deactivate();
                             return 1;
                         };
-                        if handle.processor.prepare(config).is_err() {
+                        let Ok(adapter) =
+                            NativeAudioAdapter::prepare(&mut handle.processor, config)
+                        else {
                             return 1;
-                        }
-                        for scratch in &mut handle.scratch {
-                            scratch.resize(frames as usize, 0.);
-                        }
+                        };
+                        handle.adapter = Some(adapter);
                         handle.events.resize(
                             MAX_EVENTS,
                             Event {
@@ -175,8 +169,7 @@ mod abi {
                                 },
                             },
                         );
-                        handle.channels = channels as usize;
-                        handle.maximum_frames = frames as usize;
+
                         0
                     }))
                     .unwrap_or(2)
@@ -187,7 +180,13 @@ mod abi {
                 #[unsafe(no_mangle)]
                 pub unsafe extern "C" fn $reset(handle: *mut $handle) {
                     if let Some(handle) = unsafe { handle.as_mut() } {
-                        let _ = catch_unwind(AssertUnwindSafe(|| handle.processor.reset()));
+                        let _ = catch_unwind(AssertUnwindSafe(|| {
+                            if let Some(adapter) = &mut handle.adapter {
+                                let _ = adapter.reset(&mut handle.processor);
+                            } else {
+                                handle.processor.reset();
+                            }
+                        }));
                     }
                 }
                 /// # Safety
@@ -249,9 +248,16 @@ mod abi {
                         let Some(handle) = (unsafe { handle.as_mut() }) else {
                             return 1;
                         };
-                        if channels != handle.channels
+                        let Some(configuration) = handle
+                            .adapter
+                            .as_ref()
+                            .map(|adapter| adapter.configuration())
+                        else {
+                            return 1;
+                        };
+                        if channels != configuration.layout().input_channels()
                             || channels == 0
-                            || frames > handle.maximum_frames
+                            || frames > configuration.maximum_frames()
                             || count > MAX_EVENTS
                             || gain.is_null()
                             || bypass.is_null()
@@ -274,48 +280,34 @@ mod abi {
                         if count > 0 && events.is_null() {
                             return 1;
                         }
-                        for index in 0..count {
-                            let event = unsafe { *events.add(index) };
-                            handle.events[index] = Event {
-                                frame_offset: event.offset as usize,
-                                data: EventData::ParameterValue {
-                                    id: ParameterId(event.id),
-                                    value: event.value,
-                                },
-                            };
-                        }
-                        // All input copies precede output references/writes, including aliasing.
-                        for channel in 0..channels {
-                            if frames > 0 {
-                                handle.scratch[channel][..frames].copy_from_slice(unsafe {
-                                    slice::from_raw_parts(*inputs.add(channel), frames)
-                                });
-                            }
-                        }
-                        let mut views = handle
-                            .scratch
-                            .each_mut()
-                            .map(|channel| &mut channel[..frames]);
-                        let audio = AudioBuffer::in_place(&mut views[..channels], frames)
-                            .expect("prepared scratch");
-                        let status = handle.processor.process(&mut ProcessBlock::new(
-                            audio,
-                            &handle.events[..count],
-                            Transport::default(),
-                        ));
-                        if matches!(status, ProcessStatus::Fault(_)) {
+                        let native_events = if count == 0 {
+                            &[]
+                        } else {
+                            unsafe { slice::from_raw_parts(events, count) }
+                        };
+                        if decode_parameter_events(native_events, frames, &mut handle.events)
+                            .is_err()
+                        {
                             return 1;
                         }
-                        for channel in 0..channels {
-                            if frames > 0 {
-                                unsafe {
-                                    ptr::copy_nonoverlapping(
-                                        handle.scratch[channel].as_ptr(),
-                                        *outputs.add(channel),
-                                        frames,
-                                    )
-                                };
-                            }
+                        let bus = NativePlanarBus {
+                            input_channels: channels as u32,
+                            output_channels: channels as u32,
+                            inputs,
+                            outputs,
+                        };
+                        let adapter = handle.adapter.as_mut().expect("validated preparation");
+                        let report = unsafe {
+                            adapter.process_native(
+                                &mut handle.processor,
+                                &[bus],
+                                frames,
+                                &handle.events[..count],
+                                Transport::default(),
+                            )
+                        };
+                        if matches!(report.status, ProcessStatus::Fault(_)) {
+                            return if adapter.is_poisoned() { 2 } else { 1 };
                         }
                         unsafe {
                             *gain = handle.processor.requested_gain();
@@ -598,3 +590,178 @@ mod precision64_tests;
 #[cfg(all(target_os = "macos", feature = "native-editor"))]
 #[allow(unsafe_code)]
 mod editor;
+
+// Thin native facades keep the portable gain processor independent of backends.
+#[allow(unsafe_code)]
+mod native_entry {
+    use ravet_foundation::{
+        ParameterError, ParameterId, ParameterSchema, ParameterState, PrepareError, ProcessBlock,
+        ProcessConfig, ProcessStatus, Processor, Tail,
+    };
+    use ravet_native::{NativeParameterProcessor, NativeParameterRoles};
+    static TELEMETRY: [ravet_native::NativeTelemetryDescriptor; 12] = {
+        let names = [
+            "Input L peak",
+            "Input L RMS",
+            "Input L invalid",
+            "Input R peak",
+            "Input R RMS",
+            "Input R invalid",
+            "Output L peak",
+            "Output L RMS",
+            "Output L invalid",
+            "Output R peak",
+            "Output R RMS",
+            "Output R invalid",
+        ];
+        let mut fields = [ravet_native::NativeTelemetryDescriptor {
+            id: 0,
+            name: "",
+            unit: "",
+            display_minimum: 0.,
+            display_maximum: 1.,
+        }; 12];
+        let mut index = 0;
+        while index < 12 {
+            fields[index].id = 10 + index as u32;
+            fields[index].name = names[index];
+            index += 1;
+        }
+        fields
+    };
+    macro_rules! facade {
+        ($name:ident, $processor:ty, $sample:ty) => {
+            #[derive(Default)]
+            pub struct $name($processor);
+            impl Processor<$sample> for $name {
+                fn prepare(&mut self, config: ProcessConfig) -> Result<(), PrepareError> {
+                    self.0.prepare(config)
+                }
+                fn process(
+                    &mut self,
+                    block: &mut ProcessBlock<'_, '_, '_, $sample>,
+                ) -> ProcessStatus {
+                    self.0.process(block)
+                }
+                fn reset(&mut self) {
+                    self.0.reset();
+                }
+                fn deactivate(&mut self) {
+                    self.0.deactivate();
+                }
+                fn latency_samples(&self) -> u32 {
+                    self.0.latency_samples()
+                }
+                fn tail(&self) -> Tail {
+                    self.0.tail()
+                }
+            }
+            impl ravet_native::NativeAudioParameterProcessor<2> for $name {
+                fn audio_parameter_snapshot(&self) -> ParameterState<'static, 2> {
+                    self.0.parameter_state()
+                }
+                fn apply_audio_parameter_snapshot(
+                    &mut self,
+                    state: &ParameterState<'static, 2>,
+                ) -> Result<(), ParameterError> {
+                    self.0.restore_parameters(state)
+                }
+            }
+            impl ravet_native::NativeTelemetryProcessor<12> for $name {
+                fn telemetry_descriptors() -> &'static [ravet_native::NativeTelemetryDescriptor; 12]
+                {
+                    &TELEMETRY
+                }
+                fn audio_telemetry_snapshot(&self) -> [ravet_native::NativeTelemetryValueV1; 12] {
+                    let meters = self.0.meters();
+                    let readings = [
+                        meters.input[0],
+                        meters.input[1],
+                        meters.output[0],
+                        meters.output[1],
+                    ];
+                    std::array::from_fn(|index| {
+                        let reading = readings[index / 3];
+                        ravet_native::NativeTelemetryValueV1 {
+                            id: 10 + index as u32,
+                            flags: u32::from(reading.nonfinite),
+                            value: match index % 3 {
+                                0 => f64::from(reading.peak),
+                                1 => f64::from(reading.rms),
+                                _ => f64::from(u32::from(reading.nonfinite)),
+                            },
+                            samples: reading.samples,
+                        }
+                    })
+                }
+            }
+            impl NativeParameterProcessor<2> for $name {
+                const STATE_PRODUCT: [u8; 8] = *b"RAVETGN\0";
+                const STATE_VERSION: u32 = 2;
+                fn parameter_schema() -> ParameterSchema<'static, 2> {
+                    ravet_gain::parameter_schema()
+                }
+                fn parameter_roles(id: ParameterId) -> NativeParameterRoles {
+                    NativeParameterRoles {
+                        bypass: id == ravet_gain::BYPASS_ID,
+                        read_only: false,
+                    }
+                }
+                fn parameter_snapshot(&self) -> ParameterState<'static, 2> {
+                    self.0.parameter_state()
+                }
+                fn restore_parameter_snapshot(
+                    &mut self,
+                    state: &ParameterState<'static, 2>,
+                ) -> Result<(), ParameterError> {
+                    self.0.restore_parameters(state)
+                }
+                fn decode_parameter_snapshot(
+                    bytes: &[u8],
+                ) -> Result<ParameterState<'static, 2>, ParameterError> {
+                    ravet_gain::state::decode_parameters(bytes)
+                }
+            }
+        };
+    }
+    facade!(GainNative32, ravet_gain::GainProcessor, f32);
+    facade!(GainNative64, ravet_gain::GainProcessor64, f64);
+    ravet_native::export_native_processor_v1!(
+        ravet_native_processor_v1,
+        GainNative32,
+        GainNative64
+    );
+    ravet_native::export_native_parameters_v1!(
+        ravet_native_parameters_v1,
+        GainNative32,
+        GainNative64,
+        2
+    );
+    #[cfg(target_has_atomic = "64")]
+    ravet_native::export_native_state_v1!(ravet_native_state_v1, GainNative32, GainNative64, 2);
+    ravet_native::export_native_telemetry_v1!(
+        ravet_native_telemetry_v1,
+        GainNative32,
+        GainNative64,
+        12
+    );
+    ravet_native::export_native_audio_state_v1!(
+        ravet_native_audio_state_v1,
+        GainNative32,
+        GainNative64,
+        2
+    );
+    ravet_native::export_native_cached_parameters_v1!(
+        ravet_native_cached_parameters_v1,
+        GainNative32,
+        GainNative64,
+        2
+    );
+}
+pub use native_entry::{
+    ravet_native_audio_state_v1, ravet_native_cached_parameters_v1, ravet_native_parameters_v1,
+    ravet_native_processor_v1, ravet_native_telemetry_v1,
+};
+
+#[cfg(target_has_atomic = "64")]
+pub use native_entry::ravet_native_state_v1;

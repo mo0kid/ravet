@@ -226,12 +226,16 @@ claim is added. See [decision 0132](decisions/0132-native-note-identities.md).
 
 `EventData::NoteExpression { target: NoteTarget, expression, value: f64 }` carries
 seven standard expression units. `None` channel/key/ID fields match any voice in
-that field within the routed endpoint. Volume is a linear multiplier strictly
-above zero through four; pan is 0 left, 0.5 center, 1 right; tuning is relative
+that field within the routed endpoint. Volume is a linear multiplier from zero
+through four, with zero explicitly muting the voice; pan is 0 left, 0.5 center, 1 right; tuning is relative
 semitones from -120 through 120. Vibrato, expression, brightness and pressure
 are 0..=1. All values must be finite. Expressions replace preceding expressions;
 receiver DSP owns matching, application relative to voice defaults and smoothing.
 They do not edit global parameter state or imply a voice allocator.
+CLAP has a narrower volume range (strictly above zero through four). Exported
+and hosted CLAP conversion rejects portable zero volume without epsilon
+substitution; portable queues and native records retain its exact f64 bits.
+See [decision 0159](decisions/0159-zero-volume-note-expression.md).
 
 Performance graph filters and complete worker queues retain scope and all f64
 bits. Hosted builder `with_note_expression_input`/`with_note_expression_output`

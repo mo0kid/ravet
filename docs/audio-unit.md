@@ -3,7 +3,13 @@
 The macOS AUv2 component uses the external Steinberg AU wrapper and Apple
 AudioUnitSDK, embedding the same Rust-backed VST3 gain reference. SDKs remain
 outside this repository. This is an exercised reference adapter with an optional
-Cocoa editor; AUv3 and a generic AudioUnit framework remain pending.
+Cocoa editor. The separate [AUv3/mobile adapter](mobile.md) uses the reusable native ABI rather than this SDK wrapper.
+
+The separate public [AUv2 performance instrument](performance-au.md) uses
+`--plugin performance` with bounded MusicDevice note input and complete Level
+state; Gain remains the default profile and retains its host-bypass policy.
+Reusable [native AU schema/control/state helpers](native-au.md) supply its exact
+parameter preflight and CONTROL-owned CF text/state validation.
 
 ## Build and validate
 
@@ -48,7 +54,7 @@ preset bypass must define a separate automatable parameter and contract.
 The optional Cocoa editor maps the embedded VST3 IPlugView through the external
 SDK wrapper, as described below. Hosts may provide their generic parameter UI.
 Instrument/MIDI ports, f64,
-auxiliary buses, AUv3 and commercial signing remain pending. See
+auxiliary buses and commercial signing remain pending for this AUv2 path. See
 [decision 0022](decisions/0022-auv2-reference.md).
 
 After the shared processor gained native VST3 f64 support, the AUv2 component

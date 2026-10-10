@@ -6,6 +6,51 @@ provisional. Audio values are not sanitized: nonfinite input and numerical
 overflow may propagate. Users remain responsible for channel instances, smoothing,
 denormal policy, lifecycle, headroom and actual callback deadlines.
 
+## Waveshapers
+
+`Waveshaper::new(function)` stores a caller-owned transfer function inline.
+Custom closures accept and return the same sample type, including native f32 or
+f64 without conversion. `process_sample` applies it once; `process_in_place`
+and `process_block` visit samples in order. Separate input/output lengths must
+match exactly: a mismatch preserves output and never invokes the function.
+Empty blocks are no-ops. The wrapper owns no sample history, sample-rate setting,
+latency or tail, and needs no reset. Custom captured state/resources remain
+caller-owned; cloning/destruction follows their ownership.
+
+Three f64 constructors provide explicit curves:
+
+| Constructor | Transfer function | Output endpoints |
+|---|---|---|
+| `hard_clip()` | clamp x to [-1, 1] | +/-1 |
+| `tanh()` | tanh(x) | asymptotic +/-1 |
+| `cubic_soft_clip()` | x - x^3/3 inside [-1, 1], constant beyond | +/-2/3 |
+
+All have unity slope at zero. Cubic clipping has continuous zero slope at the
+knees and is not peak-normalized to unity. Clamping before cubic arithmetic
+avoids overflow for extreme input. Built-ins propagate NaN and bound infinite
+input; custom functions receive samples unchanged and define their own behavior.
+The tanh profile uses a transcendental per sample.
+
+```rust
+use ravet_signal::{Oversampler, OversamplingFactor, Waveshaper};
+
+let shaper = Waveshaper::new(|x: f32| (2.0 * x).tanh());
+let mut oversampler = Oversampler::new(OversamplingFactor::Four);
+let wet = oversampler.process_sample(0.25, |x| shaper.process_sample(x));
+assert!(wet.is_finite());
+```
+
+Drive/output gain, smoothing, DC removal and oversampling are explicit consumer
+choices. Nonlinear transfer functions can alias. The existing f32 oversampler
+can call a custom f32 waveshaper as shown; f64 curves do not imply an f64
+oversampler. Wrapper construction/processing allocate nothing, but a custom
+function must meet its own audio-thread obligations. Tests cover curve landmarks,
+symmetry/monotonicity/extremes, native precision, ordered calls, block partitions,
+atomic length rejection, explicit oversampling composition and 10000 workloads
+without counted heap actions. This is offline evidence, without an alias-free or
+native callback-deadline claim. See
+[decision 0149](decisions/0149-sample-wise-waveshapers.md).
+
 ## Biquad filters
 
 `BiquadCoefficients::design` supplies lowpass, highpass, unity-center bandpass,
@@ -225,6 +270,43 @@ choice. Nonfinite samples can poison state until reset and extreme amplitudes
 can overflow. There is no nonlinear saturation/self-oscillation, denormal policy,
 arbitrary-modulation stability or native callback-deadline guarantee. See
 [decision 0095](decisions/0095-linear-state-variable-filter.md).
+
+## Prepared comb filters
+
+`CombFilter::new(CombKind, delay_samples, coefficient)` prepares a one-channel
+f64 comb with a fixed delay D of 1..=1048576 whole samples. `Feedforward` computes
+`y[n] = x[n] + g*x[n-D]`, a finite input echo; `Feedback` computes
+`y[n] = x[n] + g*y[n-D]`, a recursive echo train. Both include current input at
+unity gain. Positive and negative coefficients change the comb's reinforcement
+and cancellation frequencies. Feedforward accepts any finite g (including +/-1
+for complete notches); feedback requires finite `|g| < 1` for fixed-coefficient
+stability. Delay is measured in samples, so consumers convert their own time/rate.
+
+```rust
+use ravet_signal::{CombFilter, CombKind};
+
+let mut comb = CombFilter::new(CombKind::Feedback, 2, 0.5).unwrap();
+let mut impulse = [1.0, 0.0, 0.0, 0.0, 0.0];
+comb.process_in_place(&mut impulse);
+assert_eq!(impulse, [1.0, 0.0, 0.5, 0.0, 0.25]);
+```
+
+Preparation validates before allocating exactly D f64 history values (at most
+8 MiB, excluding overhead). `set_coefficient` validates before mutation and
+retains history without smoothing. A zero coefficient returns input exactly
+while advancing history. `process_sample`, `process_in_place` and `reset` use
+existing storage; empty blocks do nothing and arbitrary partitions match.
+Reset retains the prepared kind, delay and latest coefficient. Type/delay changes
+require a new instance; instantiate separately for channels.
+
+This standalone profile supplies no damping, fractional delay or normalization.
+Feedback near unity has substantial gain and a long tail; consumers own headroom,
+smoothing, nonfinite/denormal policy and deadlines. The reverb below has its own
+private lowpass-feedback comb network. Tests cover exact signed impulse timing,
+independent full-history recurrence with live edits, analytic complex frequency
+response, partition/reset/zero history, atomic invalid edits and bounded maximum
+storage with 10000 heap-instrumented prepared workloads. See
+[decision 0150](decisions/0150-prepared-comb-filters.md).
 
 ## Prepared synthetic mono reverb
 

@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>RAVET reusable focus fixture</title>
+<link rel="stylesheet" href="../../web/theme.css">
+<style>body{font:16px system-ui;color:var(--ravet-foreground);background:var(--ravet-background);padding:20px}button{padding:8px;margin:3px}button:focus-visible{outline:3px solid var(--ravet-accent)}#live-piano{width:520px;margin:20px 0}#test-fixtures{position:absolute;left:0;top:400px;width:900px}</style>
+<body><button id="before">Before composite</button><div id="live-group" role="toolbar" aria-label="Synthetic controls"><button id="live-a">First</button><button id="live-b">Second</button><button id="live-c">Third</button></div><button id="after">After composite</button>
+<div id="live-piano" aria-label="Synthetic piano"></div><p id="reading" role="status">Waiting for fixture</p><div id="test-fixtures"></div>
+<script src="../../web/controls.js"></script><script src="focus.js"></script></body></html>

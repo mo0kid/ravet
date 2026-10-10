@@ -1,0 +1,2 @@
+# Preserve verbatim upstream licence/notice whitespace.
+crates/*/third-party/*.md -whitespace

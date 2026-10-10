@@ -117,6 +117,44 @@ fixture count no Rust allocation/deallocation. No controller hardware, synthesis
 product or instrument-format export is validated. See
 [decision 0027](decisions/0027-midi-voice-ownership.md).
 
+## Normalized and identified performance voices
+
+`PerformanceVoices<N>` is an independent 1..128-slot receiver for one already
+routed endpoint. It consumes normalized On/Off, identified On/Off, scoped Off,
+choke and seven standard expressions. Optional note IDs retain all u32 bits;
+f32 velocities stay unquantized, and zero On remains held. MIDI/UMP, parameters
+and incoming completion notifications require separate routes and reject here.
+
+Every present channel/key/ID target field must match. Unidentified duplicates
+stack; Off releases all held matches. Repeated Off neither restarts release nor
+replaces its velocity. The DSP calls `finish` when ownership ends, receiving the
+original concrete target once. Choke removes every match immediately and reports
+those original targets; stealing reports the replaced target. These are completion
+notifications, distinct from release. Reset discards ownership explicitly under
+the consumer's lifecycle protocol.
+
+A duplicate concrete ID retriggers the same address in its existing slot, resetting
+expressions and reporting no old completion. Another address rejects atomically
+until the old ID completes/resets. Allocation prefers idle, oldest released, then
+oldest held. Bounded rank ages preserve chronology without sequence rollover.
+
+All seven f64 expression values retain their bits, including signed zero and
+subnormals. Defaults are volume/expression/brightness 1, pan 0.5 and tuning/vibrato/
+pressure 0. Expressions replace values on held and released matches; they do not
+stage values for future notes. Zero volume mutes without completing. Application,
+smoothing, oscillator/envelopes and output delivery remain consumer decisions.
+
+Call `preflight(events, frames)` before changing consumer DSP/state. It simulates
+the whole ordered stream on fixed copied storage, rejects late malformed/unsupported/
+conflicting events, and counts immediate input-driven completions. It permits
+1024 events/65536 frames, with offset0 for zero-frame blocks and preserved ties.
+The consumer maintains exclusive ownership, replays events at sample boundaries,
+budgets later DSP completions separately, and stages publication as needed. No
+output space is reserved or event published by this check. Allocation-instrumented
+fixtures cover repeated maximum-bank ownership and full-list preflight; no DAW,
+device or deadline follows. See
+[decision0163](decisions/0163-native-performance-voice-ownership.md).
+
 ## Opt-in single-zone RPN negotiation
 
 `RpnDecoder` tracks selectors independently on all 16 channels and emits absolute
@@ -146,6 +184,45 @@ held/sustained members, remain distinct from member values and freeze on release
 frozen tails, invalid/null/NRPN cancellation and 10,000 allocation-free negotiations.
 See [decision 0037](decisions/0037-single-zone-negotiation.md).
 
+
+## Identified native-precision sine reference
+
+`PerformanceSine<N>` is an independent mono/stereo no-input reference implementing
+both `Processor<f32>` and `Processor<f64>`. Select precision through the trait,
+for example `<PerformanceSine<16> as Processor<f64>>::prepare(&mut synth, config)`.
+It retains normalized/identified receiver policy without seven-bit quantization.
+Level uses the existing `INSTRUMENT_LEVEL_ID` schema, defaults to0.2 and scales
+mix by level/N. Explicit `set_level` accepts finite 0..1 while sample-timed edits
+clamp. ADSR is 5 ms attack,10 ms decay,0.8 sustain and50 ms release.
+
+Volume/expression multiply exact stored velocity. Tuning adds semitones; vibrato
+is a 6 Hz sine of 0..1 semitone depth with its rate capped at 49% of sample rate.
+The oscillator frequency also caps at 49% of sample rate. Live expressions retain
+phase, while new/retriggered/stolen notes reset oscillator/envelope. Stereo balance
+uses 2*(1-pan),2*pan, giving duplicate mono at center and twice one channel at an
+endpoint; mono ignores pan. Pressure/brightness remain exact readable snapshots
+without shaping this reference's timbre. Zero volume mutes while history advances.
+
+Preparation accepts 65536 frames/1024 input and output events, mono/stereo instrument
+layouts and no auxiliary buses. It allocates private f64 stereo/sample and bounded
+completion scratch. Processing first validates the generic complete block, then
+renders into scratch with a fixed copied DSP/voice state. Only whole success
+commits samples, completion events and live state. Late identity conflict or
+completion overflow silences active output while preserving live level, voices,
+phase and envelopes. Actual in-block envelope completion permits a later new
+address for that ID. Process/reset perform no heap actions, locks or I/O.
+
+Positive output capacity enables original-target `NoteEnd` on steal/choke/envelope
+completion, in input/sample/slot order. Capacity0 suppresses notifications while
+internal lifetime still ends. Completion offsets order delivery and do not claim
+an exact termination timestamp. Zero-frame callbacks apply events without advancing
+phase/envelopes. Reset/reprepare retain level while clearing history; deactivate
+becomes inactive. Other parameters, MIDI/UMP, incoming completion and transport
+are ignored after validation. No pedals, MIDI conversion, programs/codec/editor,
+native facade/export, physical device/DAW or deadline follows. Both precision tests
+cover analytic audio, partitioning, rejection/history, lifecycle and maximum voice
+completion workloads. See
+[decision0164](decisions/0164-transactional-performance-sine.md).
 
 ## Portable sine instrument
 

@@ -687,6 +687,11 @@ fn generated_midi_profile_never_discards_note_identity_scope_or_delivers_a_prefi
                         3 => EventData::NoteChoke {
                             target: ravet_foundation::NoteTarget::default(),
                         },
+                        4 | 5 => EventData::NoteExpression {
+                            target: ravet_foundation::NoteTarget::default(),
+                            expression: ravet_foundation::NoteExpression::Volume,
+                            value: if self.kind == 4 { 0. } else { -0. },
+                        },
                         _ => EventData::NoteWithId {
                             id: ravet_foundation::NoteId(self.id),
                             phase: ravet_foundation::NotePhase::On,
@@ -707,6 +712,8 @@ fn generated_midi_profile_never_discards_note_identity_scope_or_delivers_a_prefi
         (123, 1),
         (123, 2),
         (123, 3),
+        (123, 4),
+        (123, 5),
     ] {
         let mut bridge = MainBusBridge::prepare_with_output(
             Identified {
@@ -720,6 +727,8 @@ fn generated_midi_profile_never_discards_note_identity_scope_or_delivers_a_prefi
             None,
             Some(0),
         )
+        .unwrap()
+        .with_clap_note_output_port((kind >= 4).then_some(1))
         .unwrap();
         let mut queue = Queue {
             events: EventBuffer::with_capacity(2),

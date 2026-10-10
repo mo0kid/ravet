@@ -38,7 +38,9 @@ impl NoteTarget {
 /// receiver DSP owns application relative to its voice defaults and smoothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteExpression {
-    /// Linear volume multiplier, strictly positive and <=4.
+    /// Linear volume multiplier, 0..=4. Zero explicitly mutes the voice.
+    /// Backends with a narrower range, including CLAP's positive-only volume,
+    /// reject unrepresentable values rather than clamp them.
     Volume,
     /// 0 left, 0.5 center, 1 right.
     Pan,
@@ -54,7 +56,7 @@ impl NoteExpression {
     pub fn is_valid_value(self, value: f64) -> bool {
         value.is_finite()
             && match self {
-                Self::Volume => value > 0. && value <= 4.,
+                Self::Volume => (0. ..=4.).contains(&value),
                 Self::Tuning => (-120. ..=120.).contains(&value),
                 _ => (0. ..=1.).contains(&value),
             }
@@ -261,8 +263,8 @@ pub struct TransportDetails {
     pub bar: Option<(f64, i32)>,
 }
 
-impl std::fmt::Display for EventError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for EventError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::TooMany { count, maximum } => {
                 write!(f, "block has {count} events; capacity is {maximum}")
@@ -280,7 +282,7 @@ impl std::fmt::Display for EventError {
         }
     }
 }
-impl std::error::Error for EventError {}
+impl core::error::Error for EventError {}
 
 /// Caller-owned, bounded output events. Construct a fresh writer per callback.
 ///

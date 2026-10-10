@@ -2,8 +2,10 @@
 
 The explicit `ravet-device` crate adapts CPAL f32 output, input capture and
 bounded duplex effect streams to portable processors. It is outside `ravet`'s
-dependency graph. MIDI devices, integrated recording, event queues, hotplug
-subscriptions and automatic recovery remain pending.
+dependency graph. Explicit MIDI connections/handoff are provided separately by
+`ravet-midi-device`; file worker adapters and prepared event/graph handoff have
+their own guides and bounds. Recovery is caller-scheduled. Automatic hotplug,
+integrated standalone transport and physical recording validation remain pending.
 
 ## Control thread
 
@@ -103,8 +105,10 @@ and DSP history. Restart is sequential, not sample-synchronized. Independent
 clocks can drift, producing counted underflow/overflow; there is no automatic
 resampling or compensation. Even on one interface, this FIFO path does not claim
 sample-exact capture/output alignment or round-trip latency. Reopen to clear FIFO
-or recover errors. Use a separate worker/ring for recording through
-[WAV services](audio-files.md); integrated transport/record scheduling is pending.
+or recover errors. Use the separate prepared worker/ring recording controllers
+for WAV, AIFF, FLAC, Vorbis or MP3 described in [audio files](audio-files.md). Physical
+recording and shutdown timing still require device validation; integrated transport
+and record scheduling remain pending.
 
 ```sh
 CARGO_BUILD_JOBS=2 cargo run -p ravet-device-probe --locked -- --list-input

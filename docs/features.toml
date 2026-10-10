@@ -2,8 +2,10 @@
 # python3 scripts/check-docs.py --write
 schema_version = 1
 
-# Reader priority: reusable framework capabilities, references, teaching examples,
-# development tools, plans and exclusions.
+# Records are ordered by reader priority: reusable framework capabilities first,
+# then references, teaching examples, tools, plans and exclusions.
+
+# Core processing contracts
 
 [[feature]]
 id = "portable-processing"
@@ -14,6 +16,36 @@ limits = "One main bus and up to eight auxiliary buses, up to 64 channels per di
 sources = ["crates/ravet/src/lib.rs", "crates/ravet-foundation/src/processor.rs"]
 tests = ["crates/ravet-foundation/tests/contracts.rs", "examples/gain/tests/processing.rs"]
 docs = ["docs/architecture.md", "docs/decisions/0001-portable-processing.md"]
+
+[[feature]]
+id = "embedded-foundation"
+title = "Allocation-free no_std processing foundation"
+status = "implemented"
+summary = "Existing portable audio/event/lifecycle/schema contracts work without std or an allocator, with pure-Rust parameter math and target-gated snapshots."
+limits = "Default std feature retains desktop mappings; Cargo feature unification applies. Pinned libm 0.2.16; snapshots require native 64-bit atomics. Existing signal/graph/device/editor/runtime crates remain outside this allocator-free subset. Cross checks are library evidence, not board/deadline support."
+sources = ["crates/ravet-foundation/Cargo.toml", "crates/ravet-foundation/src/lib.rs", "crates/ravet-foundation/src/parameter.rs"]
+tests = ["crates/ravet-foundation/tests/contracts.rs", "crates/ravet-foundation/tests/parameters.rs", "scripts/check-embedded.py"]
+docs = ["docs/embedded-projects.md", "docs/decisions/0152-embedded-processing.md"]
+
+[[feature]]
+id = "embedded-fixed-block-adapter"
+title = "Fixed-capacity embedded audio adaptation"
+status = "implemented"
+summary = "An explicit no_std adapter owns fixed planar f32 scratch, preflights complete interleaved f32/i16/i32 blocks and preserves event timing, fault silence and backing tails."
+limits = "Const channels/frames, exact configured layout, no auxiliary buses/generated events. f32 internal precision; packed 24-bit conversion is consumer-owned. Processor allocation/ownership obligations and hardware drivers/DMA/cache/scheduling remain explicit; no board or deadline guarantee."
+sources = ["crates/ravet-embedded/src/lib.rs", "crates/ravet-embedded/Cargo.toml"]
+tests = ["crates/ravet-embedded/tests/blocks.rs"]
+docs = ["docs/embedded-projects.md", "docs/architecture.md"]
+
+[[feature]]
+id = "embedded-reference-bridges"
+title = "Embedded gain and native Arduino processing subset"
+status = "prototype"
+summary = "An allocation-free Rust stereo gain and caller-owned C ABI accompany a header-only C++11 stereo adapter/reference for Arduino cores without a Rust archive."
+limits = "Immediate gain 0..4/default unity; Rust reference <=64 frames/eight events, C ABI block-start gain and <=128 samples. Native C++ stereo f32 timed parameters only, no arbitrary Rust DSP export. Matching C/Rust float ABI and pointer/exclusive lifetime obligations; explicit standalone panic policy. Arduino compile/link evidence only; no physical MCU/codec validation, audio-workload suitability or desktop gain parity."
+sources = ["examples/embedded-gain/src/lib.rs", "examples/embedded-gain/src/ffi.rs", "examples/embedded-gain/include/RavetEmbeddedGain.h", "embedded/arduino/src/RavetEmbedded.h", "embedded/arduino/examples/OfflineGain/OfflineGain.ino"]
+tests = ["examples/embedded-gain/tests/processing.rs", "embedded/tests/bridge.c", "embedded/tests/arduino.cpp", "scripts/check-embedded.py"]
+docs = ["docs/embedded-projects.md", "docs/decisions/0152-embedded-processing.md"]
 
 [[feature]]
 id = "extended-processing"
@@ -84,6 +116,8 @@ limits = "Targets with 64-bit atomics only; allocation-free operations do not es
 sources = ["crates/ravet-foundation/src/snapshot.rs"]
 tests = ["crates/ravet-foundation/tests/snapshot.rs"]
 docs = ["docs/snapshots.md", "docs/decisions/0008-word-snapshots.md"]
+
+# Prepared graphs and audio ownership
 
 [[feature]]
 id = "prepared-audio-graphs"
@@ -299,11 +333,13 @@ docs = ["docs/plugin-hosting.md", "docs/decisions/0106-native-audio-owner-handof
 id = "audio-handoff-ring"
 title = "Prepared interleaved audio handoff ring"
 status = "implemented"
-summary = "Unique SPSC endpoints atomically transfer whole interleaved f32 frame prefixes with explicit backpressure and untouched consumer tails."
-limits = "1..64 channels, power-of-two 1..65536 frame capacity; prepare/drop allocate, push/pop do not. Caller chooses drop/retry/silence and worker/device lifecycle. No automatic seek, transport, recording scheduler or deadline guarantee."
+summary = "Unique SPSC endpoints atomically transfer whole interleaved f32 frame prefixes with explicit backpressure and untouched consumer tails; unique-producer Drop permanently publishes retirement for stopped-finalization proof."
+limits = "1..64 channels, power-of-two 1..65536 frame capacity; prepare/drop allocate, push/pop do not. Caller chooses drop/retry/silence and worker/device lifecycle; live/leaked producers cannot prove retirement. No automatic seek, transport, recording scheduler or deadline guarantee."
 sources = ["crates/ravet-audio-file/src/ring.rs"]
-tests = ["crates/ravet-audio-file/tests/streams.rs"]
+tests = ["crates/ravet-audio-file/tests/streams.rs", "crates/ravet-audio-file/tests/recording.rs", "crates/ravet-device/tests/recording_worker.rs"]
 docs = ["docs/audio-files.md", "docs/decisions/0026-audio-streams.md"]
+
+# Plug-in integration and reusable native adapters
 
 [[feature]]
 id = "clap-native-main-bus"
@@ -364,6 +400,167 @@ limits = "At most 65,536 frames and 1,024 total input events; two sample copies 
 sources = ["crates/ravet-clap/src/lib.rs"]
 tests = ["examples/gain-clap/tests/bridge.rs"]
 docs = ["docs/decisions/0002-clap-backend.md"]
+
+[[feature]]
+id = "native-planar-processing-adapter"
+title = "Reusable native f32/f64 planar processor adaptation"
+status = "prototype"
+summary = "SDK-independent prepared main/auxiliary scratch, checked raw bus pointers, complete typed event preflight and copied-input output rendering adapt exclusively borrowed portable processors to consumer native shims."
+limits = "One main plus eight ordered auxiliaries, up to 64 channels per direction/bus, frames<=65536 and events<=1024 per direction; owned sample/generated-event payload<=64 MiB. Foreign live/aligned ranges and serialized lifecycle remain caller obligations. All inputs copy before outputs, output overlaps reject; zero frames permit null arrays. Exact supplied portable transport with consumer format validation. Faults silence supported declared prefixes/discard generated delivery without history rollback. Audio/reset panic poisons until fresh stopped preparation; normal heap evidence only, exceptional handlers may allocate. Consumer processor support, schemas/state C codecs, format-specific event/transport mappings, SDK registration/editor/delivery and native deadline remain separate; public Gain C ABI uses both precision paths."
+sources = ["crates/ravet-native/Cargo.toml", "crates/ravet-native/src/lib.rs", "crates/ravet-native/src/raw.rs", "crates/ravet-native/include/RavetNativeAudio.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/processing.rs", "examples/gain-native/src/lib.rs", "examples/gain-native/src/precision64_tests.rs"]
+docs = ["docs/native-processing.md", "docs/architecture.md", "docs/vst3.md", "docs/decisions/0142-native-planar-adapter.md"]
+
+[[feature]]
+id = "generic-native-processor-entry"
+title = "Consumer-selected native processor lifecycle entry"
+status = "prototype"
+summary = "A reusable opaque owner and immutable exported v1 table compose prepared f32/f64 multibus processing, complete native events/transport, lifecycle and latency/tail queries for consumer-selected processors; Gain exposes the entry alongside its existing ABI."
+limits = "Default+Send processors, exact table/handle/precision and loaded-library lifetime; exclusive serialized ownership and stopped control lifecycle/query calls. Fixed canonical preparation, native adapter bounds plus separately bounded decoded input events; full prepared native output capacity required before DSP. Foreign ranges/nonoverlap remain caller obligations, faults silence supported raw prefixes and expose no events without DSP rollback. Panics poison until fresh preparation; exception/consumer paths carry no deadline promise. No generic schema/state/metadata/editor, SDK registration or additional DAW/platform support claim."
+sources = ["crates/ravet-native/src/entry.rs", "crates/ravet-native/include/RavetNativeProcessor.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/entry.rs", "tools/native-validation/processor_entry.cpp", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/decisions/0145-native-processor-entry.md"]
+
+[[feature]]
+id = "native-parameter-state-companion"
+title = "Bounded native global schemas and complete state"
+status = "prototype"
+summary = "An optional paired native facade table exposes stable-ID f32 schema metadata, UTF-8 roles/ranges, pure mapping, revalidated complete snapshots and atomic decoded-state recall; Gain's thin facades retain canonical and explicit legacy codec behavior."
+limits = "Up to 1024 global f32 parameters; UTF-8 names<=255/unit<=63 bytes without NUL; immutable schemas/roles. Exact paired processor handle/precision/library and exclusive stopped state ownership; no live publication. Canonical Foundation little-endian records, explicit consumer legacy decoder<=8208 bytes; consumer restore must reject atomically. Metadata roles do not implicitly filter events. Foreign ranges/consumer callbacks remain obligations; panics poison until fresh preparation. No scoped granularity/f64 persistence, formatting/groups/programs/editor, generic SDK registration or additional DAW/platform/deadline claim."
+sources = ["crates/ravet-native/src/parameters.rs", "crates/ravet-native/include/RavetNativeParameters.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/parameters.rs", "tools/native-validation/parameter_entry.cpp", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/parameters.md", "docs/decisions/0146-native-parameter-state-companion.md"]
+
+
+[[feature]]
+id = "native-live-state-publication"
+title = "Explicit native live global state publication"
+status = "prototype"
+summary = "An opt-in paired native table provides independent coherent publication objects, controller complete-state decoding, prepared audio apply and conditional reflection that preserves newer restores and ongoing smoothing."
+limits = "64-bit atomics; <=1024 global f32 values and <=8208 state bytes, cached immutable schema. Explicit no-allocation/deallocation/blocking/I/O audio hooks and atomic consumer restore; exact type/precision/library pairing and exclusive prepared DSP owner. Control-only creation/byte codecs/destruction; retire after all callers stop. Single attempts return Busy/Stale, coalescing/retry/scheduling owned by consumer. Identity/generation cannot wrap in relevant lifetimes. Panics poison DSP until fresh preparation; arbitrary callbacks/foreign ranges remain obligations. No scoped/f64 persistence, automatic SDK registration/notifications/session scheduling or additional DAW/platform/deadline claim."
+sources = ["crates/ravet-native/src/state_publication.rs", "crates/ravet-native/include/RavetNativeState.h", "crates/ravet-native/src/entry.rs", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/state_publication.rs", "tools/native-validation/state_entry.cpp", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/decisions/0147-native-live-state-publication.md"]
+
+[[feature]]
+id = "vst3-native-schema-registration"
+title = "Reusable VST3 controller schema registration"
+status = "prototype"
+summary = "An optional external-SDK C++17 helper preflights complete bounded native global metadata, registers root-unit SDK parameters and delegates control mapping to native linear/log/discrete ranges."
+limits = "Control-only <=1024 descriptors; external VST3 SDK and exact retained native table/library. Reject reserved UINT32_MAX IDs, duplicate/conflicting IDs, invalid boolean bypass and titles >127 UTF16 units; complete UTF8 conversion without clipping. Global physical f32 and SDK numeric formatting precision, no custom choice labels/groups. Metadata preflight rejection preserves container; SDK allocation/insertion exceptions have no transaction guarantee. No audio automation/state/factory/editor/notification/scheduling or additional host/platform/deadline claim; executed contracts recorded separately."
+sources = ["crates/ravet-native/include/RavetVst3Parameters.hpp", "examples/gain-vst3/src/gain.cpp", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-vst3.py", "scripts/bundle-aax.py"]
+tests = ["tools/vst3-validation/schema.cpp", "tools/vst3-validation/contracts.cpp"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0148-vst3-native-schema-registration.md"]
+
+[[feature]]
+id = "native-cached-parameter-mapping"
+title = "Control-cached native global parameter mapping"
+status = "prototype"
+summary = "An immutable control-prepared schema cache provides concurrent provider-free metadata/range reads and atomic bounded normalized-to-physical tagged event conversion; a separate paired native table retains existing ABI layouts."
+limits = "<=1024 descriptors/events/output capacity and <=65536 frames; global normalized/physical f32, f64 normalized intent explicitly narrowed. Cached binary ID lookup, all u32 IDs, native UTF8 255/63 limits; roles do not implicitly filter. Create/drop/providers on control, retire after all borrowers stop and retain exact table/cache/precision/library/static schema. Cached callbacks no heap/locks/I/O/DSP/providers; failed outputs unchanged. Unknown IDs/out-of-range/nonfinite/timing/capacity reject whole conversion, consumer explicitly routes/filters. No scoped modulation/f64 parameter persistence, automatic host queues/SDK registration/notifications/scheduling or additional platform/DAW/deadline claim."
+sources = ["crates/ravet-native/src/parameter_cache.rs", "crates/ravet-native/include/RavetCachedParameters.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/parameter_cache.rs", "tools/native-validation/cached_parameters.cpp", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/decisions/0151-native-cached-parameter-mapping.md"]
+
+[[feature]]
+id = "native-direct-audio-state"
+title = "Explicit native audio-owner complete state"
+status = "prototype"
+summary = "An optional cache-paired companion applies fully validated physical global state and captures reordered complete snapshots on exclusively prepared native processors without control codecs or providers."
+limits = "At most 1024 physical f32 fields/capacity; exact processor/cache/table/precision/library pairing and live aligned disjoint ranges are caller duties. Hooks require atomic failed restore and no heap actions, blocking or I/O. Panic shares DSP poison until fresh stopped prepare. Direct callbacks require no 64-bit atomics; live publication remains independently gated. No automatic generations/publication/scheduling/notifications/retry, consumer panic rollback, scoped/modulation/voice state, SDK factories or DAW/deadline claim. Repeated recall may restart smoothing; mixing protocols is explicit consumer policy."
+sources = ["crates/ravet-native/src/audio_state.rs", "crates/ravet-native/src/parameters.rs", "crates/ravet-native/include/RavetNativeAudioState.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/audio_state.rs", "tools/native-validation/audio_state_entry.cpp", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/parameters.md", "docs/decisions/0155-native-direct-audio-state.md"]
+
+[[feature]]
+id = "native-prepared-telemetry"
+title = "Explicit prepared native telemetry"
+status = "prototype"
+summary = "A separate consumer-selected native companion caches stable-ID readout metadata and revalidates complete physical f64 observations with exact u64 windows on exclusively prepared processors; Gain exposes its existing 12 meter fields."
+limits = "At most 1024 descriptors/capacity with UTF-8 names255/units63, finite ordered display hints and known nonfinite-input flag. Raw finite f64 values preserve extremes/subnormals/signed zero and may exceed display hints. Exact cache/processor/table/precision/library and live aligned disjoint foreign ranges are caller obligations. Hook obeys no heap/blocking/I/O; snapshot panic shares DSP poison until fresh stopped prepare. No atomics required, implicit cross-thread observation/publication/UI-host scheduling, persistence/automation/events/clear, consumer panic rollback or DAW/deadline claim. Measurement/window/reset/retention and SDK display policy belong to consumers."
+sources = ["crates/ravet-native/src/telemetry.rs", "crates/ravet-native/include/RavetNativeTelemetry.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/telemetry.rs", "tools/native-validation/telemetry_entry.cpp", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/parameters.md", "docs/decisions/0156-native-prepared-telemetry.md"]
+
+[[feature]]
+id = "native-cpp-processor-client"
+title = "Reusable native C++ client and SDK reference adoption"
+status = "prototype"
+summary = "An SDK-independent C++17 owner composes native lifecycle, optional explicit state and telemetry caches; the Gain VST3 processor consumes it with tagged events and retained controller/program/editor protocols."
+limits = "Exact v1 shapes/callback profiles/precision/counts; control acquisition/preparation/retirement, exclusive DSP callbacks and shared cached metadata. Matching callbacks, not table addresses, establish the supported profile; no arbitrary foreign-code authentication. Exact types/library and live aligned disjoint ranges remain caller duties. No copy/move, fallback, hidden state/mailbox/codecs, automatic publication/scheduling/retry, generic SDK factories/editor/buses, performance/scoped/transport/generated-event mapping or DAW/deadline/platform/signing claim. Native callback poison/result/silence semantics and consumer 31-bit generation/measurement/display policies remain explicit."
+sources = ["crates/ravet-native/include/RavetNativeClient.hpp", "examples/gain-vst3/src/gain.cpp"]
+tests = ["tools/native-validation/client.cpp", "tools/vst3-validation/contracts.cpp", "tools/vst3-validation/editor.cpp", "tools/vst3-validation/programs.cpp"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0157-native-cpp-client.md"]
+
+[[feature]]
+id = "vst3-block-start-transport"
+title = "Explicit VST3 block-start transport mapping"
+status = "prototype"
+summary = "An external-SDK C++17 helper requests/maps canonical available sample/musical positions, tempo, signature and playback/details into native transport; Gain forwards it before pending state or processing."
+limits = "Null means unknown. Finite positive SDK rate/tempo, finite advertised music/cycles, positive u16 signatures; exact i64/f64 and used signed zero preserved. Active ordered cycle bounds require known musical position for native v1; inactive/positionless bounds omitted with loop state retained. Bar start without exact bar number, system/continuous time, SMPTE/frame rate, clock/chord, increments/sample loops/discontinuity/pre-roll are unmapped. Unknown/unavailable/unmapped fields ignored; no invented availability/reset/extrapolation/rounding, transport-driven Gain DSP, DAW timeline/deadline/platform/signing claim. Live aligned context/output/library remain caller duties; normal framework mapping has no callbacks/heap/locks/I/O."
+sources = ["crates/ravet-native/include/RavetVst3Transport.hpp", "crates/ravet-native/include/RavetNativeScalars.hpp", "examples/gain-vst3/src/gain.cpp"]
+tests = ["tools/vst3-validation/transport.cpp", "tools/vst3-validation/contracts.cpp", "crates/ravet-native/tests/transport.rs"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0158-vst3-block-start-transport.md"]
+
+[[feature]]
+id = "vst3-native-performance-input"
+title = "Explicit VST3 native performance input"
+status = "prototype"
+summary = "An external-SDK C++17 helper maps selected-bus notes, poly pressure and six standard note expressions into canonical native records after complete bounded event-list validation."
+limits = "At most1024 raw/expanded events and65536 frames; ordered offsets/ties/zero-frame rules, single getter reads,56KiB bounded stack scratch. SDK int32 IDs preserve all bits except absent-1; unquantized f32 velocity, cents to semitone tuning expansion, normalized volume*4/tuning240*(x-.5), exact other f64 expression values. Unknown expressions reject by default or explicitly filter after scalar/ID validation; other selected SDK types reject. Nonselected payloads filter after header/timing/order validation. Optional length/ppq/flags unrepresented; no voice matching, SDK instrument export/controller advertisement, output event delivery, SysEx/text/int expressions or DAW/deadline/platform claim. Visitor refusal retains its prior effects; stage privately before DSP/state/host publication."
+sources = ["crates/ravet-native/include/RavetVst3PerformanceInput.hpp", "crates/ravet-native/include/RavetNativeScalars.hpp", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-vst3.py", "scripts/bundle-aax.py"]
+tests = ["tools/vst3-validation/performance_input.cpp", "crates/ravet-native/tests/events.rs"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0160-vst3-performance-input.md"]
+
+[[feature]]
+id = "vst3-native-performance-output"
+title = "Explicit VST3 native performance output"
+status = "prototype"
+summary = "An external-SDK C++17 helper maps representable canonical native notes and expressions into selected-bus SDK output, preflighting the complete stream and reporting exact host-prefix refusal."
+limits = "At most1024 records/65536 frames; bounded1024-SDK-event stack scratch, ordered offsets/ties/zero-frame rules. Concrete/scoped-concrete Off and pressure require exact widened f32; standard expressions require ID-only scope, all int32 identity bits except reserved-1. Volume/4 is exact or rejects subnormal rounding/underflow; tuning/240+.5 is explicit floating unit arithmetic with possible rounding. No wildcard/precision loss, choke/end masquerade, implicit MIDI/UMP/SysEx/parameters/text/int conversion or inferred ppq/flags/length. Whole invalid output rejects before host calls; refusal retains accepted prefix/DSP and discards suffix without rollback/replay/retry. Gain has no performance output and does not adopt helper; no SDK instrument/DAW/deadline/platform claim."
+sources = ["crates/ravet-native/include/RavetVst3PerformanceOutput.hpp", "crates/ravet-native/include/RavetNativeScalars.hpp", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-vst3.py", "scripts/bundle-aax.py"]
+tests = ["tools/vst3-validation/performance_output.cpp", "crates/ravet-native/tests/events.rs"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0161-vst3-performance-output.md"]
+
+[[feature]]
+id = "vst3-native-audio-buses"
+title = "Prepared VST3 native audio bus mapping"
+status = "prototype"
+summary = "An external-SDK C++17 fixed profile maps logical native main/auxiliary buses into independent compact SDK directions at native f32/f64, with complete shape/range/output-overlap preflight and bounded fault silence; Gain adopts it."
+limits = "Native config1..9 nonempty buses,0..64 channels per direction/576 total,1..65536 frames and up to 1024 events; failed control configure retains prior profile and does not prepare DSP. Fixed profile rejects host count/channel/precision mismatch; zero-frame fully omitted or exact metadata accepted, sample arrays ignored. Positive frames require all pointers even when silence flagged. Inputs may alias outputs across buses; output active ranges must be disjoint, aligned and nonoverflowing. Bounded sorted output ranges; no heap/locks/I/O in normal mapping. Foreign live metadata/array/sample ownership and writable metadata exclusions remain caller duty. Fault cleanup touches supported exact output shapes/frame/precision only, skips invalid sample pointers, retains tails and sets exact cleared flags. Generic SDK bus registration/speaker arrangements/factory/DAW/deadline/platform evidence remains separate; Gain retains mono/stereo effect layouts."
+sources = ["crates/ravet-native/include/RavetVst3Audio.hpp", "examples/gain-vst3/src/gain.cpp", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-vst3.py", "scripts/bundle-aax.py"]
+tests = ["tools/vst3-validation/audio.cpp", "tools/vst3-validation/contracts.cpp", "crates/ravet-native/tests/processing.rs"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0162-vst3-native-audio-buses.md"]
+
+[[feature]]
+id = "vst3-cached-parameter-input"
+title = "Prepared VST3 cached global parameter input"
+status = "prototype"
+summary = "Optional external-SDK helpers use precision-matched native caches and validate/copy all raw global queue points before a prepared visitor; Gain uses them for mapped automation with retained program expansion and stable merging."
+limits = "Control creation/retirement, exact table/cache/library and borrowed host lifetime; <=1024 targets/queues/total points and <=65536 frames, <=16KiB raw scratch. Reserved/duplicate targets reject; explicit readonly/routing policy, global normalized f64 intent narrows to f32. Single point read, full raw/unknown value/timing/capacity validation before visitor, referenced-memory IEEE checks for fast-math. Visitor failure may retain private scratch effects; publish state/output/DSP only after success. No framework heap/providers/locks/I/O on cached/validation paths; host/visitor obligations remain. No continuous curve interpolation, gestures/scoped/performance/transport, generic factory/output/scheduling or additional host/platform/deadline claim."
+sources = ["crates/ravet-native/include/RavetVst3ParameterInput.hpp", "crates/ravet-native/include/RavetNativeScalars.hpp", "examples/gain-vst3/src/gain.cpp", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-vst3.py", "scripts/bundle-aax.py"]
+tests = ["tools/vst3-validation/parameter_input.cpp", "tools/vst3-validation/contracts.cpp", "tools/vst3-validation/programs.cpp"]
+docs = ["docs/native-processing.md", "docs/vst3.md", "docs/decisions/0154-vst3-cached-parameter-input.md"]
+
+[[feature]]
+id = "native-event-record-codec"
+title = "Complete C-layout native event conversion"
+status = "prototype"
+summary = "Version-one native records preserve every portable event kind with full identities/scoped f64 values, canonical fields and atomic bounded conversion into prepared storage; Gain shares the legacy global parameter decoder."
+limits = "In-process native layout only, not wire/preset serialization or SDK registration. At most 1024 events; exact widened f32 scalars required for global controls/velocities. Consumers own endpoint routes, foreign ranges, storage, delivery/refusal, state and voice lifetime. No new DAW or deadline support claim."
+sources = ["crates/ravet-native/src/event.rs", "crates/ravet-native/include/RavetNativeEvent.h", "examples/gain-native/src/lib.rs"]
+tests = ["crates/ravet-native/tests/events.rs", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp", "examples/gain-native/src/lib.rs"]
+docs = ["docs/native-processing.md", "docs/decisions/0143-native-event-records.md"]
+
+[[feature]]
+id = "native-transport-record-codec"
+title = "Exact C-layout native transport snapshots"
+status = "prototype"
+summary = "Independent native availability/flags preserve exact block-start positions, tempo and extended transport while validating semantic dependencies and canonical fields without allocation."
+limits = "In-process v1 record only; no wire serialization, fixed-point conversion, extrapolation or automatic reset. Finite beat/bar values and positive finite tempo, increment requires tempo, bar requires beats, active ordered loop bounds require their timeline, nonzero u16 signatures. Consumers decode before DSP and own foreign rejection/silence and SDK mapping. Direct typed adapter pass-through stays unchanged. No additional DAW/platform/deadline claim."
+sources = ["crates/ravet-native/src/transport.rs", "crates/ravet-native/include/RavetNativeTransport.h"]
+tests = ["crates/ravet-native/tests/transport.rs", "tools/native-validation/native_records.c", "tools/native-validation/native_records.cpp"]
+docs = ["docs/native-processing.md", "docs/decisions/0144-native-transport-records.md"]
 
 [[feature]]
 id = "explicit-clap-hosting"
@@ -506,11 +703,21 @@ tests = ["crates/ravet-foundation/tests/note_identity.rs", "crates/ravet-graph/t
 docs = ["docs/extended-processing.md", "docs/plugin-hosting.md", "docs/decisions/0132-native-note-identities.md"]
 
 [[feature]]
+id = "zero-volume-note-expression"
+title = "Explicit zero-volume note expression"
+status = "implemented"
+summary = "Portable and native f64 linear volume accepts zero mute and preserves signed zero and positive subnormals through complete event conversion and worker handoff."
+limits = "Finite0..4; no change to native v1 tags/layout. CLAP remains strictly positive0<x<=4: selected zero input rejects, zero generated output rejects whole delivery before any host write, with rendered DSP/audio retained. No epsilon substitution, voice application/allocator or VST3/DAW support follows from this scalar contract. Provisional APIs; older consumers may reject zero."
+sources = ["crates/ravet-foundation/src/event.rs", "crates/ravet-native/src/event.rs", "crates/ravet-clap/src/notes.rs", "crates/ravet-host/src/graph_note_expression.rs", "crates/ravet-device/src/graph_events.rs"]
+tests = ["crates/ravet-foundation/tests/note_expression.rs", "crates/ravet-native/tests/events.rs", "crates/ravet-clap/src/notes.rs", "crates/ravet-clap/tests/notes.rs", "crates/ravet-clap/tests/output.rs", "crates/ravet-host/src/graph_note_expression.rs", "crates/ravet-device/tests/graph_events.rs"]
+docs = ["docs/extended-processing.md", "docs/native-processing.md", "docs/decisions/0159-zero-volume-note-expression.md"]
+
+[[feature]]
 id = "scoped-clap-note-expressions"
 title = "Scoped standard note expressions in hosted CLAP graphs"
 status = "prototype"
 summary = "Portable wildcard channel/key/ID targets and opt-in selected native routes preserve seven standard expression kinds with full f64 values."
-limits = "Finite standard ranges, portable u32 IDs/native nonnegative i32; exact selected CLAP port per enabled direction. Default input rejects, output filters expressions. Disabled/invalid input rejects whole prefix before native mutation; unknown types/other or wildcard ports filter; selected malformed output faults without native rollback. Default generated MIDI output rejects whole expression streams before delivery. No voice application/allocator, lifecycle/per-note parameters, loss to MIDI/MPE/UMP or third-party/DAW/deadline claim; offline linked f32/f64 ABI evidence only."
+limits = "Finite standard ranges; portable volume0..4, CLAP strictly positive0<x<=4 rejects mute rather than clamp. Portable u32 IDs/native nonnegative i32; exact selected CLAP port per enabled direction. Default input rejects, output filters expressions. Disabled/invalid input rejects whole prefix before native mutation; unknown types/other or wildcard ports filter; selected malformed output faults without native rollback. Default generated MIDI output rejects whole expression streams before delivery. No voice application/allocator, lifecycle/per-note parameters, loss to MIDI/MPE/UMP or third-party/DAW/deadline claim; offline linked f32/f64 ABI evidence only."
 sources = ["crates/ravet-foundation/src/event.rs", "crates/ravet-host/src/graph_note_expression.rs", "crates/ravet-host/src/graph_node.rs", "crates/ravet-device/src/graph_events.rs", "crates/ravet-clap/src/output.rs"]
 tests = ["crates/ravet-foundation/tests/note_expression.rs", "crates/ravet-host/src/graph_note_expression.rs", "crates/ravet-host/tests/graph_expression.rs", "crates/ravet-device/tests/graph_events.rs", "crates/ravet-graph/tests/events.rs", "crates/ravet-clap/tests/output.rs"]
 docs = ["docs/extended-processing.md", "docs/plugin-hosting.md", "docs/decisions/0134-scoped-note-expressions.md"]
@@ -544,6 +751,18 @@ limits = "Packet transport only; processors own semantic validation and negotiat
 sources = ["crates/ravet-foundation/src/event.rs", "crates/ravet-clap/src/lib.rs", "crates/ravet-clap/src/main_bus.rs", "crates/ravet-clap/src/output.rs"]
 tests = ["crates/ravet-clap/tests/output.rs"]
 docs = ["docs/extended-processing.md", "docs/decisions/0052-sample-timed-ump.md"]
+
+# Reusable signal processing
+
+[[feature]]
+id = "sample-wise-waveshapers"
+title = "Custom transfer functions and clipping waveshapers"
+status = "implemented"
+summary = "Inline caller-owned f32/f64 transfer functions run once per sample, with explicit f64 hard-clip, tanh and cubic soft-clip constructors and in-place/separate block processing."
+limits = "No implicit drive/gain, smoothing, DC removal, oversampling or alias-free/deadline claim. Wrapper has no history/latency/tail or heap actions; custom function resources/state/real-time behavior belong to callers. Exact block lengths preflight before output/calls; empty no-op. Built-ins propagate NaN and bound infinities; custom nonfinite policy is unchanged. Cubic endpoints are +/-2/3, not unity-normalized."
+sources = ["crates/ravet-signal/src/waveshaper.rs", "crates/ravet-signal/src/lib.rs"]
+tests = ["crates/ravet-signal/tests/waveshaper.rs"]
+docs = ["docs/signal-processing.md", "docs/decisions/0149-sample-wise-waveshapers.md"]
 
 [[feature]]
 id = "prepared-biquad-filters"
@@ -686,6 +905,16 @@ tests = ["crates/ravet-signal/src/delay.rs"]
 docs = ["docs/architecture.md", "docs/decisions/0004-prepared-dsp-primitives.md"]
 
 [[feature]]
+id = "prepared-comb-filters"
+title = "Prepared feedforward and feedback comb filters"
+status = "implemented"
+summary = "One-channel f64 fixed-delay combs provide feedforward input echoes or recursive output feedback, with history-preserving validated coefficient edits."
+limits = "Delay 1..1048576 whole samples, one allocation <=8 MiB excluding overhead. Feedforward coefficient finite; feedback finite with magnitude strictly below one. Both include unity direct input; zero coefficient returns input exactly while advancing history. Type/delay changes require preparation; no damping, fractional delay, normalization, smoothing, headroom/nonfinite/denormal or native deadline guarantee. Portable offline evidence only."
+sources = ["crates/ravet-signal/src/comb.rs", "crates/ravet-signal/src/lib.rs"]
+tests = ["crates/ravet-signal/tests/comb.rs"]
+docs = ["docs/signal-processing.md", "docs/decisions/0150-prepared-comb-filters.md"]
+
+[[feature]]
 id = "prepared-mono-reverb"
 title = "Prepared damped mono Schroeder-style reverb"
 status = "implemented"
@@ -700,7 +929,7 @@ id = "prepared-stereo-reverb"
 title = "Prepared damped stereo Schroeder-style reverb"
 status = "implemented"
 summary = "Two prepared mono networks use common excitation, bounded right-delay spread and wet width interpolation while preserving dry stereo channels."
-limits = "Existing mono configuration bounds; spread 0..10ms, wet/width finite0..1, twelve delay buffers<=133094 f64 samples. No smoothing, freeze/modulation, guaranteed decorrelation/physical-room fidelity, headroom/sanitization/denormal/native deadline claim. Nonfinite/extreme amplitudes may poison/overflow histories; opposite-polarity input cancels wet excitation. Portable offline evidence only."
+limits = "Existing mono configuration bounds; spread 0..10ms, wet/width finite 0..1, twelve delay buffers<=133094 f64 samples. No smoothing, freeze/modulation, guaranteed decorrelation/physical-room fidelity, headroom/sanitization/denormal/native deadline claim. Nonfinite/extreme amplitudes may poison/overflow histories; opposite-polarity input cancels wet excitation. Portable offline evidence only."
 sources = ["crates/ravet-signal/src/reverb.rs", "crates/ravet-signal/src/lib.rs"]
 tests = ["crates/ravet-signal/tests/stereo_reverb.rs", "crates/ravet-signal/tests/reverb.rs"]
 docs = ["docs/signal-processing.md", "docs/decisions/0128-prepared-stereo-reverb.md"]
@@ -760,7 +989,7 @@ id = "prepared-wavetable-oscillator"
 title = "Prepared periodic wavetable oscillator"
 status = "implemented"
 summary = "Caller-defined finite periodic f64 tables provide wrapped linear lookup without per-sample trigonometry, with phase-preserving frequency changes and reset."
-limits = "2..65536 table samples/512KiB owned storage; finite positive rate and finite0<=frequency<Nyquist. Prepare/clone/drop allocate; processing/reset/retune do not. No smoothing, bandlimited/alias-free synthesis, headroom/denormal/output sanitation or native deadline claim; extreme finite amplitudes can overflow interpolation. Offline portable evidence only."
+limits = "2..65536 table samples/512KiB owned storage; finite positive rate and finite 0<=frequency<Nyquist. Prepare/clone/drop allocate; processing/reset/retune do not. No smoothing, bandlimited/alias-free synthesis, headroom/denormal/output sanitation or native deadline claim; extreme finite amplitudes can overflow interpolation. Offline portable evidence only."
 sources = ["crates/ravet-signal/src/oscillator.rs", "crates/ravet-signal/src/lib.rs"]
 tests = ["crates/ravet-signal/tests/wavetable.rs", "crates/ravet-signal/tests/synthesis_dynamics.rs"]
 docs = ["docs/signal-processing.md", "docs/decisions/0129-prepared-wavetable-oscillator.md"]
@@ -815,6 +1044,8 @@ sources = ["crates/ravet-signal/src/meter64.rs", "examples/gain/src/precision64.
 tests = ["crates/ravet-signal/src/meter64.rs", "examples/gain/tests/precision64.rs"]
 docs = ["docs/parameters.md", "docs/decisions/0065-native-f64-gain.md"]
 
+# Parameters, observable state and presets
+
 [[feature]]
 id = "parameters-state"
 title = "Reusable parameter schema and state"
@@ -865,6 +1096,8 @@ sources = ["crates/ravet-surface/src/attachment.rs", "crates/ravet-surface/src/l
 tests = ["crates/ravet-surface/tests/attachments.rs", "examples/gain-clap/src/control_tests.rs", "tools/editor-smoke/src/main.rs"]
 docs = ["docs/parameter-attachments.md", "docs/decisions/0016-attachments-and-resizing.md"]
 
+# MIDI, expression and OSC
+
 [[feature]]
 id = "midi-short-messages"
 title = "Portable MIDI 1.0 short messages"
@@ -914,6 +1147,16 @@ limits = "Receiver policy only; no DSP/instrument export, implicit negotiation (
 sources = ["crates/ravet-instrument/Cargo.toml", "crates/ravet-instrument/src/lib.rs"]
 tests = ["crates/ravet-instrument/tests/voices.rs", "crates/ravet-instrument/src/lib.rs"]
 docs = ["docs/midi.md", "docs/decisions/0027-midi-voice-ownership.md"]
+
+[[feature]]
+id = "native-performance-voice-ownership"
+title = "Bounded normalized performance voice ownership"
+status = "implemented"
+summary = "A separate fixed receiver preserves optional full-u32 note IDs, unquantized velocities and seven exact f64 expressions, with conjunctive targets, explicit retrigger/release/steal/choke/completion and complete timed semantic preflight."
+limits = "One already routed endpoint, 1..128 slots, at most 1024 events/65536 frames per preflight. Same-ID address changes reject until completion/reset. Expressions update release tails; defaults are receiver policy. No MIDI/UMP/pedals, smoothing, DSP, implicit output reservation/publication or format export. Consumers budget later DSP completions and retain exclusive ownership. Local heap checks do not prove deadlines or DAW/platform support."
+sources = ["crates/ravet-instrument/src/performance.rs", "crates/ravet-instrument/src/lib.rs"]
+tests = ["crates/ravet-instrument/tests/performance.rs"]
+docs = ["docs/midi.md", "docs/decisions/0163-native-performance-voice-ownership.md"]
 
 [[feature]]
 id = "two-zone-mpe-voices"
@@ -1005,6 +1248,8 @@ sources = ["crates/ravet-osc/Cargo.toml", "crates/ravet-osc/src/lib.rs"]
 tests = ["crates/ravet-osc/tests/packets.rs"]
 docs = ["docs/osc.md", "docs/decisions/0030-osc-codecs-transport.md"]
 
+# Standalone audio devices
+
 [[feature]]
 id = "standalone-output-devices"
 title = "Standalone output audio devices"
@@ -1020,9 +1265,9 @@ id = "input-duplex-devices"
 title = "Input capture and FIFO duplex effects"
 status = "prototype"
 summary = "Explicit CPAL f32 input streams publish whole-frame prefixes to a prepared ring; duplex rendering zero-fills underflow, partitions variable callbacks and feeds portable effects."
-limits = "1..64 channels per direction, power-of-two ring 1..65536 frames, scratch up to 65536. Matching nominal rates, independently clocked/sequential streams; no drift compensation or sample-exact alignment. No automatic recovery, hotplug, MIDI/events or integrated recording."
+limits = "1..64 channels per direction, power-of-two ring 1..65536 frames, scratch up to 65536. Matching nominal rates, independently clocked/sequential streams; no drift compensation or sample-exact alignment. No automatic recovery, hotplug or MIDI/events; hidden-producer automatic recording integration is exercised synthetically, without physical recording validation."
 sources = ["crates/ravet-device/src/input.rs", "crates/ravet-device/src/lib.rs", "tools/device-probe/src/main.rs"]
-tests = ["crates/ravet-device/tests/input.rs", "crates/ravet-device/tests/output.rs", "crates/ravet-device/src/lib.rs", "tools/device-probe/src/main.rs"]
+tests = ["crates/ravet-device/tests/recording_worker.rs", "crates/ravet-device/tests/input.rs", "crates/ravet-device/tests/output.rs", "crates/ravet-device/src/lib.rs", "tools/device-probe/src/main.rs"]
 docs = ["docs/audio-devices.md", "docs/decisions/0028-input-duplex-devices.md"]
 
 [[feature]]
@@ -1065,6 +1310,8 @@ sources = ["crates/ravet-device/src/recovery.rs", "crates/ravet-device/src/clock
 tests = ["crates/ravet-device/tests/clocked.rs", "crates/ravet-device/src/recovery.rs", "crates/ravet-signal/tests/variable_resampling.rs", "tools/device-probe/src/main.rs"]
 docs = ["docs/audio-devices.md", "docs/signal-processing.md", "docs/decisions/0105-clocked-duplex-recovery.md"]
 
+# Audio files and worker transport
+
 [[feature]]
 id = "wave-streams"
 title = "Bounded WAV reading and writing"
@@ -1106,6 +1353,16 @@ tests = ["crates/ravet-audio-file/tests/compressed_stream.rs"]
 docs = ["docs/audio-files.md", "docs/decisions/0068-compressed-worker-streams.md"]
 
 [[feature]]
+id = "indexed-flac-worker-seeks"
+title = "Verified indexed native-FLAC worker seeks"
+status = "implemented"
+summary = "An explicit compressed-reader mode verifies native FLAC once, retains bounded immutable compressed packets and positions exact candidate seeks by binary search and one packet decode; existing stopped read-ahead generation replacement accepts the indexed reader."
+limits = "Native fLaC with a nonzero declared duration only; encoded input and cumulative retained packet payload independently capped at 64 MiB, index at 65,536 entries, caller frames and total interleaved samples at 16,777,216, packet capacity at 65,536 frames. Construction decodes the complete stream and checks available MD5; suffix decoders do not repeat whole-stream verification. Worker-only backend allocations, additional temporary/index memory and no total-memory/deadline guarantee. MP3/Vorbis/Ogg-FLAC/unknown-duration indexed seeks, file-backed indexing, live seek/loops, clock/resampling and physical recording remain outside this mode."
+sources = ["crates/ravet-audio-file/src/compressed_indexed.rs", "crates/ravet-audio-file/src/compressed_stream.rs", "crates/ravet-audio-file/src/compressed_buffered.rs"]
+tests = ["crates/ravet-audio-file/tests/compressed_indexed.rs", "crates/ravet-audio-file/src/compressed_indexed.rs", "crates/ravet-audio-file/tests/compressed_stream.rs", "crates/ravet-audio-file/tests/compressed_buffered.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0168-indexed-flac-worker-seeks.md"]
+
+[[feature]]
 id = "buffered-wave-workers"
 title = "Buffered WAV read-ahead and recording"
 status = "implemented"
@@ -1124,6 +1381,36 @@ limits = "Matching channels, 1..65536 scratch frames; rate/clock/thread/device s
 sources = ["crates/ravet-audio-file/src/compressed_buffered.rs", "crates/ravet-audio-file/src/compressed_stream.rs", "crates/ravet-audio-file/src/ring.rs"]
 tests = ["crates/ravet-audio-file/tests/compressed_buffered.rs"]
 docs = ["docs/audio-files.md", "docs/decisions/0069-compressed-read-ahead.md"]
+
+[[feature]]
+id = "automatic-recording-workers"
+title = "Automatic recorder worker ownership and explicit finish"
+status = "implemented"
+summary = "A control-owned automatic worker drives existing WAV/AIFF/FLAC bounded capture-ring recorders, retaining original errors/source ownership and validating reclaimed matching producer identity before bounded final drain/file finalization, including permanent hidden-producer retirement; callback capture remains prepared accepted-prefix push."
+limits = "Explicit start/stop and source format/scratch/output/count budgets; 2 ms empty-ring polling timeout, worker-specific allocations/I/O and cooperative control-only join/drop without cancellation/deadline guarantee. Producer must be stopped/reclaimed or permanently retired before finish; live/leaked producer retirement checks reject before stopping; concurrent late publication can reject or lose audio. Pump faults retain poisoned recorder/original error; consuming finalization errors and worker panic lose their sink/source and cannot claim a complete file. No physical capture/device/path/clock/drift/resampling or callback blocking/automatic drop-policy claim."
+sources = ["crates/ravet-audio-file/src/recording.rs", "crates/ravet-audio-file/src/background.rs", "crates/ravet-audio-file/src/ring.rs", "crates/ravet-audio-file/src/buffered.rs", "crates/ravet-audio-file/src/aiff_buffered.rs", "crates/ravet-audio-file/src/flac_recorder.rs"]
+tests = ["crates/ravet-audio-file/tests/recording.rs", "crates/ravet-device/tests/recording_worker.rs", "crates/ravet-audio-file/tests/automatic.rs", "crates/ravet-audio-file/tests/buffered.rs", "crates/ravet-audio-file/tests/aiff_buffered.rs", "crates/ravet-audio-file/tests/flac_recorder.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0177-automatic-recording-workers.md"]
+
+[[feature]]
+id = "automatic-read-ahead-playback"
+title = "Automatic read-ahead ownership and buffered playback"
+status = "implemented"
+summary = "A control-owned automatic worker drives WAV/AIFF/compressed read-ahead with retained backpressure; its prepared callback endpoint provides pause/play, consumed-source position, underrun silence and drained EOF. Matching stopped seek/stop joins, positions and restarts the source; shutdown reclaims source and original error."
+limits = "Explicit start and source-rate/channel playback; 1..65,536 render frames and existing ring/scratch/source bounds. Worker uses a 2 ms polling park timeout, source-specific allocations/I/O and cooperative join without cancellation/deadline guarantees. Control-only seek/stop/drop/join; no callback mailbox/live seek/streamed loop/crossfade/resampling or physical device/clock/recording guarantee. Pump/thread failures are distinct from EOF; restart failure cannot roll back completed seek generations; worker panic loses its unwound source. Custom ReadAheadPump implementations own bounded pumping, matching ownership and failed-seek contracts."
+sources = ["crates/ravet-audio-file/src/automatic.rs", "crates/ravet-audio-file/src/background.rs", "crates/ravet-audio-file/src/buffered.rs", "crates/ravet-audio-file/src/compressed_buffered.rs", "crates/ravet-audio-file/src/aiff_buffered.rs"]
+tests = ["crates/ravet-audio-file/tests/automatic.rs", "crates/ravet-audio-file/tests/aiff_buffered.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0171-automatic-read-ahead-playback.md"]
+
+[[feature]]
+id = "aiff-pcm-worker-adapters"
+title = "AIFF PCM read-ahead and recording adapters"
+status = "implemented"
+summary = "Concrete AIFF read-ahead and recorder wrappers share prepared PCM handoff mechanics with WAV, retain backpressure suffixes, preserve stopped seek generations and finalize bounded ring drains; automatic worker/playback ownership accepts AIFF sources."
+limits = "AIFF uncompressed PCM16/24/32 and existing stream/FORM bounds; matching channels and 1..65,536 scratch frames within reader capacity. Worker/control-only file I/O/seek/finish/drop; stopped producer required before one-ring-capacity final drain. Dequeued recording validation/write failures poison future pump/finish and may leave partial files. No AIFF-C/metadata/markers/new widths/resampling/device/path/physical recording/deadline guarantee."
+sources = ["crates/ravet-audio-file/src/aiff_buffered.rs", "crates/ravet-audio-file/src/pcm_buffered.rs", "crates/ravet-audio-file/src/buffered.rs"]
+tests = ["crates/ravet-audio-file/tests/aiff_buffered.rs", "crates/ravet-audio-file/tests/buffered.rs", "crates/ravet-audio-file/tests/automatic.rs", "crates/ravet-audio-file/tests/aiff.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0173-aiff-pcm-worker-adapters.md"]
 
 [[feature]]
 id = "worker-flac-encoding"
@@ -1165,15 +1452,17 @@ sources = ["crates/ravet-audio-file/src/playback.rs", "crates/ravet-audio-file/e
 tests = ["crates/ravet-audio-file/tests/playback.rs"]
 docs = ["docs/audio-files.md", "docs/decisions/0038-memory-playback-transport.md"]
 
+# Reusable editors, controls and drawing
+
 [[feature]]
 id = "native-web-editor"
 title = "Native web editor backends"
 status = "prototype"
-summary = "Local HTML editors use Cocoa/WebKit, Windows HWND/WebView2 or Linux X11/WebKitGTK with finite backing colours, bounded JSON messages, coalesced snapshots and explicit teardown. Cocoa editor views accept initial drags from inactive windows."
-limits = "C++ API on all three platforms; the separate Cargo Rust binding remains macOS only. Caller owns the UI loop and callback lifetime. Linux requires GTK3 X11/XWayland, WebKitGTK 4.1 >=2.40 and UI-thread GLib pumping; an existing Wayland GTK context is rejected. Loaded SWELL hosts must provide cooperative LOAD_GTK initialization or editor creation is rejected. Windows requires the WebView2 loader and installed runtime; creation is asynchronous. 50 ms polling, one evaluation in flight, 65,536-byte JSON and 1 MiB inline HTML limits. Linux software painting is selectable with RAVET_WEB_LINUX_SOFTWARE_RENDERING (default OFF); UI CPU cost is unmeasured. Linux lifecycle evidence in local Ubuntu containers and native Omarchy/XWayland, Windows compile evidence only, macOS native probes; no DAW or deadline support claim."
+summary = "Local HTML editors use Cocoa/WebKit, Windows HWND/WebView2 or Linux X11/WebKitGTK with finite backing colours, bounded JSON messages, coalesced snapshots and explicit teardown. Cocoa editor views accept initial drags from inactive windows. WebKit browser context menus are suppressed in all frames while consumer right-click actions still receive events."
+limits = "C++ API on all three platforms; the separate Cargo Rust binding remains macOS only. Caller owns the UI loop and callback lifetime. Linux requires GTK3 X11/XWayland, WebKitGTK 4.1 >=2.40 and UI-thread GLib pumping; an existing Wayland GTK context is rejected. Loaded SWELL hosts must provide cooperative LOAD_GTK initialization or editor creation is rejected. Windows requires the WebView2 loader and installed runtime; creation is asynchronous. 50 ms polling, one evaluation in flight, 65,536-byte JSON and 1 MiB inline HTML limits. WebKit context-menu suppression has no native opt-out; macOS synthetic DOM evidence only, Linux runtime validation pending. Windows context-menu policy is unchanged. Linux software painting is selectable with RAVET_WEB_LINUX_SOFTWARE_RENDERING (default OFF); UI CPU cost is unmeasured. Linux lifecycle evidence in local Ubuntu containers and native Omarchy/XWayland, Windows compile evidence only, macOS native probes; no DAW or deadline support claim."
 sources = ["crates/ravet-surface/native/RavetWebView.h", "crates/ravet-surface/native/RavetWebView.mm", "crates/ravet-surface/native/RavetWebViewLinux.cpp", "crates/ravet-surface/native/RavetWebViewWindows.cpp", "crates/ravet-surface/native/mingw/EventToken.h", "crates/ravet-surface/native/CMakeLists.txt"]
-tests = ["crates/ravet-surface/native/tests/lifecycle.mm", "crates/ravet-surface/native/tests/first-mouse.mm", "crates/ravet-surface/native/tests/editor.html", "crates/ravet-surface/native/tests/portable.cpp", "crates/ravet-surface/native/tests/portable.html", "crates/ravet-surface/native/tests/linux-host-gtk.cpp", "crates/ravet-surface/native/tests/linux-host-gtk-shim.cpp", "crates/ravet-surface/native/tests/linux-paint.cpp"]
-docs = ["docs/native-editor.md", "docs/decisions/0005-native-web-editor.md", "docs/decisions/0014-cross-platform-native-web.md"]
+tests = ["crates/ravet-surface/native/tests/lifecycle.mm", "crates/ravet-surface/native/tests/context-menu.mm", "crates/ravet-surface/native/tests/context-menu.html", "crates/ravet-surface/native/tests/first-mouse.mm", "crates/ravet-surface/native/tests/editor.html", "crates/ravet-surface/native/tests/portable.cpp", "crates/ravet-surface/native/tests/portable.html", "crates/ravet-surface/native/tests/linux-host-gtk.cpp", "crates/ravet-surface/native/tests/linux-host-gtk-shim.cpp", "crates/ravet-surface/native/tests/linux-paint.cpp"]
+docs = ["docs/native-editor.md", "docs/decisions/0005-native-web-editor.md", "docs/decisions/0014-cross-platform-native-web.md", "docs/decisions/0205-webkit-context-menus.md"]
 
 [[feature]]
 id = "native-editor-binding"
@@ -1209,11 +1498,42 @@ docs = ["docs/native-editor.md", "docs/project-starters.md", "docs/decisions/013
 id = "reusable-web-controls"
 title = "Reusable local web controls"
 status = "prototype"
-summary = "Shared slider/number, linear/logarithmic rotary knob, polyphonic piano keyboard, toggle, choice, action-button and meter components provide explicit gestures/actions, held-key ownership, nonfeedback host refresh and retryable disposal; piano chords/glissando share lifecycle release, disabled keys remain opaque and meter text retains actual overload levels. Shared styles prevent UI label/body text selection while keeping editable fields and code output selectable."
+summary = "Shared slider/number, linear/logarithmic rotary knob, polyphonic piano keyboard, toggle, choice, action-button and meter components provide explicit gestures/actions, held-key ownership, nonfeedback host refresh and retryable disposal; piano chords/glissando share lifecycle release, disabled keys remain opaque and meter text retains actual overload levels. Shared styles prevent UI label/body text selection while keeping editable fields and code output selectable. Knob and slider/fader pointer gestures leave numeric editing, suppress label activation and pointer focus outlines, and preserve direct number entry and keyboard focus styling."
 limits = "Trusted inline documents up to 1 MiB; physical slider/knob values with optional logarithmic knob travel, 256 choices and 32-bit IDs. Meter labels 256 and formatter text 4096 JavaScript units; finite nonnegative readings. Consumer owns DOM labels/layout/theme, host schema/queue policy and asynchronous errors. Piano note bounds 0..127 with white endpoints and up to 128 external notes. Native macOS WebKit programmatic and browser keyboard evidence; no assistive-tech audit or complete native widget toolkit/platform claim."
 sources = ["crates/ravet-surface/src/web_controls.rs", "crates/ravet-surface/web/controls.js", "crates/ravet-surface/web/theme.css", "examples/gain-clap/editor/index.html", "examples/gain-clap/src/gui.rs"]
-tests = ["tools/editor-smoke/src/main.rs", "examples/tutorials/src/ui/mod.rs"]
+tests = ["tools/editor-smoke/src/main.rs", "examples/tutorials/src/ui/mod.rs", "crates/ravet-surface/native/tests/control-semantics.js", "crates/ravet-surface/native/tests/control-semantics.mm"]
 docs = ["docs/web-controls.md", "docs/decisions/0034-reusable-web-controls.md", "docs/decisions/0071-meter-text-and-held-keys.md"]
+
+[[feature]]
+id = "paragraph-source-caret-selection"
+title = "Prepared paragraph source carets, hit tests and selections"
+status = "implemented"
+summary = "Immutable source identity and extended-grapheme boundaries map shaped cluster advances to bidi/wrap-aware affinity carets, finite hit tests and transactional caller-buffer selection pen boxes."
+limits = "Optional text feature; UI/worker preparation allocates, prepared lookup/hit/selection do not. 4096 input bytes/8194 affinity positions/4096 cells; Unicode17 graphemes separate from Unicode15 breaks/Unicode16 bidi. Monotone grapheme-aligned backend clusters only; equal-grapheme ligature interpolation, no GDEF or ink measurement. No interactive text editor/IME/clipboard/undo/native caret, screenreader, deadline or complete Unicode support."
+sources = ["crates/ravet-surface/src/caret.rs", "crates/ravet-surface/src/paragraph.rs", "crates/ravet-surface/Cargo.toml", "crates/ravet-surface/examples/paragraph-carets.rs"]
+tests = ["crates/ravet-surface/tests/caret.rs", "crates/ravet-surface/tests/paragraph.rs", "crates/ravet-surface/tests/fixtures/caret/generate.py"]
+docs = ["docs/surface-drawing.md", "docs/decisions/0175-grapheme-caret-selection.md", "crates/ravet-surface/tests/fixtures/caret/README.md", "LICENSING.md"]
+
+[[feature]]
+id = "local-font-paragraph-layout"
+title = "Bounded local-font paragraph wrapping and SVG outlines"
+status = "implemented"
+summary = "Explicit width, baseline spacing and physical alignment compose Unicode line opportunities with retained paragraph bidi context, source byte clusters and transactional TrueType SVG outlines."
+limits = "Optional text feature, one explicit local font, UI/worker allocation; 4096 input bytes/256 lines/512 visual runs/16384 glyphs. Unicode15 line opportunities and separate Unicode16 bidi; greedy first-overflow wrapping retains unbreakable overflow and whitespace. No implicit fallback, dictionary breaks/hyphenation/justification, rich text/interactive editor/native/GPU, assistive-technology or deadline claim."
+sources = ["crates/ravet-surface/src/paragraph.rs", "crates/ravet-surface/src/drawing.rs", "crates/ravet-surface/Cargo.toml", "crates/ravet-surface/examples/paragraph-outlines.rs"]
+tests = ["crates/ravet-surface/tests/paragraph.rs", "crates/ravet-surface/tests/text.rs", "crates/ravet-surface/tests/paths.rs", "crates/ravet-surface/tests/bidi.rs"]
+docs = ["docs/surface-drawing.md", "docs/decisions/0172-bounded-paragraph-layout.md", "LICENSING.md"]
+
+[[feature]]
+id = "bounded-web-composite-focus"
+title = "Bounded composite focus and piano keyboard ownership"
+status = "implemented"
+summary = "Explicit local DOM composites supply one roving Tab stop with directional navigation; the shared piano preserves play-key sources and releases notes on focus, visibility, removal and teardown."
+limits = "UI-thread local DOM only: 1..256 fixed distinct members, explicit orientation/RTL/wrapping, consumer roles/labels/activation, live owner-window lifetime and stylesheet-change refresh. Expanded Chromium and hidden macOS WebKit contracts passed; no visual focus, screen-reader, other-platform runtime or deadline certification."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs", "crates/ravet-surface/native/CMakeLists.txt"]
+tests = ["crates/ravet-surface/native/tests/focus.html", "crates/ravet-surface/native/tests/focus.js", "crates/ravet-surface/native/tests/focus.mm"]
+docs = ["docs/web-controls.md", "docs/decisions/0169-bounded-web-focus.md"]
+
 
 [[feature]]
 id = "portable-visual-mechanisms"
@@ -1295,6 +1615,8 @@ sources = ["examples/gain-clap/src/editor.rs", "examples/gain-clap/src/lib.rs", 
 tests = ["examples/gain-clap/src/editor.rs", "examples/gain-clap/src/control_tests.rs", "examples/gain-clap/tests/state.rs"]
 docs = ["docs/editor-control.md", "docs/decisions/0012-clap-complete-state-and-edits.md", "docs/decisions/0015-continuous-editor-gestures.md"]
 
+# Control-thread runtime and data services
+
 [[feature]]
 id = "runtime-services"
 title = "Rust control-thread runtime services"
@@ -1345,6 +1667,8 @@ sources = ["crates/ravet-runtime/src/analytics.rs"]
 tests = ["crates/ravet-runtime/tests/analytics.rs"]
 docs = ["docs/runtime-services.md", "docs/decisions/0041-opt-in-analytics.md"]
 
+# Reference processors and format wrappers
+
 [[feature]]
 id = "clap-gain-export"
 title = "CLAP gain plug-in"
@@ -1366,13 +1690,53 @@ tests = ["tools/vst3-validation/contracts.cpp", "examples/gain-native/src/lib.rs
 docs = ["docs/vst3.md", "docs/decisions/0021-vst3-gain-native.md", "docs/decisions/0067-vst3-native-f64.md"]
 
 [[feature]]
+id = "auv3-native-adapter"
+title = "Native AUv3 processor and parameter editor"
+status = "prototype"
+summary = "A paired f32 native processor/state entry renders through AUAudioUnit with physical global parameters, timed changes/continuing ramps, host bypass, complete live state, transport and opt-in MIDI/UMP input, plus a native parameter editor and embedded extension fixture."
+limits = "One main bus, up to 128 parameters/64 channels per direction, public mono/stereo Gain; bounded 1024 links and 1024 minus parameter-count flattened events. macOS arm64 and iOS simulator in-process evidence; no extension discovery/IPC, DAW, physical device, production signing or deadline claim. Auxiliary buses, generated output, factory presets, SysEx and instrument reference remain pending."
+sources = ["native/apple/RavetAudioUnit.h", "native/apple/RavetAudioUnit.mm", "native/apple/RavetParameterViewController.mm", "native/common/RavetNativeSession.hpp", "examples/gain-auv3/CMakeLists.txt", "examples/gain-auv3/Extension.mm", "scripts/build-mobile.py"]
+tests = ["tools/auv3-validation/contracts.mm"]
+docs = ["docs/mobile.md", "docs/decisions/0153-auv3-mobile-native-adapters.md"]
+
+[[feature]]
+id = "apple-mobile-standalone"
+title = "Apple mobile standalone effect host"
+status = "prototype"
+summary = "An explicit AVAudioEngine/AVAudioSession owner hosts a native effect with microphone permission, preferred device settings, interruption/route/reset rebuilding, retained state and selected CoreMIDI input; the public iOS/iPadOS Gain app exposes native Audio/MIDI settings and consumer-selected deployment minimums."
+limits = "iOS/iPadOS 17 arm64/device and arm64 simulator builds; iPhone simulator UI launch and in-process AU contracts only. Physical routing/interruptions/MIDI and extension IPC remain unvalidated; no production provisioning or deadline claim. Matched mono/stereo Gain; its MIDI profile is disabled. Background audio and persisted app sessions remain pending."
+sources = ["native/apple/RavetMobileAudio.h", "native/apple/RavetMobileAudio.mm", "examples/gain-mobile/apple/main.mm", "examples/gain-mobile/apple/Info.plist.in", "scripts/build-mobile.py"]
+tests = ["tools/auv3-validation/contracts.mm", "scripts/tests/test_mobile.py"]
+docs = ["docs/mobile.md", "docs/decisions/0153-auv3-mobile-native-adapters.md"]
+
+[[feature]]
+id = "android-mobile-standalone"
+title = "Android standalone audio and MIDI host"
+status = "prototype"
+summary = "An explicit AAudio f32 effect owner provides prepared planar conversion/chunking, nonblocking capture reads with shortage silence/counters, atomic error handoff, stopped retirement and a bounded immediate MIDI queue; the public foreground app exposes permission/audio-focus and Audio/MIDI settings, with consumer-selected minimum API, compile/target SDK and build-tools."
+limits = "Android API 26 arm64 native cross-build, warning-free Java and aligned development APK signature evidence; scripted AAudio-double lifecycle tests only, no Android execution/device/deadline claim. Equal input/output rates/channels, no clock drift conversion; Gain mono/stereo, immediate MIDI 1 input, explicit Start recovery, no SysEx/MIDI 2/background audio or persisted app sessions."
+sources = ["native/android/RavetAAudio.hpp", "native/common/RavetNativeSession.hpp", "examples/gain-mobile/android/native.cpp", "examples/gain-mobile/android/CMakeLists.txt", "examples/gain-mobile/android/app/src/main/java/org/ravet/gain/MainActivity.java", "scripts/build-mobile.py", ".github/workflows/mobile.yml"]
+tests = ["scripts/tests/test_mobile.py", "tools/mobile-validation/contracts.cpp", "tools/mobile-validation/include/aaudio/AAudio.h"]
+docs = ["docs/mobile.md", "docs/decisions/0153-auv3-mobile-native-adapters.md"]
+
+[[feature]]
+id = "auv2-performance-instrument"
+title = "Public AUv2 native performance instrument bundle"
+status = "prototype"
+summary = "A public zero-input mono/stereo f32 MusicDevice component embeds the native performance VST3 reference, supplies full-width validated timed MIDI and fractional identified notes, sample-offset Level control, coherent canonical state preflight and supported caller silence on rejected rendering; an explicit shared bundler packages and validates the actual component."
+limits = "macOS arm64 in-process actual component evidence only. 16 voices, 1024 expanded events minus one reserved state slot, serialized callbacks and 1..65536 prepared frames. Positive opaque StartNote IDs permit 1048575 nonreused generations per component lifetime. No SysEx/MIDI2/pedal/pitch-bend/expression/program/editor, DAW/auval/device/sandbox/deadline or production distribution claim. External SDK sources stay outside RAVET; no global installation."
+sources = ["crates/ravet-native/include/RavetAuAudio.hpp", "crates/ravet-native/include/RavetAuParameters.hpp", "crates/ravet-native/include/RavetAuState.hpp", "examples/performance-au/PerformanceAU.mm", "examples/performance-au/CMakeLists.txt", "examples/performance-au/Info.plist.in", "scripts/bundle-au.py", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/audio.cpp", "tools/au-validation/native-parameters.cpp", "tools/au-validation/performance.mm", "scripts/tests/test_au_bundle.py"]
+docs = ["docs/native-au.md", "docs/performance-au.md", "examples/performance-au/README.md", "docs/decisions/0174-auv2-native-performance-instrument.md"]
+
+[[feature]]
 id = "audio-unit-v2"
 title = "AudioUnit v2 gain reference"
 status = "prototype"
 summary = "An external SDK wrapper embeds the Rust-backed VST3 gain bundle in a local AUv2 component with normalized controls, stereo rendering, dry host bypass and gain preset recall."
 limits = "macOS arm64 actual-bundle AudioComponent tests only; host bypass is preserved during preset recall. No custom editor, AUv3, DAW discovery, auval, sandbox runtime, production signing or deadline claim. SDKs remain external; no global installation."
-sources = ["examples/gain-au/Info.plist.in", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-au.py"]
-tests = ["tools/au-validation/contracts.mm"]
+sources = ["examples/gain-au/Info.plist.in", "examples/gain-vst3/CMakeLists.txt", "scripts/bundle-au.py", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/contracts.mm", "scripts/tests/test_au_bundle.py"]
 docs = ["docs/audio-unit.md", "docs/decisions/0022-auv2-reference.md"]
 
 [[feature]]
@@ -1389,17 +1753,47 @@ docs = ["docs/aax.md", "docs/decisions/0023-native-format-references.md"]
 id = "lv2-reference"
 title = "LV2 gain reference"
 status = "prototype"
-summary = "Distinct mono/stereo LV2 descriptors use shared Rust gain DSP, block-start gain/bypass controls and host-persisted control-port state with local Turtle metadata."
-limits = "macOS arm64 actual-binary tests; Linux branch unvalidated, Windows unsupported. No atom ports, sample-timed automation, MIDI, custom UI, extra state payload, DAW discovery or hard real-time claim. External LV2 headers; 65,536 maximum frames."
-sources = ["examples/gain-lv2/gain.cpp", "examples/gain-lv2/CMakeLists.txt", "examples/gain-lv2/manifest.ttl", "examples/gain-lv2/gain.ttl", "scripts/bundle-lv2.py"]
-tests = ["tools/lv2-validation/contracts.cpp"]
+summary = "Mono/stereo public Gain descriptors use the native f32 processor, cached schema controls and coherent portable LV2 state extension with actual-library lifecycle/audio/state validation."
+limits = "External LV2 headers and native 64-bit publication required. Block-start physical control ports; no Atom/MIDI/UI/f64/auxiliary/DAW/Linux-runtime claim. State requires optional host URID map; restore is serialized, save may fail on contention, and no hard real-time feature is advertised."
+sources = ["examples/gain-lv2/gain.cpp", "examples/gain-lv2/CMakeLists.txt", "examples/gain-lv2/manifest.ttl", "examples/gain-lv2/gain.ttl", "scripts/bundle-lv2.py", "crates/ravet-native/include/RavetLv2Processor.hpp"]
+tests = ["tools/lv2-validation/contracts.cpp", "tools/lv2-validation/state.cpp"]
 docs = ["docs/lv2.md", "docs/decisions/0023-native-format-references.md"]
+
+[[feature]]
+id = "lv2-native-midi-note-input"
+title = "Bounded LV2 Atom MIDI note input"
+status = "prototype"
+summary = "An external-SDK adapter preflights a complete ordered Atom sequence before mapping MIDI1 short notes with normalized velocity and channel/key release scopes into caller-owned native events."
+limits = "Live aligned foreign sequence storage; frame-time/default units, 64 KiB body/1024 raw events. Zero-velocity note-on releases; defined other short MIDI and bounded unknown Atoms are ignored after validation. No invented per-note identities, running status, SysEx, expressions, MIDI2, Atom output or DAW/Linux/deadline claim."
+sources = ["crates/ravet-native/include/RavetLv2NoteInput.hpp", "crates/ravet-native/include/RavetLv2Processor.hpp"]
+tests = ["tools/lv2-validation/performance.cpp"]
+docs = ["docs/lv2.md", "docs/decisions/0170-lv2-midi-performance-instrument.md"]
+
+[[feature]]
+id = "lv2-performance-instrument"
+title = "Public LV2 MIDI performance instrument bundle"
+status = "prototype"
+summary = "A public zero-input mono/stereo f32 LV2 instrument connects bounded Atom MIDI notes, generic Level control and canonical complete state to the native performance archive; an explicit bundler packages metadata/module/notices and validates the selected binary."
+limits = "Required cached URID map, 1024 merged notes/control/restore events and 65536 prepared frames. Transactional failure preserves voice history/pending recall. No f64, expressions/pedals/pitch, custom UI, Atom output, DAW/Linux-runtime/device or deadline claim; local macOS ARM actual-module evidence only. No host installation or production signing."
+sources = ["examples/performance-lv2/performance.cpp", "examples/performance-lv2/manifest.ttl", "examples/performance-lv2/performance.ttl", "examples/gain-lv2/CMakeLists.txt", "scripts/bundle-lv2.py", "scripts/lv2_bundle.py"]
+tests = ["tools/lv2-validation/performance.cpp", "scripts/tests/test_lv2_bundle.py"]
+docs = ["examples/performance-lv2/README.md", "docs/lv2.md", "docs/decisions/0170-lv2-midi-performance-instrument.md"]
+
+[[feature]]
+id = "lv2-native-control-state"
+title = "Reusable LV2 native processing and complete state"
+status = "prototype"
+summary = "An external-header C++17 helper validates native processor/cache/publication companions, maps bounded writable physical schema controls and offers coherent canonical state save/serialized restore for f32 main-bus consumers."
+limits = "One main input/output bus, 1..64 channels bounded by the template, 1..1024 writable controls and 65536 frames. State needs cached URID mapping; no threadSafeRestore, Atom/MIDI/UI/f64/auxiliary profile or hardRT declaration. Contended save can fail after one attempt; C++ heap counts alone do not prove all backend allocation/deadline behavior. Local actual-binary macOS evidence does not establish Linux/DAW support."
+sources = ["crates/ravet-native/include/RavetLv2Processor.hpp", "examples/gain-lv2/gain.cpp"]
+tests = ["tools/lv2-validation/state.cpp", "tools/lv2-validation/contracts.cpp"]
+docs = ["docs/lv2.md", "docs/decisions/0167-lv2-native-schema-state.md"]
 
 [[feature]]
 id = "sidechain-clap-reference"
 title = "Native precision sidechain CLAP reference"
 status = "prototype"
-summary = "A stateless stereo fixed-threshold gate exports main input/output plus an input-only mono auxiliary detector in native f32/f64."
+summary = "A stateless stereo fixed-threshold gate exports main input/output plus an input-only mono auxiliary detector in native f32/f64; its distinct validate-sidechain executable checks the actual public bundle."
 limits = "Threshold 0.1, no parameters/state/custom editor; nonfinite detector closes gate. Two prepared precision bridges, selected common size per callback. Linked/built ABI and validator plus isolated REAPER 7.82 auxiliary render pass within recorded scope; host precision was not measured. General host/device/deadline support remains pending."
 sources = ["examples/sidechain-clap/Cargo.toml", "examples/sidechain-clap/src/lib.rs", "scripts/bundle-clap.py"]
 tests = ["examples/sidechain-clap/tests/host.rs", "examples/sidechain-clap/tests/support/mod.rs", "examples/sidechain-clap/examples/validate.rs", "tools/reaper-validation/sidechain.lua", "tools/reaper-validation/check-sidechain-render.py", "scripts/tests/test_sidechain_render.py"]
@@ -1409,7 +1803,7 @@ docs = ["docs/sidechain-clap.md", "docs/decisions/0058-clap-auxiliary-buses.md"]
 id = "sine-clap-instrument"
 title = "MIDI sine CLAP instrument reference"
 status = "prototype"
-summary = "The portable 16-voice sine reference exports stereo audio without input, timed MIDI notes/controllers, stable level, atomic state recall, generic host controls and infinite held-note tail."
+summary = "The portable 16-voice sine reference exports stereo audio without input, timed MIDI notes/controllers, stable level, atomic state recall, generic host controls and infinite held-note tail; validate-sine checks its public bundle with a distinct executable name."
 limits = "Stereo f32/MIDI dialect only; no custom editor, CLAP note-ID/modulation, SysEx/UMP, auxiliary audio or f64 export. Persists level only; notes/controller/RPN performance state transient. macOS arm64 ABI/validator and REAPER 7.82 synthetic MIDI/audio/state/automation pass with silent hardware sends; other targets/DAWs pending. Development signing only."
 sources = ["examples/sine-clap/Cargo.toml", "examples/sine-clap/src/lib.rs", "scripts/bundle-clap.py"]
 tests = ["examples/sine-clap/tests/host.rs", "examples/sine-clap/tests/support/mod.rs", "examples/sine-clap/src/lib.rs", "examples/sine-clap/examples/validate.rs", "tools/reaper-validation/sine-instrument.lua"]
@@ -1426,6 +1820,36 @@ tests = ["examples/gain/tests/processing.rs", "examples/gain/tests/precision64.r
 docs = ["docs/getting-started.md", "docs/parameters.md", "docs/decisions/0001-portable-processing.md", "docs/decisions/0065-native-f64-gain.md"]
 
 [[feature]]
+id = "native-performance-sine-instrument"
+title = "Native-precision identified performance sine reference"
+status = "implemented"
+summary = "An independent f32/f64 mono/stereo instrument applies exact native voice values with timed ADSR, volume/expression, balance, tuning and vibrato, committing private candidate rendering and original-target completions only after whole success."
+limits = "1..128 slots,65536 frames/1024 input/output events, no auxiliary buses. Positive output capacity enables bounded NoteEnd; zero suppresses notifications. Pressure/brightness are exact readable state without timbre shaping. Other parameters/MIDI/UMP/incoming completion and transport are ignored after validation. Level/schema only; no pedals, MIDI conversion, programs/codec/editor/native facade/format export or deadline/platform claim. Preparation allocates; candidate state and process/reset avoid heap actions."
+sources = ["crates/ravet-instrument/src/performance_sine.rs", "crates/ravet-instrument/src/lib.rs", "crates/ravet-instrument/src/synthesis.rs"]
+tests = ["crates/ravet-instrument/tests/performance_sine.rs"]
+docs = ["docs/midi.md", "docs/decisions/0164-transactional-performance-sine.md"]
+
+[[feature]]
+id = "native-performance-reference"
+title = "Public native identified-performance reference"
+status = "prototype"
+summary = "A separate public 16-voice f32/f64 archive consumes generic native processor/schema/cache/audio-state and optional live-publication tables with distinct entry symbols, canonical global level state and bounded original-target completion."
+limits = "Mono/stereo no-input buses without auxiliaries,65536 frames/1024 input and output events; optional notifications and portable sine policy. State saves level only, not voices/history. Live publication requires native64-bit atomics; caller owns separate state/render scheduling. No SDK factory/controller advertisement/editor/DAW/device/deadline/other-platform claim."
+sources = ["examples/performance-native/Cargo.toml", "examples/performance-native/src/lib.rs", "examples/performance-native/include/RavetPerformance.h"]
+tests = ["tools/native-validation/performance.cpp", "crates/ravet-instrument/tests/performance_sine.rs"]
+docs = ["examples/performance-native/README.md", "docs/native-processing.md", "docs/decisions/0165-public-native-performance-reference.md"]
+
+[[feature]]
+id = "vst3-performance-instrument-reference"
+title = "Public VST3 performance instrument"
+status = "prototype"
+summary = "A separate 16-voice public VST3 reference adopts native f32/f64 no-input rendering, timed identified notes, five audible note-expression declarations, canonical transactional level recall and explicit profile-aware local bundle packaging/validation."
+limits = "External SDK, native 64-bit lock-free atomics and mono/stereo profile required. One shared 1024-event budget includes recall/tuning expansion; unsupported selected payloads reject. Brightness/pressure are stored without timbre changes. No generated completion bus, custom editor, programs, MIDI CC mapping or broader platform/device/deadline claim. Local SDK validation is separate from DAW evidence."
+sources = ["examples/performance-vst3/src/performance.cpp", "scripts/bundle-vst3.py", "scripts/vst3_bundle.py", "examples/gain-vst3/CMakeLists.txt", "examples/performance-native/src/lib.rs"]
+tests = ["scripts/tests/test_vst3_bundle.py", "tools/vst3-validation/performance_instrument.cpp", "tools/reaper-validation/performance-instrument.lua", "tools/reaper-validation/check-performance-render.py", "tools/reaper-validation/test_checks.py"]
+docs = ["docs/decisions/0176-public-vst3-profile-bundling.md", "examples/performance-vst3/README.md", "docs/vst3.md", "docs/host-validation.md", "docs/decisions/0166-vst3-performance-instrument.md"]
+
+[[feature]]
 id = "portable-sine-instrument"
 title = "Portable sine instrument reference"
 status = "implemented"
@@ -1440,7 +1864,7 @@ id = "native-gain-abi"
 title = "Native ABI for shared reference DSP"
 status = "prototype"
 summary = "A Rust static library exposes exclusively owned gain lifecycle, prepared scratch processing and pure complete/legacy state codecs to native reference format wrappers."
-limits = "Public gain reference only, separate 1..2 f32/f64 handles, 65,536 frames and 1,024 f32 parameter events. Foreign pointers/ranges and serialized ownership are caller obligations. Normal Rust callback heap behavior tested; native allocations/deadlines are outside that evidence."
+limits = "Public gain reference only, separate 1..2 f32/f64 handles, 65,536 frames and 1,024 f32 parameter events. Shared native adapter uses at most 1 MiB f32/2 MiB f64 copied-input/output audio scratch plus events; processing panic poisons until fresh preparation. Foreign pointers/ranges and serialized ownership are caller obligations. Normal Rust callback heap behavior tested; native allocations/deadlines are outside that evidence."
 sources = ["examples/gain-native/Cargo.toml", "examples/gain-native/src/lib.rs", "examples/gain-native/include/RavetGain.h", "tools/native-validation/CMakeLists.txt"]
 tests = ["examples/gain-native/src/lib.rs", "examples/gain-native/src/precision64_tests.rs", "tools/native-validation/gain64.cpp", "tools/vst3-validation/contracts.cpp"]
 docs = ["docs/vst3.md", "docs/decisions/0021-vst3-gain-native.md", "docs/decisions/0066-native-f64-gain-abi.md"]
@@ -1575,6 +1999,8 @@ sources = ["examples/gain-vst3/src/gain.cpp", "examples/gain-vst3/editor/index.h
 tests = ["tools/au-validation/editor.mm", "tools/au-validation/contracts.mm", "tools/au-validation/programs.mm"]
 docs = ["docs/audio-unit.md", "docs/decisions/0100-auv2-meter-transfer.md"]
 
+# Teaching examples and project starters
+
 [[feature]]
 id = "small-feature-examples"
 title = "Small synth, effect and expressive MIDI examples"
@@ -1625,6 +2051,28 @@ sources = ["scripts/new-project.py", "templates/offline-gain/main.rs"]
 tests = ["scripts/tests/test_projects.py", "templates/offline-gain/main.rs"]
 docs = ["docs/project-starters.md", "docs/decisions/0036-independent-project-starters.md"]
 
+# Development and validation tools
+
+[[feature]]
+id = "embedded-project-starters"
+title = "Independent embedded and Pi Linux starters"
+status = "implemented"
+summary = "Explicit embedded-rust, arduino and pi-linux generator kinds create separate consumer projects with no_std libraries, a local C++ sketch/library or headless Linux fixture."
+limits = "Existing offline default and repository/existing-destination protections retained. Local paths/copied headers require deliberate updates. No startup/HAL/linker/codec/DMA/device/UI integration or toolchain installation. Pi target follows OS bitness; Arduino sketch compile/link checked in the recorded environment; board runtime/flashing and workload suitability unvalidated."
+sources = ["scripts/new-project.py", "templates/embedded/lib.rs", "embedded/arduino/library.properties"]
+tests = ["scripts/tests/test_projects.py", "templates/embedded/lib.rs"]
+docs = ["docs/project-starters.md", "docs/embedded-projects.md"]
+
+[[feature]]
+id = "foundry-project-management"
+title = "RAVET Foundry project creation and builds"
+status = "prototype"
+summary = "A RAVET-native wizard and shared Rust CLI create independent offline, standalone and effect/instrument plug-in workspaces, reopen versioned TOML settings, preserve consumer source during conflict-checked regeneration and run explicit background builds/local bundles with native directory pickers."
+limits = "Local checkout paths, offline/application/plug-in templates, immutable package/kind/processing role, bounded settings/messages/logs and one worker. Seven whitelisted directory fields, <=4096-byte paths, native modal choosers with transient sequenced selection and unchanged cancellation; macOS chooser/bridge evidence, Windows/Linux execution pending. Effect CLAP/VST3/AUv2/AUv3/AAX/LV2 and instrument CLAP/VST3/AUv2/LV2 reference adapters; external SDKs and native CMake3.25. Standalone/custom effect editor use macOS Rust window bindings. Windows x64 MSVC and Linux GTK3/WebKitGTK4.1/X11 native Foundry launchers/source-build guides supplied; target runtime validation pending. Per-file replacement, no group crash atomicity or protection against external writers; closing cancels direct child only. No MPE/component/module/platform chooser, instrument AAX/AUv3 exporters, cross/universal builds, global installation, production signing or platform/DAW/deadline claim."
+sources = ["tools/foundry/Cargo.toml", "tools/foundry/src/lib.rs", "tools/foundry/src/project.rs", "tools/foundry/src/templates.rs", "tools/foundry/src/native_templates.rs", "tools/foundry/src/exports.rs", "tools/foundry/native/plugin.cmake", "media/ravet_LOGO.svg", "tools/foundry/src/controller.rs", "tools/foundry/src/directories.rs", "tools/foundry/src/picker.rs", "tools/foundry/build.rs", "tools/foundry/native/DirectoryPicker.mm", "tools/foundry/native/DirectoryPicker.cpp", "tools/foundry/native/DirectoryPicker.h", "tools/foundry/src/ffi.rs", "tools/foundry/src/main.rs", "tools/foundry/web/index.html", "tools/foundry/native/main.cpp", "tools/foundry/CMakeLists.txt"]
+tests = ["tools/foundry/tests/projects.rs", "tools/foundry/src/main.rs", "scripts/check-foundry.py"]
+docs = ["docs/foundry.md", "docs/project-starters.md", "docs/decisions/0194-foundry-project-management.md"]
+
 [[feature]]
 id = "heap-instrumentation"
 title = "Processing heap instrumentation"
@@ -1674,6 +2122,238 @@ limits = "Requires isolated pinned Python tooling; API generation retains Rust/n
 sources = ["mkdocs.yml", "scripts/docs.py", "scripts/docs/site.py", "scripts/docs/requirements.txt", ".github/workflows/documentation.yml"]
 tests = ["scripts/tests/test_docs_site.py"]
 docs = ["docs/documentation-site.md", "docs/decisions/0124-live-documentation.md"]
+
+[[feature]]
+id = "local-video-worker-frames"
+title = "Explicit bounded local-video worker frames"
+status = "prototype"
+summary = "A separate macOS reader opens selected local video, reports first-track oriented metadata and extracts independently timestamped complete owned RGBA frames through a private AVFoundation boundary."
+limits = "Thread-confined UI/worker API, UTF8 paths <=4096 bytes, regular files <=2 GiB, duration (0,24h], oriented dimensions 1..4096 and returned pixels <=64 MiB. Native decode allocations/I/O/time are not globally bounded. Codec/container/color conversion follow OS; requested zero timestamp tolerance may reject between-frame positions. No whole-file integrity, automatic playback/audio/AV sync/network URL/DRM/GPU view/device/other-platform/deadline claim."
+sources = ["crates/ravet-media/Cargo.toml", "crates/ravet-media/build.rs", "crates/ravet-media/src/lib.rs", "crates/ravet-media/src/macos.rs", "crates/ravet-media/native/Video.mm"]
+tests = ["crates/ravet-media/tests/video.rs", "crates/ravet-media/tests/fixtures/README.md"]
+docs = ["docs/local-video.md", "docs/decisions/0178-bounded-local-video-worker.md"]
+
+[[feature]]
+id = "metal-offscreen-rectangles"
+title = "Explicit bounded Metal offscreen rectangles"
+status = "prototype"
+summary = "A separate macOS renderer prepares a native Metal pipeline and draws ordered portable filled rectangles with source-over blending into independent owned RGBA readback images."
+limits = "Thread-confined UI/worker API, dimensions 1..4096, at most4096 raw rectangles, returned pixels <=64 MiB and conservative clear/covered-pixel work <=67,108,864. Coordinates clip then quantize to f32; no antialiasing or gamma/color-space transform. Native transient resources/driver work and creation/submission/wait/readback/destruction are not globally memory/time bounded. System-selected Metal GPU required, no software fallback. No window/presentation/path/text/image/rounded corners/other-platform/deadline claim."
+sources = ["crates/ravet-metal/Cargo.toml", "crates/ravet-metal/build.rs", "crates/ravet-metal/src/lib.rs", "crates/ravet-metal/src/macos.rs", "crates/ravet-metal/native/Metal.mm"]
+tests = ["crates/ravet-metal/tests/metal.rs"]
+docs = ["docs/metal-drawing.md", "docs/decisions/0179-metal-offscreen-rectangles.md"]
+
+[[feature]]
+id = "auv2-native-control-state"
+title = "Reusable AUv2 native schema, control, text and state preflight"
+status = "prototype"
+summary = "Apple-SDK C++17 helpers own an immutable native schema cache and isolated complete-state validator, providing full UInt32 IDs/CF metadata, canonical normalized-f32 setter preflight, complete physical text conversion and exact native-stream/AU dictionary preflight before SDK mutation; the public performance component consumes both."
+limits = "1..1024 global descriptors and 32-bit native companion tables, normalized0..1 AU f32 controls, offsets below65536, <=128 ASCII physical parse units and native state<=8208bytes. CF metadata/text and validator lifecycle require serialized control ownership and can allocate; scalar preflight owns no SDK scheduling/notifications, rendering or host-bypass policy. Exact originating tables/library must outlive helpers. No backend rollback, groups/choice labels, f64 control, DAW/auval/device/sandbox/deadline/other platform support claim; macOS arm64 actual module/component evidence only."
+sources = ["crates/ravet-native/include/RavetAuParameters.hpp", "crates/ravet-native/include/RavetAuState.hpp", "examples/performance-au/PerformanceAU.mm", "examples/performance-au/CMakeLists.txt", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/native-parameters.cpp", "tools/au-validation/performance.mm", "scripts/tests/test_au_bundle.py"]
+docs = ["docs/native-au.md", "docs/native-processing.md", "docs/performance-au.md", "docs/decisions/0182-auv2-native-schema-control-state.md"]
+
+[[feature]]
+id = "bounded-source-text-editing"
+title = "Bounded source text editing, undo and layout identity"
+status = "implemented"
+summary = "Owned grapheme-safe source replacement/deletion and directional selection provide exact bounded undo/redo and atomic errors, while distinct owner/revision tokens invalidate stale or foreign edits and prepared paragraph caches."
+limits = "Optional text feature; UI/control-thread allocation/deallocation. 4096 source/replacement bytes;64 snapshots total across undo/redo. Process-local nonserialized identity; selection changes conservatively invalidate caches. Unicode17 graphemes; paragraph control policy rejects Tab/other controls. Net content no-ops preserve selection/redo; no implicit typing coalescing or grouped transaction. No native/browser input, IME/clipboard/rich text/accessibility, backend work bound or deadline claim."
+sources = ["crates/ravet-surface/src/editing.rs", "crates/ravet-surface/src/text.rs", "crates/ravet-surface/src/paragraph.rs", "crates/ravet-surface/src/lib.rs"]
+tests = ["crates/ravet-surface/tests/editing.rs", "crates/ravet-surface/src/editing.rs", "crates/ravet-surface/tests/paragraph.rs", "crates/ravet-surface/tests/caret.rs"]
+docs = ["docs/text-editing.md", "docs/surface-drawing.md", "docs/decisions/0180-bounded-source-text-editing.md"]
+
+[[feature]]
+id = "metal-bitmap-scenes"
+title = "Explicit bounded Metal bitmap scenes"
+status = "prototype"
+summary = "Immutable validated owned premultiplied RGBA8 assets and borrowed ordered rectangle/image commands provide clipped nearest-sampled source-over GPU composition, independent readback adoption and explicit local-video frame upload."
+limits = "MacOS thread-confined UI/worker renderer; assets1..4096 dimensions/exact bytes/RGB<=alpha, raw commands<=prepared4096, distinct referenced objects<=16 and total distinct upload bytes<=64MiB, even clipped; clear/covered work<=67108864. Geometry/UV f32 quantization, nearest edge-clamped numeric components, no implicit gamma/color conversion. Fresh native textures per call; driver transient memory/time unbounded. No implicit reader/window/clock/tint/path/text/high-quality resampling/other-platform/deadline claim."
+sources = ["crates/ravet-metal/src/bitmap.rs", "crates/ravet-metal/src/scene.rs", "crates/ravet-metal/src/macos.rs", "crates/ravet-metal/native/Metal.mm", "crates/ravet-metal/native/Scene.inc", "crates/ravet-metal/build.rs"]
+tests = ["crates/ravet-metal/tests/images.rs", "crates/ravet-metal/tests/metal.rs"]
+docs = ["docs/metal-drawing.md", "docs/decisions/0183-metal-bitmap-scenes.md"]
+
+[[feature]]
+id = "auv2-native-audio-bus-map"
+title = "Prepared AUv2 native planar audio bus mapping"
+status = "prototype"
+summary = "An Apple-SDK C++17 mapper validates explicit native main/auxiliary layouts and complete compact AU planar f32 AudioBufferLists before publishing caller-owned fixed native pointer arrays; rejected configuration/mapping retains prior state, and the performance component consumes it for prepared/caller preflight."
+limits = "1..9 logical bus pairs,0..64 channels per direction with nonempty active pairs,1..65536 prepared frames. Exact compact direction counts/planar shapes, byte capacity, alignment/address and disjoint output prefixes required; input/output aliases allowed. Live foreign memory/disjoint metadata remain caller obligations. No DSP preparation/ownership, format negotiation, automatic silence/registration/routing, AU f64, DAW/auval/device/sandbox/deadline claim. Local macOS arm64 native/helper/component evidence; counted C++ heap alone does not prove all backend/SDK/Rust allocation."
+sources = ["crates/ravet-native/include/RavetAuAudio.hpp", "examples/performance-au/PerformanceAU.mm", "examples/performance-au/CMakeLists.txt", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/audio.cpp", "tools/au-validation/performance.mm", "scripts/tests/test_au_bundle.py"]
+docs = ["docs/native-au.md", "docs/performance-au.md", "docs/decisions/0185-auv2-prepared-native-audio-buses.md"]
+
+[[feature]]
+id = "bounded-vorbis-worker-encoding"
+title = "Optional bounded Ogg Vorbis worker encoding"
+status = "implemented"
+summary = "Explicit mono/stereo lossy Ogg Vorbis complete-clip and incremental worker encoding uses caller rate/quality/stream serial with bounded prepared batches and cumulative input/output budgets, original sink errors, explicit EOS/flush and gated Drop output."
+limits = "Default-disabled vorbis-encode pins BSD vorbis_rs0.5.6 and vendored cc-built codecs, defaults/RNG/bindgen disabled; C compiler required. Mono8000..96000Hz/stereo16000..96000Hz, finite quality-0.2..1, finite[-1,1] input rejected on overload, complete input<=4194304samples, calls<=65536frames,4096frame scratch plus one65307byte Ogg page, completed distinct headers and single-page priming packet (continued/mixed headers or spanning priming reject),totalframes<=16777216,bytes<=64MiB. Backend working allocations remain external; !Send/Sync writer constructed/used/destroyed on one worker. Preflight preserves state; later codec/I/O/output-budget errors poison irreversible prefixes; consuming finish errors lose sink. Framework Drop never writes/flushes caller sink; user sink destructor separate. Stereo<16k rejected before output after measured sustained backend second-channel loss; no hidden rate/quality/coupling changes. Automatic capture uses a separate worker-created controller; this writer is not a movable RecordingPump. No bitexact PCM/perceptual/deadline/MP3/chained-stream/resampling/multichannel speaker-map/physical/platform claim."
+sources = ["crates/ravet-audio-file/src/vorbis.rs", "crates/ravet-audio-file/src/lib.rs", "crates/ravet-audio-file/Cargo.toml", "crates/ravet-audio-file/third-party/vorbis.md"]
+tests = ["crates/ravet-audio-file/tests/vorbis.rs", "crates/ravet-audio-file/src/vorbis.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0181-bounded-vorbis-worker-encoding.md", "LICENSING.md"]
+
+[[feature]]
+id = "bounded-browser-text-editor"
+title = "Bounded browser text editor"
+status = "implemented"
+summary = "Consumer-labelled textarea ownership with bounded committed UTF-8 source, local identity revisions, grapheme-safe selections, shared undo/redo history, native-input reconciliation and composition guards."
+limits = "One connected live-document textarea; configured maximum 1..4096 UTF-8 bytes, source 0..maximum, LF source and 0..64 combined history snapshots. Browser Intl.Segmenter Unicode data is unpinned and independent of Rust Unicode 17/EditRevision. Rejects lone UTF-16 surrogates, control/noncharacter source, stale tokens and revision exhaustion; native ranges snap/expand to complete graphemes. One pending composition finalization/history transaction; programmatic composition writes reject Busy. Native preedit, browser history/layout and OS work remain opaque. Consumer transport/Rust request-ack protocol, actual IME/screenreader/mobile keyboard and backend certification are not supplied; automated Chromium document.hasFocus=false establishes DOM keyboard evidence only."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs"]
+tests = ["crates/ravet-surface/native/tests/text-editor.js", "crates/ravet-surface/native/tests/text-editor.html", "crates/ravet-surface/native/tests/text-editor.mm"]
+docs = ["docs/browser-text-editing.md", "docs/web-controls.md", "docs/decisions/0184-bounded-textarea-frontend.md"]
+
+[[feature]]
+id = "automatic-local-mp3-recording"
+title = "Worker-created automatic MP3 capture ownership"
+status = "implemented"
+summary = "A prepared-ring controller constructs and retains the MP3 encoder on one worker, acknowledges pause/resume, validates stopped or permanently retired producers, and returns explicit finalized/aborted/original-failure evidence with recovered seekable destination, consumer and distinct accepted/dequeued/file/write counts."
+limits = "Default-disabled mp3-encode and device mp3-recording forwarding; Send preparation/results only, codec sessions have no Send bound. Source scratch 1..4096 frames and fixed ring; existing bounded MP3 profiles, normalized PCM, gain policy, physical-write limits, gapless file semantics and independent LGPL obligations apply. Preparation performs no codec/thread/destination operations; start acknowledges spawn rather than codec success, failed spawn retains preparation. Pause/resume waits for worker acknowledgement; all control waits and sink I/O may block indefinitely without cancellation/deadline. Matching stopped or permanently retired producer proves bounded final tail; foreign/live/leaked proof preserves state. Outer Ok proves recovered ownership only; inspect private-constructed Finalized/Aborted/Failed(original error) completion. Fault stops later dequeue and retains original operational error, exact partial destination and consumer suffix; accepted/dequeued and file/physical write counts may differ. Startup seek errors trigger no restoration retry. Abort/Drop never drain, finalize, seek, rewrite or flush; sink destructor separate. Panic loses unwound local owners and reports Failed/Poisoned. Shared local-codec controller preserves existing public Vorbis APIs and genuinely non-Send codec ownership. Synthetic actual PreparedCapture retirement/overload/heap and independent exact-file decoder evidence do not validate physical CPAL shutdown/capture timing, deadlines, resampling, clock drift, backend memory ceiling or other targets."
+sources = ["crates/ravet-audio-file/src/mp3_recording.rs", "crates/ravet-audio-file/src/codec_recording.rs", "crates/ravet-audio-file/src/mp3_factory.rs", "crates/ravet-audio-file/src/vorbis_factory.rs", "crates/ravet-audio-file/src/vorbis_recording.rs", "crates/ravet-audio-file/src/mp3.rs", "crates/ravet-audio-file/src/lib.rs", "crates/ravet-device/Cargo.toml"]
+tests = ["crates/ravet-audio-file/tests/mp3_recording.rs", "crates/ravet-audio-file/src/mp3_recording.rs", "crates/ravet-audio-file/tests/vorbis_recording.rs", "crates/ravet-audio-file/src/vorbis_recording.rs", "crates/ravet-audio-file/tests/mp3_faults.rs", "crates/ravet-device/tests/mp3_recording.rs", "crates/ravet-device/tests/vorbis_recording.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0198-worker-created-mp3-recording.md"]
+
+[[feature]]
+id = "automatic-local-vorbis-recording"
+title = "Worker-created automatic Vorbis capture ownership"
+status = "implemented"
+summary = "A dedicated prepared-ring recording controller creates and retains the genuinely non-Send Vorbis codec on one worker, acknowledges pause/resume, validates stopped or permanently retired producers, and returns explicit finalized/aborted/original-failure evidence with recovered sink, consumer and counts."
+limits = "Default-disabled vorbis-encode and ravet-device vorbis-recording forwarding; transferable Send sink/preparation/result only, codec stays local. Existing mono8..96k/stereo16..96k quality/input/frame/output/page limits apply; source scratch1..4096frames and prepared fixed ring. Start acknowledges OS spawn, not header completion; spawn failure retains preparation. Successful pause acknowledges no future dequeue until resume/finalize; control waits can block indefinitely on selected sink I/O. Foreign/live/leaked producer preflight preserves worker; stopped final tail drains at most fixed capacity. Ok controller result proves recovery only; private-constructed Finalized/Aborted/Failed(original error) completion enum must be inspected. Failed dequeue stops further pumping; accepted/dequeued/actual-byte counts distinct and irreversible prefix retained. Startup/pump/EOS/flush faults recover sink/consumer/error; abort/Drop never drain/EOS/flush; sink destructor separate. Panic loses unwound local owners and returns Failed/Poisoned. W170 public writer consuming new/finish signatures unchanged. Synthetic PreparedCapture hidden-producer/heap/timing evidence does not validate physical CPAL shutdown timing, recording deadlines, clock drift, resampling, backend memory ceiling or other targets."
+sources = ["crates/ravet-audio-file/src/vorbis_recording.rs", "crates/ravet-audio-file/src/codec_recording.rs", "crates/ravet-audio-file/src/vorbis_factory.rs", "crates/ravet-audio-file/src/vorbis.rs", "crates/ravet-audio-file/src/lib.rs", "crates/ravet-device/Cargo.toml"]
+tests = ["crates/ravet-audio-file/tests/vorbis_recording.rs", "crates/ravet-audio-file/src/vorbis_recording.rs", "crates/ravet-audio-file/tests/vorbis.rs", "crates/ravet-device/tests/vorbis_recording.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0186-worker-created-vorbis-recording.md"]
+
+[[feature]]
+id = "local-control-document-ownership"
+title = "Local control document ownership"
+status = "implemented"
+summary = "Connected slider/knob/numeric/toggle/choice/action controls share gesture ownership by their original document, with child-window lifecycle routing and child-focus refresh protection."
+limits = "UI-thread local DOM only; one active gesture per owner document, WeakMap ownership, connected elements and same-document paired inputs preflight before mutation. Rejected end/disposal retains ownership and listeners for accepted retry. Same-origin iframe Chromium/hidden WebKit contracts only; consumers finish/dispose before hiding/removing their owner frame. No cross-origin access, automatic frame/stylesheet retirement, shadow-root focus engine, native-window/screenreader/backend/deadline certification."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs"]
+tests = ["crates/ravet-surface/native/tests/owner-documents.js", "crates/ravet-surface/native/tests/owner-documents.html", "crates/ravet-surface/native/tests/owner-documents.mm"]
+docs = ["docs/web-controls.md", "docs/decisions/0189-control-owner-document.md"]
+
+[[feature]]
+id = "local-popup-menu"
+title = "Local one-level popup menu"
+status = "implemented"
+summary = "Explicit consumer-created native action buttons compose bounded one-level menu semantics, one roving Tab stop, exact-once activation, focus/dismissal and attribute restoration."
+limits = "1..256 fixed distinct nonnested type=button entries in one live owner document; unique nonblank action strings1..128 code units and menu label1..256. Consumer labels/placement/CSS/transport policy; no submenus/typeahead/radio/check items/modal trap/OS menu integration. One pointer identity and one next-task intent reset; activation guard covers focus restoration and callbacks, focus-time disposal cancels action. Same-origin Chromium/hidden WebKit DOM evidence; trusted key cases explicitly reopen because hidden automation blurs after each key, document.hasFocus=false. No native-window focus/screenreader/other-backend/deadline certification."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs"]
+tests = ["crates/ravet-surface/native/tests/popup-menu.js", "crates/ravet-surface/native/tests/popup-menu.html", "crates/ravet-surface/native/tests/popup-menu.mm"]
+docs = ["docs/popup-menus.md", "docs/web-controls.md", "docs/decisions/0190-local-popup-menu.md"]
+
+[[feature]]
+id = "bounded-cpu-path-raster"
+title = "Optional bounded CPU path and local-font rasterization"
+status = "implemented"
+summary = "Owned premultiplied RGBA8 canvases render prepared typed affine paths, explicit fill rules, antialiased device strokes and optional prepared local TrueType glyph outlines, with independent readback and explicit Metal bitmap composition."
+limits = "Default-disabled raster pins tiny-skia/path0.12.0, std only; no PNG/SIMD/native Skia. UI/worker allocation; dimensions1..4096/64MiB, raw draws0..4096, cumulative commands65536, clear/covered work67108864. Paths1..4096 commands, finite transformed control coordinates magnitude<=65536 before f32; empty/degenerate paths consume budgets. Device stroke width(0,256],miter[1,16],caps/joins; positive thin AA coverage follows backend. Numeric source-over without gamma conversion. text integration uses matching caller font/run/size(0,1024],<=16384glyphs/run,TrueType outlines only, one operation/run. Backend flattening, working allocations and time remain external. No font discovery/fallback/PNG/dashes/zero-width hairline/window/GPU-path/native-editor/deadline or platform runtime support claim from compiler checks."
+sources = ["crates/ravet-surface/src/raster.rs", "crates/ravet-surface/src/raster_text.rs", "crates/ravet-surface/src/lib.rs", "crates/ravet-surface/Cargo.toml", "crates/ravet/Cargo.toml", "crates/ravet-surface/third-party/raster.md"]
+tests = ["crates/ravet-surface/tests/raster.rs", "crates/ravet-surface/src/raster.rs", "crates/ravet-surface/examples/raster-preview.rs", "crates/ravet-metal/tests/raster.rs"]
+docs = ["docs/cpu-raster.md", "docs/surface-drawing.md", "docs/metal-drawing.md", "docs/decisions/0187-optional-cpu-raster.md", "LICENSING.md"]
+
+[[feature]]
+id = "auv2-native-transport"
+title = "Validated AUv2 block-start host transport"
+status = "prototype"
+summary = "An external Apple-SDK C++17 collector validates independently available host callback tuples before publishing a canonical read-only native transport snapshot; the public performance AU adopts its explicit VST3 projection before parameter transfer and DSP."
+limits = "Serialized AudioUnitRender only, live coherent host callbacks/user data required. Float64 sample precision inherited, exact integral range [-2^63,+2^63), u16 signatures, strict Booleans and ordered finite active beat loops. DETAILS unknown/default placeholders require callbacks sidecar; only State2 supplies recording, neither callback supplies pre-roll/sample loops/native bar pairs. Projection omits partial transport lacking playing/samples and native discontinuity/availability. AUBase timestamp cache includes failures; recovery uses new timestamp. Performance DSP ignores transport. Local macOS arm64 helper/native/component evidence only; no DAW/auval/device/sandbox/architecture/deadline or production claim."
+sources = ["crates/ravet-native/include/RavetAuTransport.hpp", "crates/ravet-native/include/RavetAuVst3Transport.hpp", "examples/performance-au/PerformanceAU.mm", "examples/performance-au/CMakeLists.txt", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/transport.cpp", "tools/au-validation/performance.mm", "scripts/tests/test_au_bundle.py"]
+docs = ["docs/native-au.md", "docs/performance-au.md", "docs/decisions/0188-auv2-block-start-transport.md"]
+
+[[feature]]
+id = "local-tabbed-panels"
+title = "Local labelled tabbed panels"
+status = "implemented"
+summary = "Fixed consumer-created tabs and panel containers compose labelled ARIA associations, independent manual focus/selection or automatic activation, native Tab navigation and exact attribute restoration."
+limits = "1..256 fixed distinct nonnested native type=button tabs/panels in one live owner document; stable consumer-supplied IDs1..128 code units without whitespace and list label1..256. Manual default; disabled/hidden/inert/ARIA/CSS eligibility, first/null lifecycle fallback, owned retiring-panel focus transfer and guarded focus/callback/disposal. Quiet focus:false consumer updates own retiring-panel focus; selection commits before optional focus, failed focus/eligibility cancels notification or rejects stale success with next observer/refresh reconciliation. Invalid associations retire immediately. ID ownership checks do not audit arbitrary duplicate consumer markup; no dynamic membership/loading, native OS tabs/modal trap/layout/assistive-tech/backend/deadline certification. Chromium and hidden WebKit DOM contracts plus trusted arrows/Enter/Space/Tab; hidden document.hasFocus=false and explicit focus-event fixture wrappers."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs"]
+tests = ["crates/ravet-surface/native/tests/tabbed-panels.js", "crates/ravet-surface/native/tests/tabbed-panels.html", "crates/ravet-surface/native/tests/tabbed-panels.mm"]
+docs = ["docs/tabbed-panels.md", "docs/web-controls.md", "docs/decisions/0192-local-tabbed-panels.md"]
+
+[[feature]]
+id = "lv2-native-time-position"
+title = "Prepared LV2 block-start time:Position transport"
+status = "prototype"
+summary = "An external-SDK C++17 collector validates bounded exact-encoding Position objects before publishing direct native transport; the opt-in reusable instrument profile forwards block-start context only after full MIDI/control/time preflight, and the public Performance bundle consumes it."
+limits = "14 distinct nonzero stopped-cached URIDs; live8-byte aligned Sequence body8..65536,1024 ordered raw events and128 unique keys per Position. Long frame,Double beat,Float BPM/speed/numerator,Int denominator exact profile; finite/integral u16 signatures, speed only0/1. At most1offset0Position, laterPositions validate then omit without extrapolation/carry. Missing fields unknown/null; signature DETAILS recording/loop/pre-roll false flags unknown/default, no per-flag availability. Unknown properties/bodies opaque bounded, no recursive validation. No effect Atom port/genericbus factory, timeline output/discontinuity/loops/bar inference. Local macOS arm64; no Linux runtime/DAW/device/deadline/metadata-validator/production claim."
+sources = ["crates/ravet-native/include/RavetLv2Transport.hpp", "crates/ravet-native/include/RavetLv2Processor.hpp", "examples/performance-lv2/performance.cpp", "examples/performance-lv2/performance.ttl", "examples/gain-lv2/CMakeLists.txt", "scripts/lv2_bundle.py"]
+tests = ["tools/lv2-validation/transport.cpp", "tools/lv2-validation/processor-transport.cpp", "tools/lv2-validation/performance.cpp", "tools/lv2-validation/contracts.cpp", "tools/lv2-validation/state.cpp", "scripts/tests/test_lv2_bundle.py"]
+docs = ["docs/lv2.md", "examples/performance-lv2/README.md", "docs/decisions/0191-lv2-block-start-time-position.md"]
+
+[[feature]]
+id = "owned-worker-image-codecs"
+title = "Optional owned PNG/JPEG worker assets"
+status = "implemented"
+summary = "Explicit static PNG/selected JPEG byte decoding and bounded private-sink PNG encoding own immutable straight RGBA8 with deliberate consuming PMA conversion for consumer presentation."
+limits = "Default-disabled image forwards exact png0.18.1 and zune-jpeg0.5.15 std-only defaults disabled, safe strict JPEG paths; locked core0.5.3, selected pure-Rust miniz compression, optional zlib-rs unselected. Source1..16MiB, dimensions1..4096/output64MiB,8192 structural chunks/markers and32 JPEG scans; exact IEND/EOI/no trailing bytes. Static PNG palette/sub8/gray/alpha/tRNS/Adam7,16-bit high byte only, explicit CRC/Adler checks; no text/ICC decompression. Selected8-bit mono/RGB/YCbCr baseline/progressive JPEG opaque; CMYK/YCCK/arithmetic/hierarchical reject. Numeric components no ICC/gamma/EXIF transform; JPEG codec conversion applies. PNG output budget1..16MiB private gated sink/no partial output, backend Drop may attempt private completion only. Allocator/backend working memory/time unbounded, no RT/globalRSS claim. First-party independent PNG/Pillow fixture evidence; actual local macOS Metal adoption and compiler-only Linux/iOS evidence recorded separately. JPEG encoding has a separate optional feature; no GIF/WebP/SVG/animation/resample/window/platform support claim."
+sources = ["crates/ravet-surface/src/image.rs", "crates/ravet-surface/Cargo.toml", "crates/ravet/Cargo.toml", "crates/ravet-surface/third-party/image.md"]
+tests = ["crates/ravet-surface/tests/image.rs", "crates/ravet-surface/tests/fixtures/image/generate.py", "crates/ravet-surface/tests/fixtures/image/provenance.json", "crates/ravet-metal/tests/image.rs"]
+docs = ["docs/image-assets.md", "docs/decisions/0195-owned-worker-image-codecs.md", "LICENSING.md"]
+
+[[feature]]
+id = "bounded-opaque-jpeg-encoding"
+title = "Optional bounded opaque baseline JPEG encoding"
+status = "implemented"
+summary = "Explicit quality and chroma sampling encode validated opaque image assets into a private bounded owned JPEG sink, with whole alpha preflight and no partial output or external I/O."
+limits = "Default-disabled jpeg-encode includes image and exact jpeg-encoder0.7.1 std-only/defaultsfalse, no runtime dependencies/native C/SIMD; non-SIMD backend forbids unsafe. Quality1..100 validated without clamping,444/422/420 explicit average chroma filter, baseline8-bit/standard Huffman only. All alpha255 required before codec/sink, consumers composite explicitly; numeric RGB to codec YCbCr, no ICC/EXIF/metadata/hidden quality sampling. Image dimensions1..4096/RGBA64MiB inherited, output1..16MiB gated private Vec; failure exposes no partial bytes/caller I/O. Backend allocations/time/RSS/quality unbounded worker obligations.36 first-party profiles cross-checked independent Pillow and strict Zune, measured max2 components/4byte fixture tolerance; no general fidelity/production/platform/deadline claim. Linux/iOS compile only. Upstream(MIT OR Apache2) AND IJG notices/attribution/required executable acknowledgement independent of RAVET commercial terms."
+sources = ["crates/ravet-surface/src/image/jpeg.rs", "crates/ravet-surface/src/image.rs", "crates/ravet-surface/Cargo.toml", "crates/ravet/Cargo.toml", "crates/ravet-surface/third-party/jpeg.md"]
+tests = ["crates/ravet-surface/tests/jpeg.rs"]
+docs = ["docs/image-assets.md", "docs/decisions/0201-bounded-opaque-jpeg-encoding.md", "LICENSING.md"]
+
+[[feature]]
+id = "bounded-local-mp3-encoding"
+title = "Optional bounded local MP3 worker encoding"
+status = "implemented"
+summary = "Complete and incremental worker-only MPEG1 Layer III encoding uses explicit mono/stereo rate/192–320kbps choices, full source preflight, prepared bounded batches, physical-write budgets including finalized Info-frame replacement, parsed gapless metadata/CRC and recovered original sink errors."
+limits = "Default-disabled mp3-encode pins mp3lame-encoder0.2.5 and mp3lame-sys0.1.11 with defaults disabled, bundled LAME3.100 static C build; Unix configure/make/C toolchain required, only local macOS arm64/offline evidence. Independent LGPL3 binding, LibraryGPL2-or-later core and LGPL2.1-or-later ReplayGain obligations remain; RAVET commercial agreements do not relicense or certify combined/static distribution. Explicit CBR192/256/320kbps highest quality, mono/stereo and32000/44100/48000Hz only;192 backend preset scales input0.97,256/320 use1.0, no hidden compensation/resample/remap. Finite normalized[-1,1] source; complete<=4194304samples,call<=65536frames,batch4096frames/12320output bytes,tag4KiB,total<=16777216frames,actual writes<=64MiB including first metadata-frame rewrite. Codec working allocations external, no RSS/deadline guarantee. Write+Seek sink must start at EOF; caller owns prefix/truncation/concurrent access. Original seek errors return recovered sink without restoration retry; failed seeks may already move cursor. Preflight rejects are retryable; backend/I/O/capacity faults poison and preserve original error plus partial sink/source/file/write counts at consuming finish. Abort deliberately discards diagnostics; Drop/abort never encode/finalize/write/seek/flush, sink destructor separate. Exact source-frame metadata applies to finalized files and gapless-aware decoders, stream players may retain padding; no arbitrary PCM trim. No other bitrate/rate/VBR/ID3/general perceptual/physical capture/platform claim."
+sources = ["crates/ravet-audio-file/src/mp3.rs", "crates/ravet-audio-file/src/lib.rs", "crates/ravet-audio-file/Cargo.toml", "crates/ravet-audio-file/third-party/mp3.md"]
+tests = ["crates/ravet-audio-file/src/mp3.rs", "crates/ravet-audio-file/tests/mp3.rs", "crates/ravet-audio-file/tests/mp3_faults.rs"]
+docs = ["docs/audio-files.md", "docs/decisions/0193-bounded-mp3-worker-encoding.md", "LICENSING.md"]
+
+[[feature]]
+id = "local-native-modal-dialog"
+title = "Local native modal dialog"
+status = "implemented"
+summary = "Consumer-created native dialogs compose labelled opening, browser-owned modality/focus, bounded close/form/cancel completion, guarded document/node ownership and exact disposal restoration."
+limits = "One connected initially closed native dialog with one fixed same-document focus descendant; required native showModal/close/:modal runtime APIs, label1..256 code units and scalar completion values0..128. One live modal per original document; normal queued completion retains owner through notification. Disposal cancels callbacks, releases document admission after synchronous native closure/focus and callback unwinding, retains one per-node tombstone until trusted native close; synthetic close never drains. Different nodes remain usable if retired-node delivery is abandoned; same-node reuse requires actual drain, with no timeout/deadline. Direct native close and method=dialog supported with bounded final returnValue; external reopening/open mutation unsupported with guarded native recovery and no previous-focus guarantee. Chromium/hidden WebKit DOM plus trusted Tab/ShiftTab/Escape evidence only, inactive document.hasFocus=false and browser focus-boundary limits. No custom trap/native OS dialog/nested application stack/action discovery/backend/screenreader/native-window/deadline/global-memory certification."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs"]
+tests = ["crates/ravet-surface/native/tests/modal-dialog.js", "crates/ravet-surface/native/tests/modal-dialog.html", "crates/ravet-surface/native/tests/modal-dialog.mm"]
+docs = ["docs/modal-dialogs.md", "docs/web-controls.md", "docs/decisions/0196-bounded-native-modal-dialog.md"]
+
+[[feature]]
+id = "auv2-native-midi-output"
+title = "Bounded AUv2 native MIDI output delivery"
+status = "prototype"
+summary = "A reusable SDK-independent canonical short-MIDI converter and fixed CoreMIDI packet owner stage complete native output before one AU host callback, with exact refusal receipts, stable borrowed bytes and stale/reentrant delivery guards; an actual synthetic AudioComponent proves consumer adoption."
+limits = "At most1024 ordered native records and65536frames; exact canonical MIDI1 short bytes and ordinary nonidentity NoteOn/Off only. Velocity nearest/ties-up MIDI7, positiveOn minimum1, zeroOn wire0 with receiver Off convention. Identity/scoped/completion/choke/expression/parameter/UMP/SysEx unsupported. Failed stage preserves diagnostic packet bytes/count but invalidates readiness; every delivery consumes readiness, host acceptance unknown on refusal and no retry/history rollback. Exclusive live ownership/foreign ranges/host nonthrowing callbacks required; no callback deadline/allocation guarantee. Local AudioToolbox setters normalize original facade size/elements and may bypass owned SDK lifecycle validation. Public Performance remains no-output; synthetic component is fixture-only. Local macOS arm64 offline; no DAW/device/routing/production factory/other architecture support."
+sources = ["crates/ravet-native/include/RavetNativeMidiOutput.hpp", "crates/ravet-native/include/RavetAuMidiOutput.hpp", "examples/performance-au/CMakeLists.txt", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/midi-output.cpp", "tools/au-validation/midi-output-component.mm", "tools/au-validation/performance.mm", "scripts/tests/test_au_bundle.py"]
+docs = ["docs/native-au.md", "docs/decisions/0197-auv2-native-midi-output.md"]
+
+[[feature]]
+id = "auv2-native-f64-formats"
+title = "Prepared AUv2 native f64 mapping and complete formats"
+status = "prototype"
+summary = "Explicit float/double prepared main/aux pointer mappings and complete stopped native/ASBD profiles validate exact sample precision, whole directional formats and output ranges before publication; an actual fixed-f64 synthetic AudioComponent proves native64 rendering and stopped complete Level recall."
+limits = "f32 existing names preserved; explicit f64 aliases, no sample conversion/inference. Native1..9buses,1..64channels per nonempty direction,65536frames; compact independent directional AU indices,576output range scratch. Matching structural native table/header/function precision and exact finite equal-rate native packed float ASBD bits/bytes/channels/flags/reserved preflight; rejects retain prior helper config/formats/maps. Foreign origin/lifetime/range ownership remains caller duty. SDK registration/allocation/notification rollback not provided; stock SDK original ASBD size/reserved/padding normalization and unchanged active no-op remain explicit. Actual synthetic fixed64 mono/stereo no-input reference/complete f32 Level only; no AU parameter UI/cross-precision migration/aux host registration. Distributed Performance AU remains32 due stock initialization/render/offline assumptions. Local macOS arm64 offline, no DAW/device/production factory/other architecture/backend-allocation/deadline claim."
+sources = ["crates/ravet-native/include/RavetAuAudio.hpp", "crates/ravet-native/include/RavetAuAudioFormat.hpp", "examples/performance-au/CMakeLists.txt", "scripts/au_bundle.py"]
+tests = ["tools/au-validation/audio.cpp", "tools/au-validation/audio64.cpp", "tools/au-validation/precision-component.mm", "tools/au-validation/performance.mm", "scripts/tests/test_au_bundle.py"]
+docs = ["docs/native-au.md", "docs/decisions/0199-auv2-native-f64-formats.md"]
+
+[[feature]]
+id = "local-control-semantic-ownership"
+title = "Local control disabled and label ownership"
+status = "implemented"
+summary = "Custom knobs coordinate disabled Tab/input state and retryable parameter ownership; meters preserve explicit label precedence and reject retired formatter writes."
+limits = "Knob boolean setEnabled removes sequential focus and disables its optional native number, restores owned prior tabindex/native-number-disabled state on enable and exact original attributes on accepted disposal. All refused/thrown ends retain owner and block new edits/re-enable until accepted recovery; healthy disabled host refresh retains existing focused/active suppression. Live original pair checked before admission, after own/competing end callbacks and after accepted host sends before paint. Accepted host messages cannot be rolled back; retired accepted begin attempts end and retains pending recovery if rejected. Original-document observer and explicit refresh handle eligibility; foreign retirement writes no new presentation. Meter live connected same-document pair, explicit label1..256 code units removes competing aria-labelledby and restores exact name attributes on disposal, formatter1..4096 nonblank code units cannot recursively update or write after retirement/disposal.25 Chromium/hidden WebKit DOM/native-property groups plus trusted enabled/disabled keyboard traversal; preview hasFocus=false. Consumer meaningful labels/presentation/focus relocation/host acknowledgement remain explicit. No full accessible-name engine/native AX tree/screenreader/other-platform/deadline/global-memory certification."
+sources = ["crates/ravet-surface/web/controls.js", "crates/ravet-surface/src/web_controls.rs"]
+tests = ["crates/ravet-surface/native/tests/control-semantics.js", "crates/ravet-surface/native/tests/control-semantics.html", "crates/ravet-surface/native/tests/control-semantics.mm"]
+docs = ["docs/control-semantics.md", "docs/web-controls.md", "docs/decisions/0200-local-control-semantics.md"]
+
+# Plans and exclusions
 
 [[feature]]
 id = "release-support"

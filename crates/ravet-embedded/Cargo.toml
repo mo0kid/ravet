@@ -1,0 +1,16 @@
+[package]
+name = "ravet-embedded"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Fixed-capacity no_std audio adaptation for embedded RAVET consumers"
+
+[dependencies]
+ravet-foundation = { path = "../ravet-foundation", default-features = false }
+
+[dev-dependencies]
+allocation-counter = "=0.8.1"
+
+[lints]
+workspace = true

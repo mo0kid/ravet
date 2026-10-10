@@ -1,11 +1,19 @@
 //! Fixed-capacity voice ownership and configured MIDI 1.0 per-note expression.
-//! Explicit single-zone negotiation, a two-zone MPE voice receiver and portable sine synthesis.
+//! Explicit MPE negotiation and separate normalized/native performance ownership
+//! with portable f32/f64 reference sine synthesis.
 //! Device I/O and format export remain separate.
 mod negotiation;
 mod program;
 pub use program::{MidiProgramDecoder, MidiProgramRequest};
 mod receiver;
 pub use receiver::MpeReceiver;
+mod performance;
+mod performance_sine;
+pub use performance::{
+    PerformanceBatchError, PerformanceBatchInfo, PerformanceChanges, PerformanceError,
+    PerformanceExpression, PerformancePhase, PerformanceStart, PerformanceVoice, PerformanceVoices,
+};
+pub use performance_sine::PerformanceSine;
 mod synthesis;
 pub use negotiation::{NegotiatedChanges, NegotiatedVoices, RpnDecoder, RpnUpdate};
 use ravet_foundation::{MidiKind, MidiMessage};

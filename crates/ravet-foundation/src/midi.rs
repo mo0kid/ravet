@@ -215,8 +215,8 @@ impl MidiDecoder {
         }
     }
 }
-impl std::fmt::Display for MidiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for MidiError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             Self::InvalidStatus => "invalid or undefined MIDI status",
             Self::InvalidLength => "incorrect MIDI message length",
@@ -226,4 +226,4 @@ impl std::fmt::Display for MidiError {
         })
     }
 }
-impl std::error::Error for MidiError {}
+impl core::error::Error for MidiError {}

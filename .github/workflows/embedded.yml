@@ -1,0 +1,29 @@
+name: Embedded processing contracts
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_BUILD_JOBS: '2'
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install Rust and library targets
+        run: rustup toolchain install stable --profile minimal --target thumbv6m-none-eabi,thumbv7em-none-eabihf,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf
+      - name: Select stable Rust
+        run: rustup default stable
+      - name: Check native contracts and cross-target libraries
+        run: python3 scripts/check-embedded.py --cross
+      - name: Check independent project generation
+        run: python3 -m unittest discover -s scripts/tests -p test_projects.py -v

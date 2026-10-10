@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>RAVET context menu fixture</title>
+<script>
+// This runs before body/page handlers exist, proving document-start installation.
+window.earlyMenu = new MouseEvent('contextmenu', {bubbles:true, cancelable:true});
+window.earlyCancelled = !document.documentElement.dispatchEvent(window.earlyMenu);
+</script><body><input id="value" value="0.7"><iframe id="frame" src="about:blank"></iframe><script>
+window.addEventListener('load', () => {
+  const require = (ok, message) => { if (!ok) throw new Error(message); };
+  const check = (owner, target) => {
+    let resets = 0, menus = 0, bubbled = 0;
+    target.addEventListener('mousedown', event => {
+      if (event.button === 2) { target.value = '0.5'; ++resets; }
+    });
+    target.addEventListener('contextmenu', event => { ++menus; require(event.defaultPrevented, 'target saw uncancelled menu'); });
+    owner.document.addEventListener('contextmenu', () => ++bubbled);
+    target.dispatchEvent(new owner.MouseEvent('mousedown', {button:2, bubbles:true, cancelable:true}));
+    require(resets === 1 && target.value === '0.5', 'right-click reset did not run');
+    for (const button of [2, 0]) {
+      const event = new owner.MouseEvent('contextmenu', {button, bubbles:true, cancelable:true});
+      require(!target.dispatchEvent(event) && event.defaultPrevented, 'pointer/keyboard menu not cancelled');
+    }
+    require(menus === 2 && bubbled === 2, 'custom menu propagation stopped');
+    const left = new owner.MouseEvent('mousedown', {button:0, bubbles:true, cancelable:true});
+    require(target.dispatchEvent(left) && !left.defaultPrevented && resets === 1, 'left click changed');
+  };
+  try {
+    require(window.earlyCancelled && window.earlyMenu.defaultPrevented, 'document-start menu not cancelled');
+    check(window, document.querySelector('#value'));
+    const child = document.querySelector('#frame').contentWindow;
+    child.document.body.innerHTML = '<input value="0.7">';
+    check(child, child.document.querySelector('input'));
+    window.ravetContextMenuResults = {pass:true};
+  } catch (error) { window.ravetContextMenuResults = {pass:false, error:String(error)}; }
+});
+</script></body></html>

@@ -1,0 +1,32 @@
+{
+  "generator": "generate.py",
+  "pillow": "12.2.0",
+  "libjpeg": "6.2",
+  "zlib": "1.2.12",
+  "sha256": {
+    "adam7.png": "4e8e14e26575e0cf3627032c4de4b9edb1f2cc4b27f2ec52e239b7eeb60d8aeb",
+    "adam7.raw": "a884a89790322bcd06adccf0e0fb2f318892b3d9200143b71da4d850c68bcc35",
+    "cmyk.jpg": "41bebdafc7e19552858ccbcf04e314e33f0f3bc64a86b0184e93b830263ab9d7",
+    "gray-alpha.png": "b9674f89071efca5a483c50b4efd6e81abe4ac98464faf50d304f128793c2aea",
+    "gray1.png": "57e55e6b021ab46f2120c82778e2ee579ec2107b7d4d4133e7a75cc20c9e14b5",
+    "gray16.png": "aa5acd8e67963c2a0d01097e7216e7358fefd3650a36751f3c8aac5a7ca56b70",
+    "l-False.jpg": "cd16eeab9391fd1a6fedb45453c5cee32c8f22482a6475dafa1b31a701e99b23",
+    "l-False.jpg.raw": "e6470f8e46391c3ede9e3ceb4690e33b5b73bbc89cd189d609d1bb620977f384",
+    "l-True.jpg": "42189afaff2664cad16a6ca25bff7657861ebbcb6212b57f0a757cad0076d317",
+    "l-True.jpg.raw": "e6470f8e46391c3ede9e3ceb4690e33b5b73bbc89cd189d609d1bb620977f384",
+    "palette.png": "70e22c6deaf8209a0b4ddb3ed03b6cec086fd3d8ab881afb22e2ce250fa6251b",
+    "rgb-False.jpg": "712eacfc8b21a5bd07bb671c56b596d6215ffe0d72eda0686f3ae0d9bde1481a",
+    "rgb-False.jpg.raw": "153a4e6890aff4a49127cec1424f645de25cd859a8dfb8875c1681cce4066be3",
+    "rgb-True.jpg": "7d5ea06f48c65774b8824b5ad34d8fa298762ecfc3055f6c208edb28da581d7c",
+    "rgb-True.jpg.raw": "153a4e6890aff4a49127cec1424f645de25cd859a8dfb8875c1681cce4066be3",
+    "rgb-orientation6.jpg": "43a147253451c26b2dd3eaf91eed2e5b96a048730434b4abe07710ff00faa78c",
+    "rgb-orientation6.jpg.raw": "1695cc3f2670d7aa9bc1555517b900c32b45dd88f0da8dcb7a2ca6a9d701e77d",
+    "rgb-subsampling1.jpg": "39ac46ffd43432c0f72aa006b82027ed86793fb4af9ecbaffd9f60a4c437472d",
+    "rgb-subsampling1.jpg.raw": "aa1a10eb1a9309ab068ecff2d3f07caaf3d50ac5be5e75596de181cfbeb795c8",
+    "rgb-subsampling2.jpg": "090c73537f5b823f6c9871c85595cacc71f4ac38358ee7e7a322c2d66622ec54",
+    "rgb-subsampling2.jpg.raw": "1fccbea084de875f977bc43bfbe57dde614848022dcd72d7690ad62b9f822fb5",
+    "rgb-trns.png": "033ff9ef27290e1203be2a946f87c0718afef116c9d19340b4e5b5b25c7df67b",
+    "rgba.png": "1d43003b64ef6b721518ab15bee182d75e4c75568d10f8435a8ebe8c907474b9",
+    "rgba.raw": "1956713e77634d8b18f4bdf1143a2eba4ddf31a866c48145a8c88cbd389fe404"
+  }
+}

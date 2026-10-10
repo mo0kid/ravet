@@ -106,6 +106,12 @@ Owner create(double width,double height,void* context,RavetWebMessage message,Ra
     s->box=gtk_box_new(GTK_ORIENTATION_VERTICAL,0); g_object_ref_sink(s->box);
     gtk_widget_set_size_request(s->box,int(width),int(height));
     s->manager=webkit_user_content_manager_new();
+    // Cancel only the browser menu; controls still receive right-click events.
+    auto* contextMenuScript=webkit_user_script_new(
+        "window.addEventListener('contextmenu',event=>event.preventDefault(),{capture:true,passive:false});",
+        WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,nullptr,nullptr);
+    webkit_user_content_manager_add_script(s->manager,contextMenuScript);
+    webkit_user_script_unref(contextMenuScript);
     webkit_user_content_manager_register_script_message_handler(s->manager,"ravet");
     s->web=WEBKIT_WEB_VIEW(webkit_web_view_new_with_user_content_manager(s->manager));
 #if RAVET_WEB_LINUX_SOFTWARE_RENDERING

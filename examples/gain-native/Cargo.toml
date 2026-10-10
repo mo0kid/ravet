@@ -11,6 +11,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 ravet-foundation.workspace = true
+ravet-native = { path = "../../crates/ravet-native" }
 ravet-gain = { path = "../gain" }
 
 [dev-dependencies]

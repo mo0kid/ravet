@@ -247,3 +247,125 @@ and feature status in the same change. Preserve the earlier rationale as history
 - [0140: Directional note completion](0140-note-completion.md)
 
 - [0141: Prepared stereo chorus](0141-prepared-stereo-chorus.md)
+
+- [0142: Generic native planar adapter](0142-native-planar-adapter.md)
+
+- [0143: Complete native event records](0143-native-event-records.md)
+
+- [0144: Native block-start transport records](0144-native-transport-records.md)
+
+- [0145: Consumer-selected native processor entry](0145-native-processor-entry.md)
+
+- [0146: Native global schemas and state companion](0146-native-parameter-state-companion.md)
+
+- [0147: Explicit native live state publication](0147-native-live-state-publication.md)
+
+- [0148: Native schema registration for VST3](0148-vst3-native-schema-registration.md)
+
+- [0151: Control-cached native parameter mapping](0151-native-cached-parameter-mapping.md)
+
+- [0149: Explicit sample-wise waveshapers](0149-sample-wise-waveshapers.md)
+
+- [0150: Prepared comb filters](0150-prepared-comb-filters.md)
+
+- [0152: Embedded processing boundaries](0152-embedded-processing.md)
+
+- [0153: AUv3 and mobile native adapters](0153-auv3-mobile-native-adapters.md)
+
+- [0154: Prepared VST3 cached parameter input](0154-vst3-cached-parameter-input.md)
+
+- [0155: Explicit native audio-owner complete state](0155-native-direct-audio-state.md)
+
+- [0156: Explicit prepared native telemetry](0156-native-prepared-telemetry.md)
+
+- [0157: Native C++ client and SDK reference adoption](0157-native-cpp-client.md)
+
+- [0158: Explicit VST3 block-start transport](0158-vst3-block-start-transport.md)
+
+- [0159: Explicit zero-volume note expression](0159-zero-volume-note-expression.md)
+
+- [0160: Explicit VST3 performance input](0160-vst3-performance-input.md)
+
+- [0161: Explicit VST3 performance output](0161-vst3-performance-output.md)
+
+- [0162: Prepared VST3 native audio buses](0162-vst3-native-audio-buses.md)
+
+- [0163: Native performance voice ownership](0163-native-performance-voice-ownership.md)
+
+- [0164: Transactional native performance synthesis](0164-transactional-performance-sine.md)
+
+- [0165: Public native performance reference](0165-public-native-performance-reference.md)
+
+- [0166: Public VST3 performance instrument](0166-vst3-performance-instrument.md)
+
+- [0167: LV2 native schema, processing and complete state](0167-lv2-native-schema-state.md)
+
+- [0168: Explicit verified native-FLAC packet indexes](0168-indexed-flac-worker-seeks.md)
+
+- [0169: Bounded composite focus and piano note ownership](0169-bounded-web-focus.md)
+
+- [0171: Automatic read-ahead ownership and buffered playback](0171-automatic-read-ahead-playback.md)
+
+- [0170: Public LV2 MIDI performance instrument](0170-lv2-midi-performance-instrument.md)
+
+- [0172: Bounded local-font paragraph layout](0172-bounded-paragraph-layout.md)
+
+- [0173: Shared PCM handoff and AIFF worker adapters](0173-aiff-pcm-worker-adapters.md)
+
+- [0176: Explicit public VST3 build profiles](0176-public-vst3-profile-bundling.md)
+
+- [0178: Explicit bounded local-video worker extraction](0178-bounded-local-video-worker.md)
+
+- [0175: Prepared grapheme caret and selection maps](0175-grapheme-caret-selection.md)
+
+- [0174: Public AUv2 native performance MusicDevice](0174-auv2-native-performance-instrument.md)
+
+- [0177: Automatic recorder ownership and explicit finalization](0177-automatic-recording-workers.md)
+
+- [0179: Explicit bounded Metal offscreen rectangles](0179-metal-offscreen-rectangles.md)
+
+- [0182: Reusable AUv2 native schema, control and state](0182-auv2-native-schema-control-state.md)
+
+- [0180: Bounded source text editing and layout identity](0180-bounded-source-text-editing.md)
+
+- [0183: Explicit bounded Metal bitmap scenes](0183-metal-bitmap-scenes.md)
+
+- [0185: Prepared AUv2 native planar bus mapping](0185-auv2-prepared-native-audio-buses.md)
+
+- [0181: Optional bounded Ogg Vorbis worker encoding](0181-bounded-vorbis-worker-encoding.md)
+
+- [0184: Bounded textarea editing frontend](0184-bounded-textarea-frontend.md)
+
+- [0194: Foundry project management](0194-foundry-project-management.md)
+
+- [0186: Worker-created automatic Vorbis recording](0186-worker-created-vorbis-recording.md)
+
+- [0187: Optional CPU path and local-font rasterization](0187-optional-cpu-raster.md)
+
+- [0188: AUv2 block-start transport](0188-auv2-block-start-transport.md)
+
+- [0189: Local control owner-document routing](0189-control-owner-document.md)
+
+- [0190: Local one-level popup menus](0190-local-popup-menu.md)
+
+- [0192: Local labelled tabbed panels](0192-local-tabbed-panels.md)
+
+- [0191: Prepared LV2 block-start time:Position](0191-lv2-block-start-time-position.md)
+
+- [0193: Bounded MP3 worker encoding](0193-bounded-mp3-worker-encoding.md)
+
+- [0195: Owned worker image codecs](0195-owned-worker-image-codecs.md)
+
+- [0196: Bounded native modal dialogs](0196-bounded-native-modal-dialog.md)
+
+- [0197: Bounded AUv2 native MIDI output](0197-auv2-native-midi-output.md)
+
+- [0205: WebKit browser context menu suppression](0205-webkit-context-menus.md)
+
+- [0199: Prepared AUv2 native f64 formats](0199-auv2-native-f64-formats.md)
+
+- [0200: Local control semantic ownership](0200-local-control-semantics.md)
+
+- [0198: Worker-created automatic MP3 recording](0198-worker-created-mp3-recording.md)
+
+- [0201: Bounded opaque JPEG encoding](0201-bounded-opaque-jpeg-encoding.md)

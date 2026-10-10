@@ -71,7 +71,9 @@ The run retains total pen advance, rather than ink bounds; caller keeps matching
 font/text identity and applies its rendering/baseline transform. Returned glyphs
 cap at 16384 after shaping. Backend transient memory/time is not globally bounded
 by that output cap. Font loading/shaping allocate; cache runs before callbacks.
-There is no raster/native/GPU/accessibility integration or deadline claim.
+Shaping itself does not select a presenter. The separate [CPU raster](cpu-raster.md)
+feature can render explicitly prepared local-font outlines; native/GPU/accessibility
+integration and callback deadlines require separate evidence.
 
 The default build excludes the shaper dependency. Optional HarfRust 0.14.0 (MIT),
 read-fonts/font-types and their locked transitive notices remain separate from
@@ -113,7 +115,9 @@ and command count, even if earlier glyph paths succeeded.
 
 Consumers own headroom/layout, font permissions and meaningful accessible titles;
 outline paths themselves do not supply text semantics, selection or text input.
-There is no hinted/native/GPU/bitmap/variable-instance or generic raster backend.
+These outline APIs do not provide hinted/native/GPU/bitmap/variable-instance
+rendering. The independent [CPU raster](cpu-raster.md) feature accepts prepared
+paths and local TrueType glyph outlines.
 The example uses public licensed local font bytes and needs no system fallback:
 
 ```sh
@@ -164,3 +168,143 @@ CARGO_BUILD_JOBS=2 cargo run -p ravet-surface --features text \
 
 See [decision 0094](decisions/0094-single-line-bidi.md). This is a scoped
 single-line fixture profile, rather than complete Unicode/UI conformance.
+
+## Bounded local-font paragraph layout
+
+With `text` enabled, `paragraph::ParagraphLayout::new` composes the existing
+local font shaper with explicit finite positive width, baseline spacing and
+physical Left/Center/Right alignment. The input remains at most 4096 UTF8 bytes;
+complete output is limited to 256 lines, 512 directional runs and 16384 glyphs.
+Preparation allocates and repeatedly shapes candidate lines on UI/worker threads;
+output caps do not globally bound backend work or memory. Cache the result before
+callbacks; it owns the original source and paragraph options/base direction.
+Retain the matching font and shaping style identity.
+
+Line opportunities come from pinned unicode-linebreak 0.1.5 with Unicode 15.0
+data; bidi retains the separate Unicode 16.0 backend. Its default line-break
+profile treats complex-context (SA) characters as alphabetic, so dictionary
+breaking for languages such as Thai is not supplied. The greedy policy accepts
+consecutive fitting break opportunities until the first overflowing candidate.
+An oversized first unbreakable unit is retained as one overflowing line, flagged
+by `overflows()`; no character is forcibly split, clipped, dropped or replaced.
+Spaces remain in their source lines and their advances participate in fitting.
+There is no hyphen insertion, discretionary soft-hyphen substitution or
+justification. Font coverage still appears as missing glyph zero, without fallback.
+
+Resolve bidi embedding/isolate context for the whole input before soft wrapping,
+then apply line reordering to each candidate and shape each original directional
+slice. Base direction is explicit in `TextOptions`; script/language/features apply
+to each run, rather than providing automatic script segmentation. LF, CRLF, CR and
+Unicode line/paragraph separators create hard lines. Original separator byte ranges
+remain available separately from content ranges; empty input and trailing hard
+separators produce empty lines. Other controls/noncharacters reject. This does
+not supply interactive editing, rich text or native font registration. The
+optional prepared source mapping below consumes this immutable layout.
+
+Each line exposes its original UTF8 content/separator ranges, width, visual runs
+and alignment/baseline offset. Run X positions accumulate left-to-right in visual
+order; glyph Y remains upward from the existing shaper. `source_cluster(i)` maps
+one glyph's local cluster back to the original paragraph byte offset. Spacing
+height is `line_count * line_height`, with the first baseline at zero; it is not
+measured ascender/descent or ink bounds. Overlong lines start at X zero for every
+alignment. Invalid styles, numeric overflow or capacity failure return no partial
+layout.
+
+`SvgDrawing::paragraph_text` renders the selected local TrueType outlines and
+returns the layout. All paragraph/drawing/path limits apply, and a late outline
+or document failure restores the whole existing document and command count.
+The paragraph emits no text nodes, scripts, font URLs or implicit resources;
+consumers supply accessible meaning through their title/markup.
+
+```sh
+cargo run -p ravet-surface --features text --example paragraph-outlines --locked -- \
+  crates/ravet-surface/tests/fixtures/text/NotoSansArabic.ttf > target/paragraph.svg
+```
+
+Six portable groups cover exact wrapping/whitespace/glyph identity, global byte
+clusters, physical alignment, all hard separators/empty lines, nonbreaking spaces,
+combining marks/zero-width breaks, preserved embedding levels across soft wraps,
+unbreakable overflow, maximum bytes/lines/runs, invalid styles and whole-drawing
+rollback. The synthetic 720×420 example renders two five-line paragraphs with
+opposite explicit base directions. The collaborative browser reports 192 paths,
+no text nodes and finite ink inside the viewport; visual inspection shows joined
+Arabic/marks and readable Latin without clipping. This is local SVG browser
+rendering, with no native/GPU/bitmap, assistive-technology or other-font/script
+conformance claim. See [decision 0172](decisions/0172-bounded-paragraph-layout.md)
+and the dependency notices in [licensing](../LICENSING.md).
+
+
+## Prepared source carets, hit tests and selections
+
+`caret::CaretMap::new(&layout)` derives original UTF8 extended-grapheme boundaries
+and pen geometry from the immutable paragraph source, shaped clusters, visual
+runs and line baselines. `TextPosition` includes Upstream/Downstream affinity:
+the same byte at a soft wrap can resolve to the preceding line's end or following
+line's start; a bidi boundary can resolve to two different X positions. Invalid
+byte offsets, including positions inside combining graphemes/CRLF, return None.
+
+The optional pinned unicode-segmentation 1.13.3 uses Unicode 17.0 data, separately
+from line-break Unicode 15.0 and bidi Unicode 16.0. Unsupported non-monotone,
+cross-grapheme or missing-initial-boundary backend clusters reject with Shaping.
+Ligature interior positions divide the cluster advance equally among graphemes;
+this is an explicit interpolation policy, not GDEF font caret measurement.
+Mark offsets/ink bounds do not alter pen carets or selection cells.
+
+Preparation allocates at most 8194 affinity positions and 4096 grapheme cells
+within the 4096-byte source cap. Prepared `caret`, `hit_test` and `selection`
+operations allocate nothing. Hit tests choose the nearest baseline, with vertical
+midpoints choosing the later line. Finite coordinates outside clamp to available
+lines/pen positions; nonfinite coordinates return None. X ties prefer the supplied
+affinity, then earlier source bytes. Invisible/bidi source positions may coincide,
+so source/point/source round trips are not guaranteed.
+
+`selection(range, &mut output)` accepts a half-open logical range at grapheme
+boundaries and writes only the returned prefix of visual line/X-ordered boxes.
+Each pen box spans baseline ±half the configured line height, rather than font
+ascender/descent or glyph ink. Touching selected cells merge with four relative
+machine epsilons for floating-point edge rounding; bidi logical selections can
+remain visually disjoint. Hard separators have no pen width, so selecting only
+one produces no box. Invalid endpoints or insufficient output capacity preserve
+every caller slot; unused output slots also remain untouched after success.
+
+Six portable groups check numeric/source/affinity contracts, a real one-glyph
+synthetic ffi substitution with analytic equal-grapheme carets, selection rollback
+and maximum source boundaries. A 3000-iteration prepared lookup/hit/selection
+loop records zero heap allocations. The first-party rectangular fixture retains
+[generator/provenance](../crates/ravet-surface/tests/fixtures/caret/README.md).
+This is reusable editing geometry; interactive input adapters, IME/clipboard/native
+caret, assistive technology, global backend work/deadline and complete Unicode
+conformance remain separate. See [decision 0175](decisions/0175-grapheme-caret-selection.md).
+
+
+```sh
+cargo run -p ravet-surface --features text --example paragraph-carets --locked -- \
+  crates/ravet-surface/tests/fixtures/text/NotoSansArabic.ttf > target/paragraph-carets.svg
+```
+
+The 720×320 browser fixture contains 73 outline paths and no text nodes. It shows
+one mixed bidi byte with two visual affinities, a logical selection with two
+disjoint boxes, and four equally spaced carets within the actual ffi substitution.
+The middle ligature grapheme has one 24-unit pen selection at size 72. Visual
+inspection confirms separate highlight boxes/carets and unclipped source geometry;
+this remains local SVG evidence, rather than native text interaction.
+
+
+## Source editing and cache ownership
+
+The optional [bounded text edit model](text-editing.md) owns grapheme-safe source
+replacement/deletion, directional selection and undo/redo snapshots on UI/control
+threads. Process-local owner/revision tokens reject stale or foreign mutations.
+`prepare_layout` captures source and token together; check the returned
+`PreparedTextLayout::matches` before treating cached paragraph/caret geometry as
+current. Undo restores text and selection with a new revision, so matching old
+source bytes does not revive a stale token. This remains source state and geometry;
+input adapters, IME, clipboard and native editor/accessibility validation are
+separate facilities.
+
+## Optional owned image codecs
+
+The independent default-disabled [image feature](image-assets.md) decodes static
+PNG/selected JPEG bytes into owned straight RGBA8 and encodes bounded PNG output.
+Consumers explicitly convert/adopt pixels for raster or Metal presentation;
+geometry/layout alone adds no codecs, files or color-management policy.

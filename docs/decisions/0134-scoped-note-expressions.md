@@ -30,3 +30,6 @@ capacity failure after native mutation, unknown/unselected output and preparatio
 requirements with measured heap-free processing. These checks do not establish
 third-party instrument, DAW, physical device or deadline support. Native plug-in
 expression profiles, note choke/end and per-note parameters remain separate work.
+
+[Decision 0159](0159-zero-volume-note-expression.md) extends portable volume to
+zero mute while retaining the stricter positive-only CLAP boundary.

@@ -5,7 +5,7 @@
 //! audio reader retains its last accepted snapshot when a read is unavailable.
 //! The mailbox does not queue events or guarantee that every publication is seen.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
 
 /// A coherent snapshot and its publication generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,7 +60,7 @@ impl<const N: usize> SnapshotMailbox<N> {
         if before & 1 != 0 {
             return None;
         }
-        let words = std::array::from_fn(|i| self.words[i].load(SeqCst));
+        let words = core::array::from_fn(|i| self.words[i].load(SeqCst));
         (before == self.sequence.load(SeqCst)).then_some(WordSnapshot {
             words,
             generation: before,

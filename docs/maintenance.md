@@ -100,3 +100,7 @@ required checks. The [live portal](documentation-site.md) builds the guides and 
 combined static artifact, with strict link validation and a local preview watcher.
 Public deployment remains unconfigured. CI configuration alone is not platform support
 evidence or an executed validation result.
+
+Verbatim upstream licence and notice files under `crates/*/third-party/` retain
+their original whitespace. `.gitattributes` exempts these files from Git
+whitespace checks; first-party source and documentation still use normal checks.

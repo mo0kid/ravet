@@ -2,6 +2,8 @@
 //!
 //! Native code targets macOS 12 or later and requires Xcode command-line tools.
 //! This crate is separate from portable DSP and the umbrella dependency graph.
+//! Browser context menus are disabled in all loaded frames. Right-click events
+//! still reach page controls for reset actions and custom menus.
 //! On other platforms the native API is unavailable. See `docs/native-editor.md`.
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]

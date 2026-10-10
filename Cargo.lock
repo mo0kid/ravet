@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "adler2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
 name = "allocation-counter"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -40,6 +46,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aotuv_lancer_vorbis_sys"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bc4fd1a61860d2f1198b60bedd30910eaffa978f1ee6214dfb24ac70d589225"
+dependencies = [
+ "cc",
+ "ogg_next_sys",
+]
+
+[[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -50,6 +72,15 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "autotools"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef941527c41b0fc0dd48511a8154cd5fc7e29200a0ff8b7203c5d777dbc795cf"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "base64"
@@ -339,6 +370,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
 
 [[package]]
+name = "crc32fast"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -482,6 +522,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
+name = "fdeflate"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
+dependencies = [
+ "simd-adler32",
+]
+
+[[package]]
 name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -506,6 +555,17 @@ dependencies = [
  "num-traits",
  "rustversion",
  "seq-macro",
+]
+
+[[package]]
+name = "flate2"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide 0.9.1",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -749,6 +809,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -790,6 +856,12 @@ dependencies = [
  "cfg-if",
  "windows-link",
 ]
+
+[[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "linux-raw-sys"
@@ -853,6 +925,46 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "windows",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
+dependencies = [
+ "adler2",
+ "simd-adler32",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+dependencies = [
+ "adler2",
+ "simd-adler32",
+]
+
+[[package]]
+name = "mp3lame-encoder"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60cb9bdd89806317373e36ff745f264b7ed7ffc5bc5aab02dc7d1b837c16a8d4"
+dependencies = [
+ "mp3lame-sys",
+]
+
+[[package]]
+name = "mp3lame-sys"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54e3b1772db47828840702e5a2e05694527f731abadf9b931355d54035f019d8"
+dependencies = [
+ "autotools",
+ "cc",
+ "libc",
 ]
 
 [[package]]
@@ -1042,6 +1154,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogg_next_sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed2d7a48e247c2bb07e633aefb65a38648ea58c7eedd4e4408a5861721ab049b"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1103,6 +1224,19 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
+name = "png"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
+dependencies = [
+ "bitflags 2.13.2",
+ "crc32fast",
+ "fdeflate",
+ "flate2",
+ "miniz_oxide 0.8.9",
+]
 
 [[package]]
 name = "proc-macro-crate"
@@ -1167,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "ravet"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ravet-foundation",
  "ravet-signal",
@@ -1176,16 +1310,19 @@ dependencies = [
 
 [[package]]
 name = "ravet-audio-file"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "flacenc",
+ "mp3lame-encoder",
+ "mp3lame-sys",
  "symphonia",
+ "vorbis_rs",
 ]
 
 [[package]]
 name = "ravet-clap"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1197,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-clap-smoke"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "clack-extensions",
  "clack-host",
@@ -1205,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-core-midi"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "cc",
@@ -1215,7 +1352,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-data"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ed25519-dalek",
  "num-bigint",
@@ -1225,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-device"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "cpal",
@@ -1238,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-device-probe"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-host",
@@ -1252,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-editor-smoke"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1265,8 +1402,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-embedded"
+version = "0.0.1"
+dependencies = [
+ "allocation-counter",
+ "ravet-foundation",
+]
+
+[[package]]
+name = "ravet-embedded-gain"
+version = "0.0.1"
+dependencies = [
+ "allocation-counter",
+ "ravet-embedded",
+ "ravet-foundation",
+]
+
+[[package]]
 name = "ravet-examples"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "ravet-audio-file",
@@ -1283,11 +1437,26 @@ dependencies = [
 
 [[package]]
 name = "ravet-foundation"
-version = "0.1.0"
+version = "0.0.1"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "ravet-foundry"
+version = "0.0.1"
+dependencies = [
+ "ravet-data",
+ "ravet-surface",
+ "ravet-webview",
+ "serde",
+ "serde_json",
+ "toml",
+]
 
 [[package]]
 name = "ravet-gain"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "ravet",
@@ -1295,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-gain-clap"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1313,11 +1482,12 @@ dependencies = [
 
 [[package]]
 name = "ravet-gain-native"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
  "ravet-gain",
+ "ravet-native",
  "ravet-surface",
  "ravet-webview",
  "serde_json",
@@ -1325,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-graph"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1335,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-host"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1351,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-instrument"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1359,8 +1529,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-media"
+version = "0.0.1"
+
+[[package]]
+name = "ravet-metal"
+version = "0.0.1"
+dependencies = [
+ "ravet-media",
+ "ravet-surface",
+]
+
+[[package]]
 name = "ravet-midi-device"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "midir",
@@ -1369,12 +1551,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-native"
+version = "0.0.1"
+dependencies = [
+ "allocation-counter",
+ "ravet-foundation",
+]
+
+[[package]]
 name = "ravet-osc"
-version = "0.1.0"
+version = "0.0.1"
+
+[[package]]
+name = "ravet-performance-native"
+version = "0.0.1"
+dependencies = [
+ "ravet-foundation",
+ "ravet-instrument",
+ "ravet-native",
+]
 
 [[package]]
 name = "ravet-preset"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ravet-runtime",
  "ravet-state",
@@ -1382,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-runtime"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "rustls",
  "serde_json",
@@ -1392,14 +1591,14 @@ dependencies = [
 
 [[package]]
 name = "ravet-runtime-ffi"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ravet-runtime",
 ]
 
 [[package]]
 name = "ravet-sidechain-clap"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1412,14 +1611,14 @@ dependencies = [
 
 [[package]]
 name = "ravet-signal"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
 ]
 
 [[package]]
 name = "ravet-sine-clap"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1433,22 +1632,28 @@ dependencies = [
 
 [[package]]
 name = "ravet-state"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "ravet-surface"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "allocation-counter",
  "harfrust",
+ "jpeg-encoder",
+ "png",
  "ravet-foundation",
  "read-fonts",
+ "tiny-skia",
  "unicode-bidi",
+ "unicode-linebreak",
+ "unicode-segmentation",
+ "zune-jpeg",
 ]
 
 [[package]]
 name = "ravet-webview"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "read-fonts"
@@ -1659,6 +1864,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -1695,6 +1901,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1719,6 +1934,12 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "rand_core",
 ]
+
+[[package]]
+name = "simd-adler32"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "simd_cesu8"
@@ -1763,6 +1984,12 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "strict-num"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
 
 [[package]]
 name = "subtle"
@@ -1954,6 +2181,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "tiny-skia"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "bytemuck",
+ "cfg-if",
+ "log",
+ "tiny-skia-path",
+]
+
+[[package]]
+name = "tiny-skia-path"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "strict-num",
+]
+
+[[package]]
+name = "tinyvec"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "toml"
+version = "1.1.6+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1984,6 +2257,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_writer"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2000,6 +2279,18 @@ name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "unicode-linebreak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "untrusted"
@@ -2047,6 +2338,19 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vorbis_rs"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49c5da94d280f7a27e8c937e9b73df2da3e23a2583f48471fd8fb4c72f9c1933"
+dependencies = [
+ "aotuv_lancer_vorbis_sys",
+ "errno",
+ "ogg_next_sys",
+ "thiserror 2.0.21",
+ "tinyvec",
+]
 
 [[package]]
 name = "walkdir"
@@ -2486,7 +2790,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
+name = "zlib-rs"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
+
+[[package]]
 name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zune-core"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core",
+]

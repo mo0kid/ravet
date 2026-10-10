@@ -31,7 +31,9 @@ are not workspace members. Only general reusable components enter the public
 framework; see [publication policy](publication.md) and
 [prepared DSP decision](decisions/0004-prepared-dsp-primitives.md).
 
-Portable DSP runtime dependencies remain local workspace crates. The explicit
+Portable processing adds pinned pure-Rust `libm` for foundation parameter math
+without `std`; default desktop mappings retain their existing math behavior.
+Other portable DSP dependencies remain local workspace crates. The explicit
 `ravet-data` package adds bounded XML, hashing, and legacy integer verification
 through pinned quick-xml, sha2, and num-bigint dependencies; these allocating
 services stay on control/worker threads. See [control data](control-data.md)
@@ -50,8 +52,8 @@ exports to consumers. The explicit `ravet-graph` schedules owned portable nodes 
 routes; its distinct fault status exposes partial node progress rather than
 claiming whole-graph DSP rollback. These crates are not implicitly re-exported
 by the umbrella.
-Native format reference wrappers share `ravet-gain-native` DSP through an explicit
-ABI; their SDKs stay external. See [observable state](observable-state.md),
+Native format reference wrappers use the explicit public `ravet-gain-native`
+and `ravet-performance-native` archives; their SDKs stay external. See [observable state](observable-state.md),
 [audio files](audio-files.md), [MIDI](midi.md), [VST3](vst3.md),
 [AudioUnit](audio-unit.md), [AAX](aax.md) and [LV2](lv2.md).
 
@@ -68,7 +70,8 @@ Deactivation preserves that request for the next activation.
 
 The reference gain accepts mono/stereo effects. Foundation also represents
 no-input instruments and up to 64 channels per direction, plus eight auxiliary buses; contract tests exercise those boundaries,
-but there is no instrument product or CLAP instrument adapter.
+the separate public sine/performance references and CLAP/VST3/LV2 profiles
+exercise their stated subsets. See [MIDI](midi.md) and the format guides.
 
 ## Audio and event contract
 
@@ -97,7 +100,10 @@ two sample copies per channel.
 
 The bridge caps preparation at 65,536 frames and translation at 1,024 input
 events, including ignored event kinds. Only global core parameter-value events
-are translated. Validated block-start transport position/tempo/playback context is forwarded, with seek detection. Notes, modulation, output events, extra buses and `f64` processing remain outside this prototype. See [extended processing](extended-processing.md).
+are translated. Validated block-start transport position/tempo/playback context is forwarded, with seek detection. Notes, modulation, output events, extra buses and `f64` remain outside that gain
+bridge. Separate `MainBusBridge`/`MultiBusBridge` profiles provide explicit native
+precision, note/MIDI/scoped parameter input, generated events and auxiliary buses
+with their own opt-ins and bounds. See [extended processing](extended-processing.md).
 
 The main thread reads requested gain, boolean bypass and a 31-bit restore
 generation from one atomic 64-bit word. Complete state load and inactive host
@@ -155,8 +161,19 @@ The explicit `ravet-device` crate adds CPAL outside the portable umbrella. Contr
 threads enumerate/select/configure output devices and prepare output-only f32
 processors. Callbacks use preallocated planar scratch and partition variable
 interleaved buffers into bounded blocks. `ravet-device-probe` validates silent
-output callbacks. Input/duplex, MIDI and recovery remain pending; see
+output callbacks. Separate input/FIFO and clocked duplex, buffered graph workers and explicit
+caller-scheduled recovery prototypes have their own bounds and evidence. MIDI
+connections and prepared handoff live in `ravet-midi-device`; physical hotplug,
+long-session drift and broader standalone scheduling require further validation. See
 [audio devices](audio-devices.md) and [decision 0018](decisions/0018-output-devices.md).
+
+## Local media worker boundary
+
+The separate `ravet-media` macOS prototype owns explicit local-video metadata
+and timestamped RGBA frame extraction through AVFoundation. Native assets remain
+thread-confined; decoding, allocation and destruction belong on UI/workers. It
+adds no video/audio/network/device dependency to portable DSP or the umbrella.
+See [local video](local-video.md) for bounds and validation limits.
 
 ## Control-thread runtime boundary
 
@@ -173,8 +190,10 @@ processing and must stay outside audio callbacks.
 `ravet-gain-native` exposes a narrow static-library ABI for the public reference
 DSP/state codec. Native VST3 processor/controller classes compile against an
 external SDK with preallocated scratch and bounded queue translation. Portable
-crates acquire no SDK or pointer dependency. This is a gain prototype; generic
-format/editor mappings remain pending. See [VST3](vst3.md).
+crates acquire no SDK or pointer dependency. Reusable native processor/schema/cache/audio-state/publication helpers now
+underpin Gain and a separate performance archive. The VST3/LV2 performance
+instruments remain scoped prototypes; further format/editor/platform mappings
+and host evidence remain separate work. See [VST3](vst3.md).
 
 ## Optional native hosting boundary
 
@@ -238,3 +257,58 @@ processor consumes a prepared queue; stop/join precedes main graph/native
 retirement. No device clock or callback-thread teardown is inferred. See
 [the device guide](audio-devices.md#buffered-graph-worker-output) and
 [decision 0117](decisions/0117-buffered-graph-worker-output.md).
+
+
+The optional `ravet-native` crate prepares generic f32/f64 main/auxiliary planar
+scratch and typed generated events for consumer native shims. Its narrow pointer
+module copies all inputs before output writes and contains processing panic with
+explicit poisoning. Public Gain C handles use this core; product event/state
+codecs, SDK registration/editor/format mapping remain outside it. Optional native
+facade traits expose control-cached global state and separate raw f64 telemetry on
+exclusive prepared owners; control byte codecs and cross-thread publication remain
+explicitly separate. See the
+[native processing guide](native-processing.md) and
+[decision 0142](decisions/0142-native-planar-adapter.md).
+
+## Embedded processing
+
+Foundation can disable its default `std` feature for allocation-free contracts.
+`ravet-embedded` owns fixed-array f32 planar scratch and validates interleaved
+f32/i16/i32 blocks before portable DSP. It introduces no HAL, device, allocator,
+OS or implicit atomic emulation. Existing allocating signal/graph/runtime/editor
+crates retain their desktop boundaries. `ravet-embedded-gain` is a distinct
+immediate stereo reference and narrow caller-owned C bridge. Native Arduino
+C++11 consumers have an explicit stereo processing subset, independent of Rust
+exports. Pi Linux consumers choose the target for installed OS bitness.
+See [embedded projects](embedded-projects.md) and
+[decision 0152](decisions/0152-embedded-processing.md) for contracts and limits.
+
+The [AUv3 and mobile native prototypes](mobile.md) pair exported processor, parameter and live-state entries outside portable DSP. Apple AU editor/extension ownership, Apple AVAudioEngine device lifecycle and Android AAudio/JNI application ownership remain distinct native adapters; proprietary consumers still live in private sibling projects.
+
+The separate `ravet-metal` macOS prototype owns an explicit offscreen GPU
+pipeline for ordered filled portable rectangles, explicit bitmap scenes and
+independent RGBA readback.
+Creation, submission, completion waiting and readback belong to its owner UI/worker
+thread; this is outside the processing graph and creates no window.
+See [Metal drawing](metal-drawing.md) for bounds and validation limits.
+
+## Optional CPU raster pixels
+
+The portable `ravet-surface/raster` feature owns CPU premultiplied RGBA8 canvases
+and prepared finite device paths. The `ravet/raster` umbrella feature forwards it;
+all default dependency graphs retain their previous shape. Combining `raster`
+with `text` prepares owned local TrueType glyph geometry. Input, output and
+accounted covered-pixel budgets are explicit, while backend working memory and
+execution time remain external. Consumers choose a presenter, including explicit
+`MetalBitmap` adoption. See [CPU raster](cpu-raster.md) and
+[decision 0187](decisions/0187-optional-cpu-raster.md).
+
+## Optional worker image assets
+
+`ravet-surface/image` and umbrella `ravet/image` opt into byte codecs separately
+from raster/window dependencies. Immutable validated straight RGBA8 transfers
+through explicit consuming PMA conversion and consumer presentation. Bounded
+structural preflight precedes strict PNG/JPEG backends; private bounded PNG
+output exposes no partial bytes. Allocating codecs belong to UI/worker threads,
+with backend memory/time separate from framework input/output limits. See
+[image assets](image-assets.md) and [decision0195](decisions/0195-owned-worker-image-codecs.md).

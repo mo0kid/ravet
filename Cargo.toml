@@ -2,6 +2,9 @@
 members = [
     "crates/ravet",
     "crates/ravet-foundation",
+    "crates/ravet-embedded",
+    "examples/embedded-gain",
+    "crates/ravet-native",
     "crates/ravet-signal",
     "crates/ravet-surface",
     "crates/ravet-data",
@@ -11,12 +14,15 @@ members = [
     "crates/ravet-graph",
     "crates/ravet-osc",
     "crates/ravet-midi-device",
+    "crates/ravet-media",
+    "crates/ravet-metal",
     "crates/ravet-core-midi",
     "crates/ravet-preset",
     "crates/ravet-host",
     "crates/ravet-webview",
     "examples/gain",
     "examples/gain-native",
+    "examples/performance-native",
     "crates/ravet-clap",
     "examples/gain-clap",
     "examples/sine-clap",
@@ -28,12 +34,13 @@ members = [
     "crates/ravet-runtime",
     "crates/ravet-runtime-ffi",
     "tools/device-probe",
+    "tools/foundry",
 ]
 resolver = "3"
 
 [workspace.package]
 license = "GPL-3.0-only"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 publish = false
 

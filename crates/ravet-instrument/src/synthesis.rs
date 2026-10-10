@@ -13,7 +13,7 @@ const LEVEL_RANGE: ParameterRange = match ParameterRange::new(0., 1., ParameterS
     Ok(range) => range,
     Err(_) => panic!("fixed level range"),
 };
-static PARAMETERS: [ParameterDescriptor<'static>; 1] = [ParameterDescriptor {
+pub(super) static PARAMETERS: [ParameterDescriptor<'static>; 1] = [ParameterDescriptor {
     id: INSTRUMENT_LEVEL_ID,
     name: "Level",
     unit: "",

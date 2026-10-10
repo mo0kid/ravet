@@ -68,7 +68,7 @@ jobs:
       - name: Build development-signed MIDI instrument bundle
         run: python3 scripts/bundle-clap.py --plugin sine
       - name: Exercise the actual MIDI instrument ABI
-        run: cargo +stable run -p ravet-sine-clap --example validate --locked -- "target/clap/release/RAVET Sine.clap"
+        run: cargo +stable run -p ravet-sine-clap --example validate-sine --locked -- "target/clap/release/RAVET Sine.clap"
 
       - name: Exercise guarded native editor hosting
         run: cargo +stable run -p ravet-editor-smoke --example hosted --locked -- "target/clap/release/RAVET Gain.clap"

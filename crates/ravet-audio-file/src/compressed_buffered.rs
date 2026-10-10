@@ -78,7 +78,8 @@ impl CompressedReadAhead {
     }
     /// Reclaim both endpoints after stopping/joining users. Reject foreign queues
     /// or failed replay before changing pending/queued state. Success clears old
-    /// generation audio and poison. Replay is O(target) worker decode, not live seek.
+    /// generation audio and poison. Default readers replay O(target); indexed FLAC
+    /// readers decode one indexed packet. Neither mode provides a live seek.
     pub fn seek_stopped(
         &mut self,
         consumer: &mut AudioConsumer,
@@ -95,5 +96,31 @@ impl CompressedReadAhead {
         self.end = 0;
         self.failed = false;
         Ok(())
+    }
+}
+
+impl crate::ReadAheadPump for CompressedReadAhead {
+    fn pump(&mut self) -> Result<ReadAheadProgress, AudioFileError> {
+        CompressedReadAhead::pump(self)
+    }
+    fn owns(&self, consumer: &AudioConsumer) -> bool {
+        self.producer.owns(consumer)
+    }
+    fn pending_frames(&self) -> usize {
+        (self.end - self.start) / self.producer.channels()
+    }
+    fn reader_position(&self) -> u64 {
+        CompressedReadAhead::reader_position(self) as u64
+    }
+    fn sample_rate(&self) -> u32 {
+        CompressedReadAhead::sample_rate(self)
+    }
+    fn seek_stopped(
+        &mut self,
+        consumer: &mut AudioConsumer,
+        frame: u64,
+    ) -> Result<(), AudioFileError> {
+        let frame = usize::try_from(frame).map_err(|_| AudioFileError::Capacity)?;
+        CompressedReadAhead::seek_stopped(self, consumer, frame)
     }
 }

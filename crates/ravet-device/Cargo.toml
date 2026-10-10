@@ -6,6 +6,11 @@ license.workspace = true
 publish.workspace = true
 description = "Explicit standalone audio device adapter for RAVET"
 
+[features]
+default = []
+vorbis-recording = ["ravet-audio-file/vorbis-encode"]
+mp3-recording = ["ravet-audio-file/mp3-encode"]
+
 [dependencies]
 ravet-foundation.workspace = true
 ravet-signal.workspace = true

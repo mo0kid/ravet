@@ -124,3 +124,22 @@ impl<W: Write + Seek> FlacRecorder<W> {
         self.writer.finish()
     }
 }
+
+impl<W: Write + Seek + Send + 'static> crate::RecordingPump for FlacRecorder<W> {
+    type Destination = W;
+    fn consumer(&self) -> &AudioConsumer {
+        &self.consumer
+    }
+    fn owns(&self, producer: &crate::AudioProducer) -> bool {
+        producer.owns(&self.consumer)
+    }
+    fn pump(&mut self) -> Result<usize, Error> {
+        FlacRecorder::pump(self)
+    }
+    fn frames(&self) -> u64 {
+        FlacRecorder::frames(self)
+    }
+    fn finish(self) -> Result<W, Error> {
+        FlacRecorder::finish(self)
+    }
+}

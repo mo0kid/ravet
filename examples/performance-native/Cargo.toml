@@ -1,0 +1,18 @@
+[package]
+name = "ravet-performance-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Public native f32/f64 identified-performance sine reference"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-instrument = { path = "../../crates/ravet-instrument" }
+ravet-native = { path = "../../crates/ravet-native" }
+
+[lints.rust]
+unsafe_code = "deny"

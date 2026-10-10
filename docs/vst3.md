@@ -18,6 +18,8 @@ CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk
 CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --native-editor
 # Optional macOS factory list/selector (can combine with --native-editor):
 CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --factory-programs
+# Separate public performance instrument (generic host UI):
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --plugin performance
 # A debug build is also available:
 CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --profile debug
 ```
@@ -27,6 +29,15 @@ with two build jobs. It runs CTest and Steinberg's validator, includes the suppl
 SDK licence and RAVET GPL notice, and ad hoc signs the macOS bundle. Artifacts
 stay under `target/vst3`; SDK link/install helpers are disabled. Nothing is
 published, installed in a normal host directory or commercially signed.
+Gain remains the default profile. `--plugin performance` selects the separate
+native performance archive, module and instrument contracts; its isolated build
+root is `target/vst3/performance/{debug,release}`. `--native-editor` and
+`--factory-programs` apply to Gain only and reject with Performance before build
+mutation. The selected bundle alone receives notices/signing and dynamic SDK
+validation; unrelated outputs are ignored. Shared mechanics live in
+`scripts/vst3_bundle.py`. See
+[decision0176](decisions/0176-public-vst3-profile-bundling.md).
+
 Only macOS arm64 has been executed; Windows/Linux build branches need native
 validation and complete target-specific Rust static-link system libraries.
 
@@ -46,6 +57,16 @@ validation. Stable bounded insertion merges queues in frame order, retaining
 queue traversal order at equal offsets. Cost is O(events squared); this is not
 a worst-case callback deadline claim. No sort allocation is performed.
 
+Raw global parameter queues now use the reusable native SDK walker, which copies
+each point once and validates all unknown-ID payloads before any prepared visitor
+effect. Both sample precisions use control-created immutable native range/role
+caches for mapping, with no schema-provider calls on audio. Finite bit checks
+retain validation under fast-math; normal/fast-math SDK-linked contracts exercise
+malformed prefixes, unknown values, capacities, timing and cached C++ heap counts.
+This delivers explicit parameter points; continuous host curve interpolation and
+other SDK event kinds remain separate work. See
+[prepared native parameter input](native-processing.md).
+
 Input scratch copying completes before host output writes, supporting separate,
 in-place and mixed input/output aliases. Output channel ranges must not overlap.
 Zero-frame calls permit parameter flush without audio buses. Gain smoothing and
@@ -53,7 +74,9 @@ sample-timed bypass follow the portable processor. Reset preserves requested
 state. Invalid blocks silence active host outputs, retaining backing tails;
 unwinding DSP panic disables processing until control-thread setup is repeated.
 Nonfinite audio is not sanitized. Instruments, auxiliary buses, note/event
-ports, emitted events and full host transport mapping remain pending.
+ports and emitted events remain pending. The explicit block-start transport
+profile below forwards representable fields; further context metadata remains
+unmapped.
 
 State is the shared 32-byte complete gain/bypass record; 20-byte legacy gain
 records migrate with bypass off. IBStream I/O is bounded and handles short
@@ -105,7 +128,9 @@ functions for each handle precision. Native sample pointers are double; paramete
 values/result gain remain float and bypass remains u32. The shared 32-byte state
 codec and legacy decode are unchanged. The opaque handles cannot be cast between
 precisions. Preparation bounds mono/stereo, 1..65536 frames and 1024 events; f64
-scratch allocates at most 1 MiB. Native process/reset/restore use prepared storage.
+copied-input/output scratch allocates at most 2 MiB (1 MiB for f32). Native
+process/reset/restore use prepared storage through the reusable
+[native processing adapter](native-processing.md).
 
 Both ABI precisions expand one shared validation/aliasing/fault implementation.
 All inputs copy before output writes, including cross-channel aliases; output
@@ -264,3 +289,152 @@ copy readings on the processing owner and deliver them through a separate safe
 handoff; merely exporting these functions does not enable VST3/AU/AAX/LV2 editor
 meters. Nonfinite samples count as silence for metering diagnostics while audio
 remains unsanitized. See [decision 0098](decisions/0098-native-gain-meter-snapshots.md).
+
+## Reusable controller schema registration
+
+The Gain controller now registers its global Gain/Bypass schema through
+`ravet::vst3::registerParameters` from the optional external-SDK header
+`RavetVst3Parameters.hpp`. The same helper preflights unrelated bounded schemas,
+UTF-16 host text limits, stable-ID conflicts and roles, and maps control values
+through native linear/log/discrete callbacks. It does not generalize Gain's
+factory, processing, state exchange, editor or programme code. See
+[native processing](native-processing.md) and
+[decision 0148](decisions/0148-vst3-native-schema-registration.md).
+
+The Gain processor now consumes the
+[reusable native C++ client](native-processing.md#c-native-client) for f32/f64
+lifecycle/audio, direct complete base-state recall/snapshot and separate telemetry.
+Preparation marks state pending; the first valid callback applies the current
+published restore, including zero-frame flush. Tagged global events and snapshots
+retain the existing controller generation/CAS protocol, smoothing, meter IDs,
+program expansion and editor delivery. Callback profile matching handles distinct
+addresses for equivalent Rust-promoted tables. This adoption does not yet add
+generic SDK factories/multibus/performance/generated output or replace
+consumer controller codecs/scheduling. See
+[decision 0157](decisions/0157-native-cpp-client.md).
+
+The processor now requests and forwards
+[explicit block-start transport](native-processing.md#vst3-block-start-transport)
+through the generic owner. Supported SDK scalars validate before pending recall,
+parameter visitation, DSP or state publication; malformed context silences the
+supported output. Sample/musical positions, tempo, signature and transport state
+retain exact available values. Inactive/positionless cycle bounds and fields that
+cannot fit native v1 (including a bar start without a bar number) remain omitted.
+No discontinuity, missing availability, tempo curve or DAW timeline behavior is
+inferred. Normal/fast-math mapping and actual SDK composition have separate checks.
+
+## Explicit VST3 performance input
+
+Optional C++17 `RavetVst3PerformanceInput.hpp` consumes an external SDK event
+list for one explicit bus. `nativePerformanceInput` translates one event into
+one or two canonical native records; rejected/ignored results preserve the
+destination and count. `visitValidatedPerformanceInput` reads each event once,
+validates the complete raw list, and stages at most1024 expanded native records
+before calling a visitor. Offsets are globally ordered; ties and expansion order
+remain intact. Zero-frame offsets must be zero. Scratch needs56KiB plus bounded
+local records; host/visitor callbacks retain their own thread obligations.
+
+On/Off preserves f32 velocity without MIDI quantization and treats velocity-zero
+On as On. SDK note ID-1 means absent; every other int32 identity, including the
+SDK plug-in negative range, retains its bits in portable u32. Finite cents within
++/-12000 expand into semitone tuning after On or before Off when nonzero. Optional
+note length is a hint only; no Off is inferred. SDK ppq/flags are unrepresented.
+Poly pressure becomes channel/key/optional-ID scoped physical pressure. Standard
+expression values are normalized0..1: volume maps to linear value*4 (including
+zero mute), tuning to240*(value-.5) semitones; pan/vibrato/expression/brightness
+retain f64. Expression events require a concrete ID; no voice state is inferred.
+
+`UnknownExpressionPolicy::Reject` is default policy by explicit argument; Ignore
+filters unknown kinds only after validating ID and normalized value. Other
+selected types (SysEx, text, integer expressions, chord/scale, legacy MIDI output)
+reject. Unselected payloads filter after common bus/timing/order checks. A visitor
+refusal may retain earlier visitor effects: use private prepared scratch and
+defer DSP/state/output publication until success. Gain has no performance input
+bus and does not adopt this helper; a consumer must declare compatible buses and
+expression metadata. No SDK instrument export, voice application, output delivery
+or DAW evidence follows. See [decision0160](decisions/0160-vst3-performance-input.md).
+
+## Explicit VST3 performance output
+
+Optional C++17 `RavetVst3PerformanceOutput.hpp` maps canonical native records to
+one explicit SDK event bus. `nativePerformanceOutput` leaves failed destinations
+unchanged. Concrete On/Off and scoped Off with concrete channel/key retain exact
+widened f32 velocity. ID-only standard expressions map physical volume/4 and
+tuning/240+.5 to SDK normalized units; other supported scalars retain f64.
+Tuning conversion may round through its floating unit arithmetic. Volume rejects
+subnormal rounding/underflow using integer IEEE significand checks, including
+under fast-math; tiny positive volume never silently becomes mute. Pressure
+requires concrete channel/key, optional ID and exact widened f32 value.
+
+Concrete SDK note IDs preserve int32 bits except UINT32_MAX, which would become
+SDK's absent-1 sentinel and therefore rejects. Standard expressions require
+ID-only scope because SDK has no channel/key fields for them. Wildcard/scalar
+precision loss, note choke/end, MIDI/UMP/SysEx, parameters and text/int expressions
+reject; no release is substituted for completion. SDK ppq/flags/length/tuning
+metadata default to zero rather than being inferred from transport or history.
+
+`deliverNativePerformanceOutput` preflights the entire bounded ordered native
+stream before any `addEvent`. At most1024 SDK events occupy stack scratch. A host
+can mutate its SDK arguments without changing native source storage. Host refusal
+returns exact delivered/undelivered counts, retains rendered DSP and accepted
+host prefix, and discards the suffix without replay/retry/rollback. Null host
+accepts an empty stream only. Gain has no performance output and does not adopt
+this helper; consumer bus declarations, metadata/voice policy and host validation
+remain explicit. See [decision0161](decisions/0161-vst3-performance-output.md).
+
+## Prepared VST3 native audio bus mapping
+
+Optional C++17 `RavetVst3Audio.hpp::NativeAudioBusMap` validates/caches complete
+native configuration on stopped control. Logical main/auxiliary buses retain
+native order; zero-channel directions occupy no SDK bus, and input/output
+indices compact independently. Fixed limits are1..9 nonempty buses,0..64 channels
+per direction,576 total directional channels and1..65536 maximum frames. Failed
+configuration retains the previous profile; consumer DSP preparation/resource
+limits remain separate. Query input/output bus counts before SDK registration.
+
+`map` validates the complete SDK audio shape at the selected native precision,
+aligned sample arrays/pointers, address overflow and disjoint output prefixes
+before publishing any native bus metadata. Inputs may alias outputs across any
+bus. Bounded output-range sorting allocates nothing; no samples or silence flags
+are changed by mapping. Caller owns live foreign metadata/arrays/samples and
+keeps writable samples separate from metadata/events/private processor storage.
+Flagged silence still requires valid pointers and never overrides sample data.
+
+Zero-frame callbacks either omit both SDK directions entirely or supply exact
+prepared directional counts/channel metadata; sample arrays are not read then.
+Partial omitted directions reject. `silenceSupportedOutputs` clears only valid
+aligned prefixes in exact prepared output shapes and supported frame
+ranges at either known SDK precision (including mismatched processing precision),
+skips null/misaligned/overflowing sample pointers, preserves tails and
+sets bits for channels actually cleared. Unsupported metadata stays untouched;
+foreign range ownership remains necessary even on rejection.
+
+Gain now uses this profile before transport/queue staging/pending restore, and
+uses bounded fault cleanup instead of directly walking rejected pointers. It
+retains mono/stereo effect bus declarations; the helper's generic instrument and
+auxiliary mapping is offline fixture evidence, not an exported SDK instrument or
+speaker-layout/DAW claim. See [decision0162](decisions/0162-vst3-native-audio-buses.md).
+
+
+## Public performance instrument
+
+The separate [performance reference](../examples/performance-vst3/README.md)
+uses the public native 16-voice sine archive and the shared external SDK build.
+It declares no audio input, mono/stereo output and one 16-channel performance
+input at native f32/f64 precision. The controller registers Level and five
+audible standard note expressions. Host generic controls are available; this
+reference declares no custom native editor or generated-event bus.
+
+Complete canonical level recall joins the same private timed event stream as
+automation and performance input. Late semantic faults leave voice history and
+pending recall intact. Equal offsets apply recall, global points and performance
+events in that order. The shared 1024-event capacity includes recall and optional
+note-cents expansion. Overflow rejects with supported output silence. Internal
+voice completion still retires voices; VST3 has no native NoteEnd equivalent, so
+this consumer explicitly suppresses completion notifications.
+
+The focused actual-archive C++ contracts and dynamic SDK validator pass locally.
+A disposable REAPER 7.82/macOS arm64 fixture also passes synthetic 48 kHz MIDI
+rendering, saved Level recall and automation, with independent PCM checks.
+Other host/device/platform/editor/deadline claims require separate evidence. See
+[decision 0166](decisions/0166-vst3-performance-instrument.md).

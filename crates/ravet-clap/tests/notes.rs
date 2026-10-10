@@ -118,7 +118,7 @@ fn translator_preserves_all_expression_types_and_scopes_with_default_filtering()
 #[test]
 fn selected_invalid_metadata_timing_and_zero_frames_reject_unselected_kinds_filter() {
     let good = expr(0, NoteExpressionType::Pressure, 0.5);
-    let mut invalid = [*good.as_raw(); 7];
+    let mut invalid = [*good.as_raw(); 10];
     invalid[0].channel = -2;
     invalid[1].channel = 16;
     invalid[2].key = -2;
@@ -126,6 +126,10 @@ fn selected_invalid_metadata_timing_and_zero_frames_reject_unselected_kinds_filt
     invalid[4].note_id = -2;
     invalid[5].value = f64::NAN;
     invalid[6].value = 1.01;
+    for (raw, value) in invalid[7..].iter_mut().zip([0., -0., -f64::from_bits(1)]) {
+        raw.expression_id = NoteExpressionType::Volume.into_raw();
+        raw.value = value;
+    }
     let mut selected = ParameterEvents::with_capacity(2)
         .unwrap()
         .with_clap_note_input_port(Some(1))

@@ -92,6 +92,10 @@ static RavetWebContainer* createContainer(double width, double height, void* con
     RavetWebBridge* bridge = [RavetWebBridge new];
     bridge.context = context; bridge.message = message; bridge.snapshot = snapshot; bridge.bufferSnapshot = bufferSnapshot;
     WKWebViewConfiguration* configuration = [WKWebViewConfiguration new];
+    // Cancel only the browser menu; controls still receive right-click events.
+    [configuration.userContentController addUserScript:[[WKUserScript alloc]
+        initWithSource:@"window.addEventListener('contextmenu',event=>event.preventDefault(),{capture:true,passive:false});"
+        injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
     [configuration.userContentController addScriptMessageHandler:bridge name:@"ravet"];
     WKWebView* web = [[RavetEditorWebView alloc] initWithFrame:container.bounds configuration:configuration];
     web.wantsLayer = YES;

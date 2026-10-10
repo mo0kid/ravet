@@ -94,6 +94,18 @@ evaluation is in flight. Navigation clears the delivered snapshot. DOM updates
 also avoid rewriting unchanged properties. No callback deadline or native heap
 accounting is implied by this control-thread machinery.
 
+Cocoa/WebKit and Linux/WebKitGTK disable browser context menus by default for
+both local-file and inline HTML editors, including child frames and reloads.
+A document-start listener cancels the `contextmenu` default action without
+stopping event propagation or cancelling mouse/pointer events. Controls can
+still implement right-click reset and custom menus; their `contextmenu` handlers
+receive an event with `defaultPrevented` already set. This also applies to
+standalone windows using the shared WebKit backend. There is currently no native
+option to restore the browser menu; Windows/WebView2 retains its existing policy.
+The hidden macOS context-menu probe checks synthetic DOM event cancellation,
+reset/custom-handler delivery, left-click preservation and child-frame/reload
+coverage for both creation paths; Linux runtime evidence for this policy is pending.
+
 On macOS, editor web views accept the activating mouse press. A drag that begins
 in an inactive editor window reaches the page on that first press, without a
 separate click to focus it. The native AppKit first-mouse probe checks begin,

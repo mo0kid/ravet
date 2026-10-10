@@ -35,11 +35,15 @@ end
 guard(function()
  note('REAPER '..reaper.GetAppVersion()..' '..reaper.GetOS())
  local name
+ local enumerated=0
  for i=0,100000 do
   local exists,display=reaper.EnumInstalledFX(i)
   if not exists then break end
+  enumerated=enumerated+1
+  if display:find('RAVET Gain',1,true) then note('Public gain candidate: '..display) end
   if display:find('VST3: RAVET Gain',1,true) then name=display;break end
  end
+ note('Installed FX enumeration count='..enumerated)
  check(name~=nil,'RAVET VST3 discovery');note(name)
  local master=reaper.GetMasterTrack(0)
  reaper.SetMediaTrackInfo_Value(master,'D_VOL',1)

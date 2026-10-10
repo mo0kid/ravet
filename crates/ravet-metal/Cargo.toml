@@ -1,0 +1,17 @@
+[package]
+name = "ravet-metal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit bounded macOS Metal offscreen drawing for RAVET"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+ravet-surface = { path = "../ravet-surface" }
+
+[dev-dependencies]
+ravet-surface = { path = "../ravet-surface", features = ["raster", "text", "image"] }
+ravet-media = { path = "../ravet-media" }

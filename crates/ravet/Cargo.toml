@@ -11,6 +11,9 @@ workspace = true
 
 [features]
 default = []
+image = ["ravet-surface/image"]
+jpeg-encode = ["ravet-surface/jpeg-encode"]
+raster = ["ravet-surface/raster"]
 text = ["ravet-surface/text"]
 
 [dependencies]

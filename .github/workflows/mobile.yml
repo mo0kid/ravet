@@ -1,0 +1,44 @@
+name: AUv3 and mobile build contracts
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CARGO_BUILD_JOBS: '2'
+jobs:
+  apple:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install Apple Rust targets
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Build AUv3 and run macOS in-process contracts
+        run: python3 scripts/build-mobile.py macos
+      - name: Cross-build mobile app and embedded extension
+        run: |
+          python3 scripts/build-mobile.py ios-sim --embed-contracts
+          python3 scripts/build-mobile.py ios
+      - name: Test scripted mobile backend ownership
+        run: |
+          cmake -S tools/mobile-validation -B target/mobile/contracts -DRAVET_GAIN_LIBRARY="$PWD/target/release/libravet_gain_native.a"
+          cmake --build target/mobile/contracts --parallel 2
+          ctest --test-dir target/mobile/contracts --output-on-failure
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install explicit Android build targets
+        run: |
+          rustup target add aarch64-linux-android
+          sdkmanager 'ndk;29.0.14206865' 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Cross-build and package development APK
+        run: |
+          python3 scripts/build-mobile.py android --ndk "$ANDROID_HOME/ndk/29.0.14206865" --android-sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64"

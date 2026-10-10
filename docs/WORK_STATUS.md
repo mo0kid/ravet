@@ -1,10 +1,201 @@
 # RAVET work status
 
-Updated: 9 October 2026. Owner: current implementation session.
+Updated: 10 October 2026. Owner: current implementation session.
 Starting point: four documentation-only crates; no Git repository.
 Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
+
+## 0.0.1 source preview preparation — 10 October 2026
+
+Aligned all 35 workspace package versions and lock entries, public VST3/AUv2
+reference metadata, mobile fixture versions and the Arduino library to 0.0.1.
+Foundry native adapters continue substituting each independent consumer's own
+version; project starters retain their own initial product version. Added
+[release notes](releases/0.0.1.md) and corrected the README dependency summary.
+The existing remote feature-ordering commit is preserved in the release history.
+
+Local preparation checks on macOS 27.0.1 arm64 with Rust 1.99.0: documentation
+checker, 43 packaging/documentation Python tests, four host-evidence Python tests,
+and all 11 native WebKit CTest probes pass. Fresh 0.0.1 locked workspace check,
+all-target/all-feature tests (763 passed, four external decoder diagnostics
+ignored), all-target/all-feature Clippy with warnings denied, default/all-feature
+doctests (18/23 passed) and default/all-feature Rustdoc with warnings denied pass.
+Formatting and Git diff checks pass without first-party warnings. Foundry's
+external-consumer workflow and effect/instrument metadata propagation at product
+version 2.3.4 pass. Rust artifacts use a separate local build directory because
+an earlier programme build occupied the shared target directory. Native evidence
+is scoped to the synthetic fixtures; no broader platform, DAW/device or deadline
+support is inferred.
+
+The publication path checker passes over staged files and reachable local refs.
+A targeted credential-pattern scan found no matches in 1,025 reviewed working
+files or 1,392 historical blobs. Public image/audio/font fixture provenance and
+retained codec/drawing notices were reviewed; all 265 resolved external packages
+in all-feature Cargo metadata declare a licence or licence file. These checks are
+bounded source/metadata review, not an exhaustive credential or distribution
+licence audit. Cargo publishing remains disabled, commercial terms remain a
+draft and no source archive or binary release is being uploaded.
+
+GitHub reports the existing remote is private. The hosted old-history limit in
+[publication policy](publication.md) remains unresolved: remove hosted copies or
+publish only the clean history to a new repository before public visibility.
+Verbatim third-party notices retain original whitespace through scoped Git
+attributes; normal checks continue for first-party files. Current validation logs
+are local `target/release-0.0.1-*.log` receipts; generated build output is excluded
+from the commit. The actual ad hoc signed 0.0.1 release CLAP gain bundle passes
+the smoke host's 18 processing blocks and six activation cycles. The official
+local CLAP validator reports 34 passed, zero failed/warnings and ten skipped
+checks (44 total). This verifies the trusted reference bundle, not general DAW
+compatibility or production signing/distribution.
+
+## Knob and fader pointer editing defaults (10 October 2026)
+
+All shared knobs and sliders/faders leave paired numeric editing when pointer
+adjustment begins, suppress pointer focus outlines and prevent surrounding label
+activation from opening a numeric editor on release. Native range dragging stays
+browser-owned; pointer release/cancel leaves controls unfocused so host refresh
+can resume. Tab/navigation input restores keyboard styling. Direct numeric
+selection/entry remains available. See [web controls](web-controls.md) and the
+[updated rotary-control decision](decisions/0132-standalone-settings-and-knobs.md).
+
+On local macOS arm64, the complete 11-test native editor suite passes. The expanded
+semantic fixture passes 28 programmatic contracts, including paired number focus,
+label activation, host refresh, keyboard input and exact attribute retirement.
+Real AppKit knob and native-range fader drags also pass in a visible owned WebKit
+window, including number entry and computed keyboard outline checks. Evidence is
+in `target/web-pointer-tests.log`, `target/web-pointer-native-tests.log` and
+`target/web-pointer-controls/Testing/Temporary/LastTest.log`. This is scoped local
+UI evidence; other browser/platform and assistive-technology validation remain
+independent. Workspace doctests, warnings-denied workspace Rustdoc, formatting
+and the documentation checker pass. Cargo evidence is in
+`target/web-pointer-doctests.log` and `target/web-pointer-rustdoc.log`; doctest
+compilation also reports two existing `jpeg-encode` feature-configuration warnings.
+
+## WebKit context menu defaults (10 October 2026)
+
+Cocoa/WebKit and Linux/WebKitGTK now install document-start context-menu
+suppression in all frames through their shared editor creation paths. Browser
+menus no longer compete with consumer right-click reset/custom-menu actions;
+mouse/pointer events and context-menu propagation remain available. Embedded and
+standalone WebKit consumers inherit the default. See the [native editor
+guide](native-editor.md) and [decision 0205](decisions/0205-webkit-context-menus.md).
+
+On local macOS arm64, the new hidden synthetic DOM probe passes file/inline
+creation, repeat loads, child frames, early cancellation, right-click reset,
+custom-handler propagation and unchanged left clicks. All nine existing native
+probes also pass. The initial child-frame fixture used a srcdoc navigation
+rejected by the existing navigation policy; an explicitly allowed about:blank
+frame fixes the fixture and the failed-test rerun passes. Evidence logs are
+`target/web-context-menu-tests.log` and `target/web-context-menu-recheck.log`.
+Workspace doctests, warnings-denied workspace Rustdoc and the documentation
+checker pass; Cargo evidence is in `target/web-context-menu-doctests.log` and
+`target/web-context-menu-rustdoc.log`.
+Linux runtime, actual OS context-menu presentation and DAW routing validation
+remain pending; Windows/WebView2 retains its existing policy.
+
+## Foundry native directory selection (10 October 2026)
+
+Added accessible folder-icon buttons to all seven SDK/framework/project-directory
+fields. Initialized native frontends open Cocoa, Windows COM or GTK directory
+choosers, seeded at the current value's nearest existing directory. New-project
+browsing chooses a parent and appends the package name, retaining exclusive
+creation. Cancel leaves the field unchanged; accepted choices edit the form
+without saving. Bounded whitelisted requests and sequenced snapshots preserve
+subsequent typed edits and permit reselecting the same folder. The macOS bridge
+queues chooser work outside WebKit callback borrows to permit modal-loop events.
+
+On local macOS arm64, 11 Foundry tests and warnings-denied all-target Clippy pass.
+The hidden native UI fixture clicks the SDK icon, opens/cancels a real Cocoa
+chooser, checks unchanged input, publishes an accepted canonical directory through
+the native snapshot bridge, then creates/regenerates an instrument while
+preserving consumer source. Browser checks verify all seven accessible icons and
+selection handling. Complete workspace doctests and warnings-denied Rustdoc
+builds pass, as does the documentation checker. Linux aarch64 Rust cross-check
+passes; Windows/Linux native picker runtime validation remains pending. See [Foundry](foundry.md) and
+[decision 0194](decisions/0194-foundry-project-management.md). Evidence logs are
+`target/foundry-directory-tests.log`, `target/foundry-directory-clippy.log`,
+`target/foundry-directory-ui.log`, `target/foundry-directory-linux.log`,
+`target/foundry-directory-doctests.log` and `target/foundry-directory-docs.log`.
+
+## RAVET Foundry project manager (10 October 2026)
+
+Implemented the shared Rust engine/CLI and RAVET controls/theme GUI, including
+an accent-coloured SVG header and desktop sidebar that stays in place while forms
+scroll. Foundry creates external independent workspaces, saves/reopens versioned
+TOML, rejects changed managed metadata before regeneration, preserves consumer
+DSP/editor/native source and Cargo.lock, and runs explicit background builds with
+bounded logs. GUI and CLI expose offline, application and effect/instrument
+plug-in starters. Effect exports are CLAP/VST3/AUv2/AUv3/AAX/LV2; instruments expose
+CLAP/VST3/AUv2/LV2. SDKs stay external. Native identifiers derive from saved product
+identity; export selections and product metadata can change without recopying
+source. Platform-build instructions cover macOS Rust, Windows x64 MSVC/WebView2
+and Linux GTK3/WebKitGTK4.1/X11 launchers. See [Foundry](foundry.md) and
+[decision 0194](decisions/0194-foundry-project-management.md).
+
+Local macOS arm64 evidence: 10 project/controller tests, warnings-denied Foundry
+Clippy, debug build, complete workspace doctests and warnings-denied workspace
+Rustdoc pass using isolated target directories. The external-consumer workflow
+creates/reopens/regenerates/builds all four starters, runs the offline gain fixture,
+the standalone four-mode hidden UI/audio/settings fixture and packages both CLAP
+roles. The native Foundry hidden WebKit fixture verifies logo/controls, instrument
+creation, regeneration and source preservation. A copied standalone test knob was
+attached to its owner document to match the new connected-control contract.
+
+Generated native effect LV2/VST3/AUv2/AUv3/AAX and instrument LV2/VST3/AUv2 debug
+builds pass with local external SDKs. The official VST3 validator passes 47/47
+for each role; actual generated AU components pass the existing gain/performance
+local audio/state/lifecycle probes. The generated AAX bundle loads and exposes
+its ACF functions and SDK version query. These are local development checks,
+not DAW compatibility, AUv3 registration or production AAX/PACE evidence.
+Linux aarch64 Rust engine/CLI cross-check passes; Windows/Linux GUI and generated
+native plug-in runtime validation remain pending. No MPE/component/module/platform
+selector, instrument AAX/AUv3 adapter, universal build, global installation or
+production release is claimed. Regeneration is atomic per file rather than as a
+group; cancellation owns the direct build child, not arbitrary descendants.
+
+Validation logs: `target/foundry-tests.log`, `target/foundry-clippy.log`,
+`target/foundry-consumers.log`, `target/foundry-ui.log`,
+`target/foundry-workspace-doctests.log`, `target/foundry-workspace-docs.log`,
+`target/foundry-linux.log`, `target/foundry-<effect|instrument>-<format>.log`,
+`target/foundry-<effect|instrument>-vst3-validator.log`,
+`target/foundry-<effect|instrument>-au-contracts.log` and
+`target/foundry-effect-aax-check.log`. The complete reproducible SDK-enabled external workflow passes, including
+version regeneration, native packages, signature/metadata checks and both
+47-test VST3 validator runs (`target/foundry-native-workflow.log`). It accepts
+optional SDK paths, AUv3 packaging and an official VST3 validator.
+
+## Explicit sample-wise waveshapers
+
+Added `ravet-signal::Waveshaper<F>` with inline caller-owned f32/f64 functions,
+once-only sample calls, in-place processing and atomically checked separate
+buffers. Built-in f64 constructors supply hard clip, tanh and cubic soft clip;
+cubic endpoints are +/-2/3 with unity small-signal slope. Drive, gain, smoothing,
+DC removal and oversampling remain explicit. The wrapper has no sample history,
+latency/tail or reset requirement; custom captured state/resources belong to
+callers. See [decision 0149](decisions/0149-sample-wise-waveshapers.md).
+
+On macOS arm64, all 98 signal tests/doctests pass, including five new waveshaper groups for
+curve landmarks, symmetry/monotonicity/extreme values, native precision/captured
+controls, ordered calls, sample/block/partition identity, atomic length rejection,
+explicit f32 oversampling composition and 10000 workloads without counted heap
+actions. Signal all-target Clippy with warnings denied, workspace doctests and
+workspace Rustdoc with warnings denied pass on the current checkout using a
+separate Cargo target directory. The complete 574-test workspace suite also passes
+in an isolated snapshot that excludes the two concurrently introduced embedded
+workspace members and uses an offline-generated lockfile. The shared workspace
+was incomplete at validation startup; its shared build target later reported
+missing exports despite their presence in source, while the separate target
+passed. Waveshaper source formatting and whitespace checks pass. Workspace
+formatting reports unrelated in-progress embedded/foundation edits.
+
+Documentation generation/checking passes in the isolated snapshot. On the shared
+checkout, `check-docs.py --write` and `check-docs.py` report missing feature source
+coverage for the concurrent embedded packages. The catalogue is refreshed from
+the current registry/manifests with the checker's existing renderer; full package
+coverage validation remains pending those registrations. This is portable offline
+evidence without new host/device, platform support, alias-free or callback-deadline
+claims.
 
 ## Implemented
 
@@ -3170,6 +3361,60 @@ left in the working tree. These checks add no hardware, DAW or deadline claim.
 The existing remote remains private; known proprietary paths in initial Git
 history still prevent public publication.
 
+
+## W134: Reusable native planar processing
+
+Added the optional SDK-independent ravet-native crate with prepared f32/f64
+main/auxiliary planar adaptation, bounded copied input/output planes and generated
+events. Whole-stream validation precedes DSP; every input copies before foreign
+output writes, including cross-bus aliases. Shape/alignment/output-overlap faults
+silence supported active output ranges and retain tails. Exact typed transport
+and generated events remain consumer-delivered; audio/reset panic poisons the
+adapter until fresh stopped preparation. Both Gain C precision paths now use
+this reusable core while retaining their product symbols/state and event layout.
+
+Six generic test groups and five Gain groups pass, covering f32/f64 cross-bus
+aliases, extreme f64 values, scoped/generated events, zero-frame processing,
+instrument/no-input initialization, rejection/history, panic poisoning and
+prepared allocation/deallocation checks. Default/all-feature workspace lint,
+default doctests, both warning-denied Rustdoc builds, formatting/docs/whitespace
+pass. Rebuilt actual VST3 passes 47 SDK validator tests plus Cocoa editor and
+36-block/six-activation program contracts. AUv2 render/state/Cocoa editor and
+420-block factory-program contracts pass; LV2 mono/stereo binary contracts and
+AAX binary-entry probe pass. Native f64/program/meter C++ contracts pass. Local
+macOS arm64 evidence only; duplicate-library linker warnings remain in SDK builds.
+AAX is locally ad-hoc signed, without PACE or Pro Tools validation. Generic
+metadata/event/state marshalling and SDK registration remain separate work; no
+new DAW/device/deadline claim. See [decision 0142](decisions/0142-native-planar-adapter.md).
+
+
+## W135: Complete native event marshalling
+
+Added canonical version-one C-layout records for every portable event kind, full
+u32 note/parameter IDs, explicit wildcard scope, exact widened f32 global values/
+velocities and full f64 scoped values/expressions. MIDI short messages and all UMP
+framing types retain their bytes/numeric words. Whole bounded stream conversion
+preflights values/timing/capacity before destination mutation; equal-time order,
+zero-frame offsets and tails remain exact. Unknown tags/bits, unused fields and
+lossy scalar conversion reject. Gain now shares the separate unchanged legacy
+global parameter layout/decoder, retaining existing product C signatures.
+
+Six new groups pass exhaustive scopes/types, canonical golden records, invalid
+prefixes, precision/offset/order/capacity bounds, 1000 full-capacity conversion
+workloads and 1000 complete f32/f64 native instrument audio/event cycles with no
+counted heap actions. Six planar and eight all-feature Gain regressions pass.
+Default/all-feature workspace lint and default doctests pass; both warning-denied
+Rustdoc builds pass after correcting one code span that Rustdoc interpreted as a
+link. A repeated planar test launch briefly stalled in dyld before entering its
+harness, then resumed and passed without intervention. Formatting/docs/whitespace
+pass. Rebuilt actual VST3 validator passes 47/0 plus Cocoa editor and program
+contracts; AUv2 audio/state/editor/420-block programs, LV2 binary contracts and
+AAX entry probe pass. Five native C/C++ contracts now include both C11/C++17
+header layout checks. macOS arm64 native evidence only; AAX remains ad-hoc/entry
+only, without PACE/Pro Tools validation. Endpoint routing, host delivery/refusal,
+state, generic factories and broader programme remain independent work.
+See [decision 0143](decisions/0143-native-event-records.md).
+
 ## Hosted documentation source ownership — 9 October 2026
 
 Moved the hosted reference's beginner introduction, practical guides, reviewed
@@ -3183,6 +3428,93 @@ regression tests, an all-features workspace Rustdoc build with warnings denied,
 and 15 website/navigation checks. The index includes direct API and method
 bookmarks; formatting and external-link behavior were inspected at desktop and
 mobile widths. Public deployment was not performed.
+
+
+## W136: Exact native block-start transport
+
+Added a canonical v1 C-layout snapshot with independently available playing,
+sample/beat timelines, tempo, details, signatures, increments, loops and bars.
+Unknown states remain unknown; i64/f64/i32 values retain their complete precision
+and semantic ranges. Dependencies validate before conversion: active ordered
+loop ranges need their timelines, increments need tempo, bars need beats and
+signatures need nonzero u16 components. Unknown bits, unused/reserved fields and
+invalid values reject without guessed context, quantization or extrapolation.
+Direct typed adapter pass-through stays unchanged.
+
+Six groups pass all 32768 availability/flag combinations, full extreme metadata,
+negative positions/signed zero, malformed native/portable snapshots and 10000
+complete prepared f32/f64 processing cycles per precision with zero counted heap
+actions. C11/C++17 header layout and native Gain precision/program/meter contracts
+pass. Full all-feature workspace snapshot passes 572 tests including doctests.
+Default/all-feature lint, default doctests, both warning-denied Rustdoc builds and
+formatting/docs/whitespace pass after making bit-mask precedence explicit. Some
+workspace executables stalled before their harness in dyld, then resumed; a
+local temporary copy of the limiter binary independently passed too. Existing
+duplicate validate example-name Cargo warnings remain. Synthetic local macOS
+arm64 evidence only, without additional SDK/DAW/device/deadline claims. Generic
+exported processor entry/lifecycle infrastructure and the wider programme continue.
+See [decision 0144](decisions/0144-native-transport-records.md).
+
+
+## Feature overview priority — 9 October 2026
+
+Reordered the [feature registry](features.toml) and regenerated the catalogue
+so reusable processing, graphs, plug-in integration and DSP lead the overview.
+State, MIDI, device, file, UI and runtime capabilities precede reference
+implementations and teaching examples; development tools, plans and exclusions
+follow. Stable IDs, statuses, descriptions, limits and evidence are unchanged.
+The [maintenance guide](maintenance.md) records the ordering policy for new entries.
+
+Validation: documentation checker, all 12 documentation-checker regression tests
+and whitespace checks pass. Parsed registry comparison confirms all 176 feature
+records are preserved with identical contents.
+
+Rebuilt the sibling website's static documentation snapshot for the local PHP
+preview at port 8088. Browser inspection of `/ravet/docs/FEATURES/` confirms
+portable processing leads and the four teaching entries occupy positions
+162–165. The hosted publisher completed with a fresh all-feature Rustdoc build
+with warnings denied; all ten website tests and both hosted-navigation tests
+pass. The hosted tooling guide now explains that static previews require a
+publisher rebuild after source edits. No public deployment was performed.
+
+Public follow-up: published the ordering-only documentation change as commit
+`e8fff3031ab1482cd53488e7da3c736f73f617a9` from an isolated checkout, preserving
+the shared checkout's in-progress native changes. The published registry retains
+all 172 existing records with identical contents. Website deployment
+[37971051914](https://github.com/mo0kid/djwaudio.co/actions/runs/37971051914)
+passed its documentation and website checks. Public browser inspection confirms
+`https://djwaudio.co/ravet/docs/FEATURES/` starts with portable processing and
+places the teaching entries at 158–161; other site files were still uploading
+at that inspection. The local checkout retains additional unpublished features.
+
+
+## W137: Generic exported native processor lifecycle
+
+Added a consumer-selected immutable version-one entry table and opaque owner
+composing prepared main/auxiliary f32/f64 audio, complete native input/generated
+events, optional strict transport, lifecycle and latency/tail declarations.
+Default+Send processors construct through contained control callbacks; complete
+canonical configuration and native output capacity validate before DSP. Foreign
+table/handle/precision, library lifetime and record/sample ranges remain caller
+obligations. Supported output prefixes silence on faults; status/count always
+rewrite valid result storage, with no generated delivery on faults or DSP rollback.
+Poison persists until fresh stopped preparation. Gain exports this generic entry
+alongside its existing product ABI.
+
+Six new groups pass 1000 complete multibus/scoped/event/transport cycles per
+precision with zero counted heap actions, no-input completion/silence behavior,
+full latency/tail ranges, configuration/refusal and factory/prepare/audio/reset/
+timing-query panic containment/recovery. Existing planar/event/transport/Gain
+regressions pass. Default/all-feature workspace lint, default doctests, both
+warning-denied Rustdoc builds and formatting/docs/whitespace pass. Actual-library
+C++ entry contracts compare both interfaces over 2000 timed/cross-alias blocks,
+zero-frame controls, rejected prefixes, wide f64 audio and lifecycle/timing. Six
+native C/C++ contracts pass; rebuilt VST3 validator47/0 plus editor/programs,
+AUv2 render/state/editor/420-block programs, LV2 binaries and AAX entry probe pass.
+Local macOS arm64 evidence only; AAX remains ad-hoc/entry only, with no new DAW/
+device/platform/deadline support claim. Generic parameter/state metadata and SDK
+registration/editor infrastructure remain independent work; programme continues.
+See [decision 0145](decisions/0145-native-processor-entry.md).
 
 
 ## Publication history cleanup — 9 October 2026
@@ -3209,15 +3541,1510 @@ server-side deletion is unresolved and visibility remains private. A purge
 request draft with the original commit IDs is retained in the private backup.
 
 
-## Feature overview priority — 9 October 2026
+## W138: Bounded native global schemas and state
 
-Reordered the feature registry so portable processing, graphs, plug-in
-integration and DSP lead the overview. Framework state, MIDI, devices, files,
-UI and runtime services precede references and teaching examples; tools, plans
-and exclusions follow. All 172 published feature records retain their IDs,
-statuses, descriptions, limits and evidence. The maintenance guide records
-the ordering policy, and the hosted tooling guide explains static rebuilds.
+Added an optional paired companion table with immutable stable-ID global f32
+schemas, UTF-8 names/units, linear/log/discrete mapping and explicit automation/
+bypass/read-only roles. Complete provider snapshots revalidate/reorder by declared
+IDs before native output. Complete canonical state validates before consumer
+atomic restore; explicit consumer decoding can migrate legacy records within an
+8208-byte bound. State calls require exclusive stopped ownership. Gain-native uses
+thin f32/f64 facades, keeping portable DSP backend-independent and retaining its
+complete 32-byte-v2 and legacy 20-byte-v1 codecs.
 
-Validation: documentation checker, all 12 checker regression tests, both
-hosted-navigation tests and whitespace checks pass. Local website rebuild
-and browser verification also confirmed the intended order.
+Six groups pass native metadata/ranges/roles/UTF-8 limits, registration/version/
+capacity/provider panics, mismatched/reordered snapshot IDs/ranges, native state
+length/product/version/value/duplicate/order rejection and shared-owner snapshot/
+restore poisoning/recovery. 1000 complete snapshot/load/save/process workloads per
+precision count zero heap actions. Existing native/Gain regressions, default/all-
+feature workspace lint, default doctests, both warning-denied Rustdoc builds and
+formatting/docs/whitespace pass. Actual-library C++ checks pass metadata/mapping,
+2000 complete recall/audio cycles, canonical codec parity, legacy migration and
+atomic rejection; seven native C/C++ contracts pass. Rebuilt VST3 validator47/0
+plus editor/programs, AUv2 render/state/editor/420-block programs, LV2 binary and
+AAX entry-only probes pass. Local macOS arm64 evidence only; no additional DAW/
+platform/deadline claim. Live publication requires explicit audio-owner contracts
+and remains next, alongside generic SDK registration/scoped metadata/UI and the
+wider programme. See [decision 0146](decisions/0146-native-parameter-state-companion.md).
+
+
+## W139: Explicit native live global state publication
+
+Added an opt-in prepared audio-parameter contract and independent schema-bound
+atomic publication objects. Control decodes/revalidates complete state; audio
+applies newly accepted revisions before process and conditionally reflects base
+state afterward. Cached schemas avoid audio metadata-provider calls. Repeated
+apply skips restore, own reflection is not reapplied, and newer control restores
+win. One-attempt Busy/Stale preserves results without spinning. Coalescing,
+retirement, exact pairing/library lifetime and callback contracts remain explicit.
+Preparation/deactivation clear accepted revision; reset preserves it. Audio-provider
+panics poison the shared owner until fresh preparation; decoder panics have no DSP
+owner to poison. Gain-native exposes the extension for both precisions and retains
+canonical/legacy decoding.
+
+Five new Rust groups pass complete record/capacity/layout/failed-output validation,
+f32/f64 apply/process/reflect revision and identity semantics, atomic rejection,
+panic recovery and concurrent controller/audio/observer coherence, including
+conditional audio automation reflection. Each precision's 1000 complete cycles
+counts zero heap actions and no audio metadata-provider calls. All589 workspace
+runtime tests/doctests pass, plus28 Python regressions; default/all workspace lint,
+default doctests, both warning-denied Rustdoc builds and formatting/docs/whitespace
+pass. One workspace executable temporarily stalled at macOS dyld entry before its
+harness and later resumed; this was not a test failure or callback observation.
+
+The actual-library C++ state probe passes2000 f32/f64 apply/audio/reflect cycles,
+coherent snapshots/canonical bytes/legacy migration, stale newer-restore protection
+and retention of Gain automation smoothing. All8 native C/C++ contracts pass.
+Rebuilt VST3 validator47/0 and editor/program probes, AUv2 render/state/editor/
+420-block programs, LV2 binaries and local ad-hoc AAX entry probes pass. Local
+macOS arm64 contract evidence only, without additional DAW/device/platform/deadline
+or PACE/Pro Tools claims. Generic SDK registration/mapping remains independent;
+the programme continues. See [decision0147](decisions/0147-native-live-state-publication.md).
+
+
+## W140: Reusable VST3 controller schema registration
+
+Added an optional external-SDK C++17 header that preflights a complete bounded
+native global schema before adding VST3 root-unit parameters. It rejects invalid
+metadata/table/roles/defaults, duplicate/conflicting or host-reserved IDs and
+oversized/malformed UTF-16 host text instead of clipping. Complete UTF-8 conversion
+preserves supplementary characters. SDK parameter objects call native pure
+linear/log/discrete mapping on control, retain global f32 physical values and
+explicit automation/bypass/read-only roles, and keep their table/library alive.
+Numeric formatting retains fractional/arbitrary stepped choices; strict bounded
+locale-independent decimal/exponent parsing rejects invalid/suffixed/overflow/
+nonfinite text without mutation. Explicit boolean bypass roundtrips On/Off labels.
+Gain's actual controller now registers both base controls through this helper;
+factory/state/processing/editor/programme behavior remains separately owned.
+
+SDK-linked contracts pass unrelated log/fractional/Unicode/default/role metadata,
+whole preflight failure/container preservation, ASCII127/supplementary127 UTF-16
+boundaries, invalid numeric text/signs/whitespace and bypass text roundtrips,
+conflicts/reserved IDs/table bounds, and actual native Gain f32/f64 schemas/mappings.
+Both bundlers that build VST3 contracts now include the new contract target.
+C++17 syntax,28 Python regressions and formatting/docs/whitespace pass. Rebuilt
+VST3 schema/processing contracts, validator47/0 without the initial bypass text
+roundtrip diagnostic, actual Cocoa editor/programs, AUv2 render/state/editor/
+420-block programs, LV2, ad-hoc AAX entry and8 native C/C++ contracts pass. W139's
+589-test workspace/lint/Rustdoc snapshot covers unchanged underlying Rust APIs.
+Local macOS arm64/SDK3.8.1 evidence only; no new DAW/platform/deadline or production
+AAX claim. This helper is control-only: audio-cached mapping, other SDK/factory/
+state/event/editor infrastructure and the wider programme continue. See
+[decision0148](decisions/0148-vst3-native-schema-registration.md).
+
+
+## Prepared standalone comb filters — 9 October 2026
+
+Added one-channel f64 feedforward and feedback comb filters with fixed whole-sample
+delays, unity direct input and positive/negative coefficients. Preparation validates
+1..1048576 samples before one bounded allocation; feedback requires finite
+absolute coefficient below one. Coefficient edits retain histories and reject
+before mutation; zero coefficient returns input exactly while advancing history.
+Sample/in-place processing and reset retain allocations. Kind/delay changes require
+new preparation. Existing private damped reverb comb behavior remains independent.
+
+Six new test groups pass signed impulse timing/decay, independent indexed input/
+output recurrence across coefficient edits, analytic complex frequency gains,
+partition/empty/reset/zero-history continuity, atomic invalid preparation/edits
+and exact maximum-delay/storage bounds. 10000 prepared process/edit/reset
+workloads per kind count zero heap actions. All signal tests/doctests, signal
+Clippy with warnings denied, workspace doctests and warning-denied workspace
+Rustdoc pass in an isolated macOS arm64 snapshot. That snapshot excludes the
+concurrently introduced ravet-embedded and embedded-gain workspace members; its
+574 runtime tests/doctests pass. The checkout's six comb tests and signal Clippy
+also pass using a fresh target directory. Source formatting and all 28 Python
+regressions pass. Checkout documentation coverage remains dependent on the concurrent
+embedded-package registration; no device/DAW/platform/deadline claim is added.
+See [decision 0150](decisions/0150-prepared-comb-filters.md).
+
+## Embedded processing foundation — 9 October 2026
+
+Completed the no_std foundation boundary, fixed-capacity Rust audio adapter,
+public allocation-free immediate stereo gain/C bridge, native Arduino C++11
+stereo subset and independent embedded-rust/arduino/pi-linux starters.
+See [embedded projects](embedded-projects.md) and
+[decision 0152](decisions/0152-embedded-processing.md). The selected available
+reference boards are ESP8266-D1 and Raspberry Pi 3 Model B+; STM32/Compute Module
+models and audio codecs remain unspecified. No physical board was exercised.
+
+Executed locally on macOS arm64 with Rust/Cargo 1.99.0:
+
+- Foundation and embedded/reference tests pass both with default features and
+  with defaults disabled; the six new Rust fixtures cover integer PCM saturation,
+  interleaving/tails, complete preflight, zero-frame/instrument paths, timed
+  gain/strict rejection, native C aliasing/layout and callback/reset/fault heap
+  counts. Measured allocation/deallocation counts remain zero.
+- `python3 scripts/check-embedded.py --cross` passes host tests, the actual host
+  Rust static-library C fixture and native C++11 contracts with exceptions/RTTI
+  disabled. Library checks pass for thumbv6m-none-eabi, thumbv7em-none-eabihf,
+  aarch64-unknown-linux-gnu and armv7-unknown-linux-gnueabihf. A Cortex-M4/M7
+  hard-float reference static archive builds with explicit abort/spinning panic
+  policy. This is not final firmware-link/flash or Linux runtime evidence.
+- A generated independent embedded-rust consumer library builds for
+  thumbv7em-none-eabihf; a generated pi-linux consumer locks/builds/runs on this
+  macOS host and prints `RAVET embedded stereo gain PASS`. Pi execution is pending.
+- Generator regression tests pass for independent manifests, no-default embedded
+  dependencies, local Arduino library/sketch copies and existing-directory/scope
+  protection.
+- Full workspace tests, Clippy with warnings denied, required workspace Rustdoc
+  tests, warning-denied API build and workspace formatting check pass. All 29
+  Python regression tests and the documentation checker pass.
+- The Arduino OfflineGain sketch compiles/links for `esp8266:esp8266:d1` (D1 R1)
+  and `esp8266:esp8266:d1_mini` (D1 R2/mini), with ESP8266 core 3.1.2 and
+  Arduino CLI 1.5.2-rc.1 in isolated target-directory tooling. Firmware reports 29,188 RAM bytes, 59,747 instruction/cache RAM bytes
+  and 236,116 flash code bytes including core/SDK overhead. It was not uploaded
+  or executed on a board; this establishes build evidence only.
+
+The [embedded workflow](../.github/workflows/embedded.yml) configures Ubuntu
+contracts/cross checks, with remote execution pending. These checks do not
+establish board/codec/DMA/cache/interrupt behavior, live Pi devices, Arduino
+flashing or real-time deadlines. Existing desktop signal/graph/runtime/editor
+crates are not converted into allocator-free firmware dependencies.
+
+The embedded user guide and starters stay board-neutral for Arduino. The D1
+profiles above are compile fixtures, not recommended audio targets. Select
+hardware using measured DSP workload, CPU/FPU, RAM, codec interfaces and DMA/
+interrupt behavior; synthetic gain build success does not establish suitability
+for substantial audio applications.
+
+
+## W141: Control-cached native global parameter mapping
+
+Added an immutable control-prepared native schema cache with copied metadata,
+static ranges/roles and sorted binary ID lookup, plus a separate paired foreign
+table preserving earlier ABI layouts. Cached concurrent metadata/scalar reads and
+complete normalized event conversion call no consumer providers or DSP and use
+no heap actions, locks or I/O. Full normalized ID/value/timing/capacity validation
+precedes output mutation; f64 normalized intent explicitly narrows to the global
+f32 contract and physical f32 widens exactly into tagged event records. Equal-
+offset order and tails survive. Creation/drop and providers stay on control, with
+explicit exact pairing/library/static-reference lifetime and stopped retirement.
+No hidden role filtering or unknown-ID dropping occurs. Gain exports both precision
+companions.
+
+Six Rust groups pass schema/mapping/roles/full-ID/layout checks, whole bad-prefix/
+unknown/nonfinite/offset/order/capacity rejection, zero-frame/empty/oversize caches,
+provider-panic isolation and shared foreign-reader concurrency. Each precision's
+1000 full1024-event metadata/map/convert workloads and four readers'10000 cached
+workloads count zero heap actions/provider calls. Existing native/Gain regressions
+and scoped lint pass. Default/all-feature workspace lint, workspace doctests, both
+warning-denied Rustdoc builds and formatting/docs/whitespace pass after refreshing
+stale generated Signal metadata/archive artifacts that omitted concurrently added
+public exports; shared sources were preserved. Workspace package coverage now
+includes the independently added embedded reference.
+
+Actual-library C++ checks pass both native Gain precision profiles,2000 normalized
+conversions, declared order/ties/tails, whole rejection and failed scalar/metadata
+outputs. All9 native C/C++ contracts pass. Rebuilt VST3 validator47/0/schema/editor/
+programs, AUv2 render/state/editor/420-block programs, LV2 binary and ad-hoc AAX
+entry checks pass. Local macOS arm64 evidence only; no additional DAW/platform/
+deadline or PACE/Pro Tools claim. Prepared SDK queue/profile integration is next;
+the broader programme continues. See [decision0151](decisions/0151-native-cached-parameter-mapping.md).
+
+
+## AUv3 and mobile native adapters — 9 October 2026
+
+Added a reusable paired f32 native session, an AUAudioUnit processor adapter,
+programmatic CoreAudioKit parameter editor and public Gain extension/containing
+apps. AU parameters retain physical stable-ID schema values; complete live state
+includes bypass. Rendering validates bounded input before DSP, handles timed
+changes and ramps that continue across blocks, caches stopped timing, maps host
+transport and supports an explicit short MIDI/framed UMP input profile. Main-queue
+parameter refresh keeps cached host values synchronized. Ordinary concurrent
+control publication does not turn into an audio-stream failure; a raced ramp-base
+snapshot retains its last observed values.
+
+Apple mobile has explicit AVAudioEngine/AVAudioSession lifecycle, preferred
+configuration, microphone permission, route/interruption/media-reset handling,
+retained state and endpoint-ID MIDI reconnection. Android has AAudio prepared
+planar/interleaved conversion, callback chunking, zero-timeout capture, shortage
+silence/counters, atomic native failure reporting, stopped stream retirement and a
+1024-slot immediate MIDI queue. Public native apps expose Audio/MIDI settings by
+default and stop on backgrounding. SDKs remain external. A single build command
+creates Apple bundles or Android libraries/development APKs; local fixture
+signing, native alignment verification and RAVET/libm/NDK notices stay explicit.
+
+Executed on macOS 27.0.1 arm64/Xcode 27:
+
+- MacOS AU in-process contracts pass three lifecycle cycles, physical parameter
+  schema, audio/tails, timed bypass, complete live restore, whole-list rejection,
+  cross-block ramps, host bypass and public render/schedule wrapper, cached timing,
+  transport conversion, opt-in short MIDI/UMP/truncated-UMP rejection, zero-frame
+  calls, resource stop/reprepare and programmatic editor construction.
+- Arm64 iOS device and simulator app/extension builds pass with native compiler
+  warnings denied. The signed iPhone 17 Pro/iOS 26.0 simulator app installs; its
+  explicit in-process AU contract runner passes. A normally launched app shows
+  readable gain/bypass/Start/Stop and Audio/MIDI controls in an inspected screenshot.
+  This evidence exercises an app process rather than AU extension discovery/IPC.
+- Android arm64/API 26 native code cross-builds with NDK r29 (29.0.14206865),
+  native warnings denied. JDK 17/API 36 Java compiles with all warnings denied.
+  Direct SDK/build-tools 36.0.0 packaging produces a development APK with verified
+  signature and 16 KiB ZIP/native-library alignment. No Android runtime was run.
+- Scripted AAudio-double contracts pass oversized callback chunking/prefix/tails,
+  live controls and invalid recall, bounded MIDI fill/overflow/delivery, short
+  capture silence/counting, stream errors, rate mismatch/open/capture failure,
+  repeated stop/recovery and balanced ownership. 1000 callbacks race 10000 control
+  edits without stopping audio. These are ownership/logic tests, not hardware or
+  AAudio deadline evidence.
+- 46 targeted native/Gain Rust tests and 29 Python script/checker tests pass.
+  Workspace Rustdoc examples pass (13) with a fresh isolated target directory;
+  shared-target attempts had linked stale signal exports and failed the new comb/
+  waveshaper examples despite their current exports, so the clean-target evidence
+  is recorded separately. Warning-denied workspace Rustdoc build, formatting,
+  Python compilation, documentation catalogue/link checks and whitespace pass.
+
+The mobile CI workflow is configured, not an executed GitHub platform result.
+Full support remains open: named third-party AUv3 hosts/IPC, physical mobile
+routes/devices/interruption/MIDI, Android execution, production provisioning and
+callback measurements need actual evidence. Auxiliary buses, generated output,
+factory programmes, SysEx, f64 selection, a native instrument reference, persisted
+standalone sessions and background audio remain further profiles. Android duplex
+requires matched rates/channels and has no independent-clock conversion. See
+[the guide](mobile.md) and [decision 0153](decisions/0153-auv3-mobile-native-adapters.md).
+
+Follow-up checks in the same work package: canonical native recall wins stale
+AU superclass parameter caches; the regression passes on macOS and the iOS
+simulator. All AU adapter/editor sources compile with application-extension
+restrictions enabled. Apple and Android standalone controls use scrolling layouts
+for smaller viewports; final Apple device/simulator builds and Android APK
+packaging pass, and the updated iPhone UI screenshot was inspected. Extension
+metadata includes the factory class and display name required by the installed
+Xcode template/simulator installer. Hardware/host acceptance targets were requested
+from the owner; the full-support gate remains open.
+
+
+## W142: Prepared VST3 cached global parameter input
+
+Added an optional external-SDK C++17 input profile with control-created native
+caches, sorted IDs/roles, explicit read-only policy and distinct mapping/routing
+results. Gain's actual processor uses separate f32/f64 profiles. A reusable walker
+reads each global SDK point once into <=16KiB stack scratch and validates all raw
+queue/total counts, getter results, finite normalized values and ordered offsets,
+including unknown IDs, before any prepared visitor runs. Program expansion and
+stable bounded insertion remain consumer-owned and unchanged. Visitor failure may
+retain private scratch, so pending state/DSP/output publication waits for success.
+Cached mapping/validation use no provider calls, framework heap actions, locks or
+I/O; host and visitor obligations remain explicit.
+
+SDK-linked normal/fast-math targets pass actual native Gain precision profiles,
+explicit read-only routing/failed output preservation, whole malformed/unknown/
+count/getter/nonfinite/timing/capacity preflight before visitors, zero-frame/full
+capacity, single point reads, retained traversal/ties and visitor failure scope.
+1000 cached queue workloads count zero C++ new/delete and metadata reads; W141's
+Rust cache workloads establish the separate Rust heap/provider evidence. Tests
+inject foreign NaN/infinity bytes and classify referenced IEEE memory as integer
+bits, avoiding invalid by-value floating assumptions under fast-math.
+
+Both VST3 contract bundlers build both input targets. Rebuilt four SDK contracts,
+validator47/0, actual Cocoa editor/programs, AUv2 render/state/editor/420-block
+programs, LV2 binaries, ad-hoc AAX entry and9 native C/C++ contracts pass. Syntax,
+formatting/docs/whitespace pass; W141's current workspace lint/doctest/Rustdoc
+snapshot covers unchanged underlying Rust. Local macOS arm64/SDK3.8.1 evidence
+only; no new DAW/platform/deadline or production AAX claim. Continuous host curves,
+gestures/scoped/performance/transport, generic SDK factories/state/processing/
+output/editors and the wider programme remain active. See
+[decision0154](decisions/0154-vst3-cached-parameter-input.md).
+
+
+## W143: Explicit native audio-owner complete state
+
+Added a separate cache-paired companion for complete physical f32 base-state
+restore/snapshot on exclusively prepared generic processors. All IDs/ranges and
+completeness validate before one atomic consumer restore; complete snapshots
+revalidate/reorder before writes, preserving failed fields and successful tails.
+No byte codec/schema/role provider runs in framework audio paths. Audio hooks are
+now available without a 64-bit atomic gate; live publication remains separately
+gated. Direct calls do not invent generations or modify accepted live revisions;
+consumer protocol ordering and needed-recall scheduling remain explicit.
+
+Five Rust groups pass unrelated/full-u32 identities, reordered provider state,
+malformed/capacity/null/alignment/atomic rejection, mismatched provider IDs/ranges,
+provider failure isolation, shared poison/reset/reprepare, zero-frame automation,
+empty/max1024 complete state and 1000 heap/provider-free cycles per precision.
+Actual Gain C++2000 restore/render/snapshot cycles pass wide f64 audio, whole-state
+rejection, zero-frame automation, retained smoothing, lifecycle and failed/tail
+outputs. C11/C++17 layouts pass. See
+[decision 0155](decisions/0155-native-direct-audio-state.md).
+
+## W144: Explicit prepared native telemetry
+
+Added independent stable-ID native readout descriptors/caches and a paired generic
+processor companion. Control metadata preflights UTF-8/count/duplicate/display
+bounds before caching. Complete exclusive prepared snapshots validate all IDs,
+finite raw f64 values and known nonfinite-input flags before reordered writes.
+Exact u64 windows and extreme/tiny/signed-zero f64 values survive; display hints
+do not clip observations. Metadata reads are shared/provider-free; consumer
+measurement, retention/reset and UI/host publication remain explicit.
+
+Seven Rust groups pass metadata limits/preallocation rejection, full identities,
+reordering/malformed/unknown/duplicate/nonfinite/flag/pointer/capacity failures,
+provider isolation, shared poison/reprepare and concurrent cached readers. Both
+precisions run1000 heap/provider-free cycles; max1024 snapshots run1000 heap-free
+cycles, four shared readers run10000 cycles each, and empty/null/tail boundaries
+pass. Gain exposes existing12 meter fields10..21. Actual C++2000 stereo cycles
+pass raw wide/tiny/RMS levels, exact counts/nonfinite diagnostics, mono/reset/
+zero/rejected retention, failed fields and tails. C11/C++17 layouts pass.
+
+The combined snapshot passes626 all-feature workspace tests/doctests. A test-only
+Clippy initializer warning was corrected; refreshed telemetry, default/all-feature
+workspace lint, default doctests and both warning-denied Rustdoc builds pass.
+Formatting/docs/whitespace pass. Rebuilt four SDK contracts, VST3 validator47/0,
+Cocoa editor/program contracts, AUv2 rendering/state/editor/420-block programs,
+LV2 binaries, ad-hoc AAX entry and11 native C/C++ contracts pass. The first two
+new linked tests assumed unique table addresses; equivalent promoted Rust tables
+had different addresses with matching callbacks. Corrected callback-profile checks
+pass; table address is not owner/type identity. The prepared C++ client draft also
+passes2000 complete actual-library cycles and zero C++ new/delete, with invalid
+profiles/optional capabilities/factory cleanup covered; actual SDK migration is
+next. Local macOS arm64 evidence only; no new DAW/device/deadline/platform or
+production AAX signing claim. Wider programme remains active. See
+[decision 0156](decisions/0156-native-prepared-telemetry.md).
+
+
+## W145: Reusable native C++ client and SDK reference adoption
+
+Added an SDK-independent C++17 owner composing exact native lifecycle and optional
+complete audio state/separate telemetry caches. Control acquisition/retirement,
+exclusive DSP callbacks, shared cached metadata, optional capability queries,
+invalid-profile rejection and partial-factory cleanup remain explicit. Promoted
+tables may differ in address; supported bindings match callback profiles, with
+exact types/library/foreign ranges still caller obligations. Normal forwarding
+uses no C++ heap/locks/I/O; native result/silence/poison and consumer duties remain.
+
+Gain's actual VST3 processor now consumes two precision-matched clients and tagged
+events. Preparation marks complete state pending; the first wholly validated
+callback, including zero-frame flush, restores the current publication. Complete
+base snapshots feed the existing generation/CAS protocol, preserving newer
+controller restores and ongoing smoothing. Generic telemetry preserves meter IDs,
+normalization and host/editor delivery. Programs/controller codec/editor policy
+and legacy public C exports remain consumer-owned; no transport or performance
+mapping was added in this package.
+
+Actual-library C++2000 complete callback cycles pass optional capabilities,
+invalid/mismatched profiles, equivalent promoted tables, differing callback
+rejection, factory cleanup, wide audio/tails/lifecycle and zero C++ new/delete.
+SDK contracts add malformed unknown queue preflight, first valid/same-precision
+reprepare recall, zero-frame recall/automation and unchanged-publication retained
+ramps at both precisions. All four SDK contracts, validator47/0, actual Cocoa
+editor/programs, AUv2 render/state/editor/420-block programs, LV2, ad-hoc AAX entry
+and12 native C/C++ contracts pass. Syntax/docs/format/whitespace pass; W144's626
+workspace tests/doctests/lint/Rustdoc cover unchanged Rust. Local macOS arm64 only,
+no new DAW/device/deadline/platform or production AAX signing claim. Transport,
+performance, generic factories/buses/state/editors and wider programme remain
+active. See [decision 0157](decisions/0157-native-cpp-client.md).
+
+
+## W146: Explicit VST3 block-start transport mapping
+
+Added an external-SDK C++17 mapper and immutable context requirements. Null context
+means canonical unknown transport; non-null context preserves exact i64 samples,
+known playing/recording/loop state and available finite f64 music/positive tempo/
+u16 signature. Supported scalar preflight preserves failed output. Advertised
+cycles are finite, ordered when active, and map only with active loop/known music;
+inactive/positionless bounds are omitted with loop state retained. Bar start has
+no exact SDK bar number, so no native pair is guessed. Further SDK context fields,
+discontinuity, pre-roll and missing availability remain unrepresented explicitly.
+
+Shared reference-based IEEE classification now lives in an SDK-independent header,
+retaining cached parameter-input finite checks. Normal/fast-math fixtures pass1024
+availability profiles, exact i64 extrema/f64 signed zero/u16 bounds, null/partial/
+unavailable malformed fields, complete invalid scalar rejection and10000 mappings
+with zero C++ new/delete. SDK processor contracts exercise requested flags and
+malformed context before pending restore/automation/DSP, then valid context at both
+precisions. Gain forwards canonical context to its generic owner but ignores
+musical timing; no transport-driven synthesis or DAW timeline claim follows.
+
+Both bundlers build both mapper targets. All six SDK contracts, validator47/0,
+actual VST3 Cocoa editor/programs, AUv2 render/state/editor/420-block programs, LV2,
+ad-hoc AAX entry and12 native C/C++ contracts pass. All29 Python regressions and
+syntax/docs/format/whitespace pass; W144's626 workspace snapshot covers unchanged
+Rust. Local macOS arm64/SDK3.8.1 evidence only; no new device/deadline/platform or
+production signing claim. Performance/scoped events, generic factories/buses/
+state/editor and wider programme remain active. See
+[decision 0158](decisions/0158-vst3-block-start-transport.md).
+
+
+### Consumer-selected mobile deployment targets — 9 October 2026
+
+The consumer chooses physical iPhone/iPad and Android models, OS versions,
+audio/MIDI routes and AUv3 host/version acceptance targets; a fixed project-wide
+hardware allowlist is not required. The mobile guide now describes the consumer
+validation matrix. This clarifies the earlier request for named release targets;
+selection alone adds no runtime support evidence. Existing app Audio/MIDI choices
+remain the runtime selection mechanism.
+
+The fixture builder now accepts Apple deployment minimums and Android minimum
+API, compile/target SDK and installed build-tools. Adapter API minimums are
+validated before build commands. Apple Rust/CMake receive the same OS minimum;
+Android compiler/CMake/DEX/manifest receive the same minimum API. The optional
+Gradle fixture also accepts minimum/compile/target SDK properties. Defaults and
+arm64 architecture profiles remain unchanged.
+
+On the existing macOS arm64/Xcode/NDK r29 environment, an iOS simulator build
+with deployment target 18.0 passed compilation and local signing. An Android
+API-28/compile-SDK-36/target-SDK-35 build passed native/Java compilation, APK
+signing and 16-KiB alignment checks; `aapt2 dump badging` confirmed minimum 28
+and target 35, and CMake recorded API 28. Four configuration regression tests
+cover selectable versions, defaults and incompatible minimum/SDK combinations.
+The Python script suite passed (33 tests). No physical device or third-party
+AUv3 host was exercised by this work; optional Gradle properties were not run.
+Workspace Rustdoc tests and API documentation with warnings denied also passed
+using the isolated `target/mobile/doc-check` directory. The documentation checker
+passed after regenerating the feature catalogue.
+
+
+## W147: Exact portable mute expression and explicit CLAP limits
+
+Portable volume now accepts finite 0..=4, retaining both zeros and positive
+subnormals without clamping; zero mutes without implying release/completion.
+Native v1 layouts remain unchanged. Hosted/exported CLAP retains its independent
+strictly positive range, rejecting selected zero input before DSP and complete
+unrepresentable generated streams before host writes while retaining DSP/audio.
+Native scope/bit round trips, worker whole-batch handoff and CLAP filtering/input/
+output boundaries pass. See [decision0159](decisions/0159-zero-volume-note-expression.md).
+
+## W148: Reusable VST3 performance input
+
+The optional SDK C++17 mapper preserves unquantized velocities, full signed-ID
+bits except the absent -1 sentinel, note cents expansion, poly pressure and six
+standard expressions. Explicit unknown-expression policy and complete raw/list/
+expanded capacity/offset preflight precede private visitors. Fixed scratch reads
+getters once and retains tie order; unsupported variable payloads are rejected.
+Normal/fast-math fixtures include10000 full-list cycles with zero C++ heap actions.
+Gain declares no performance input. See
+[decision0160](decisions/0160-vst3-performance-input.md).
+
+## W149: Reusable VST3 performance output
+
+Whole canonical-stream representability precedes host calls. Exact velocity,
+identity and normalized expression fields survive; standard expressions require
+ID-only scope. Tuning unit conversion may round. Integer IEEE volume checks
+reject subnormal division loss even under fast-math. Unsupported wildcard/choke/
+completion/payload semantics are not substituted. Mutable host events cannot
+alter native sources; refusal reports an exact accepted prefix without replay.
+Normal/fast fixtures pass1000 maximum-capacity zero-heap cycles and every refusal
+prefix. Gain declares no performance output. See
+[decision0161](decisions/0161-vst3-performance-output.md).
+
+## W150: Prepared native VST3 audio mapping and refreshed host evidence
+
+A reusable control-prepared profile maps up to 9 logical buses/64 channels per
+direction to independent compact SDK directions at f32/f64 precision. Complete
+shape/pointer/alignment/overflow/output-overlap validation precedes DSP/state;
+input/output aliases remain allowed. Zero-frame omission is explicit. Failed
+configuration/output mappings retain prior values. Fault cleanup clears valid
+active prefixes only at either supported SDK precision, including a rejected
+processing-precision mismatch, preserving tails and counting cleared channels.
+Gain now adopts this mapper while retaining mono/stereo effect declarations.
+Normal/fast fixtures cover10000 ordinary maps and1000 maximum576-channel maps
+without C++ heap actions. Actual SDK overlap rejection preserves pending state;
+corrected callbacks recover. The first rebuilt format run exposed overly narrow
+precision-mismatch cleanup; the corrected helper and refreshed contracts pass.
+See [decision0162](decisions/0162-vst3-native-audio-buses.md).
+
+The combined W147–W150 snapshot passes628 all-feature workspace tests/doctests,
+default/all-feature Clippy, default doctests, both warning-denied Rustdoc builds,
+formatting/docs/whitespace and29 Python tests. Rebuilt CLAP smoke/validator passes
+44 checks (34pass,10skip,0fail/warn). Refreshed format gates pass12 SDK contracts,
+VST3 validator47/0, three Cocoa editor modes/programs36 blocks/six cycles, AUv2
+render/state/editor/programs420 blocks, LV2, ad-hoc AAX entry and12 native C/C++
+contracts. These are local macOS arm64/SDK3.8.1 observations, not production AAX
+signing, generic instrument export, other-platform or callback-deadline proof.
+
+A fresh independently identified disposable REAPER7.82/macOS arm64 instance loaded
+the rebuilt VST3 binary on macOS27.0.1, with BlackHole16ch at48kHz/512 frames.
+The public guarded synthetic-input harness passed discovery, all12 normalized
+meter readings, gain/bypass IDs and native floating-window creation. It muted
+hardware destinations, stopped playback and closed the FX window; the stopped
+fixture was inspected afterward. The harness now logs its enumeration count and
+only public Gain candidates. A prior process retained a stale catalogue; a fresh
+process using the committed arm64 VST path resolved it. No visual/accessibility,
+performance-event/multibus instrument, physical output or deadline claim follows.
+Evidence remains in ignored target/reaper-w150/config/ravet-validation/native-meter-host.log.
+The wider programme remains active; portable identified performance voices and
+actual instrument adoption are next.
+
+
+## W151: Explicit normalized performance voice ownership
+
+Added an independent fixed 1..128-slot receiver with full optional u32 identities,
+unquantized f32 velocities and seven exact f64 expressions. Conjunctive targets,
+same-address ID retrigger, atomic address-conflict rejection, stacked unidentified
+notes, release-tail expression updates, bounded chronological stealing and original
+target completion are explicit. Complete timed semantic preflight simulates on a
+fixed copied bank without changing live state or reserving output implicitly.
+
+Six groups pass every target scope, full identities, signed zeros/subnormals,
+defaults/mute/ranges, malformed atomic rejection, release/retrigger/steal/choke/finish
+policy, independent chronological oracle, late timed conflicts and zero/max limits.
+10000 maximum-bank control workloads and1000 full1024-event preflights count no
+Rust heap actions. Existing MIDI/MPE policy is preserved. See
+[decision0163](decisions/0163-native-performance-voice-ownership.md).
+
+## W152: Transactional f32/f64 performance sine consumer
+
+Added an independent native-precision mono/stereo reference using this ownership
+policy, timed ADSR, linear volume/expression, explicit balance, tuning and vibrato.
+Pressure/brightness remain exact readable state without timbre shaping. Whole
+generic validation precedes private scratch rendering with fixed copied DSP/voice
+state; only success commits live samples/completions/history. Late semantic or
+completion overflow faults preserve phase, envelopes, voices and level. Actual
+in-block envelope completion permits later address reuse of that ID. Positive
+output capacity enables original-target completion; zero suppresses notifications
+while internal lifetime still ends. Preparation owns bounded scratch allocation.
+
+Eight precision-specific groups pass analytic unquantized attack/audio, exact
+partition equality, timed mute/unmute/balance, zero-frame/-zero ownership, release
+completion/order/tails, malformed/identity/output-overflow atomicity and continued
+history, actual in-block ID reuse, notification suppression, extreme rates and
+prepare/reset/deactivate/state limits. Each precision runs100 maximum128-voice
+render/release/completion cycles with zero Rust heap actions. See
+[decision0164](decisions/0164-transactional-performance-sine.md).
+
+The combined snapshot passes642 all-feature workspace tests/doctests, instrument
+Clippy and all-feature workspace Clippy, default workspace doctests, both warning-
+denied Rustdoc builds,33 Python tests and format/docs/whitespace checks. A macOS
+loader delay occurred before test code on the workspace volume; sampling showed
+only dyld startup. Identical checksum-verified public test executables ran normally
+from task-local temporary storage through Cargo's supported runner, including
+doctests. No source, security setting or repository runner default changed. These
+are local macOS arm64 offline observations, with no new native facade/SDK export,
+DAW, physical device, other-platform or callback-deadline claim. The wider programme
+continues with a public native instrument reference and actual SDK integration.
+
+
+## W153: Public native performance reference — completed locally
+
+A separate public 16-voice f32/f64 archive exposes consumer-specific native
+processor, schema, cache, direct-audio-state and optional publication entries.
+Canonical level state retains the public RAVETPS product identity and does not
+serialize voice history. The actual linked C++ fixture passes both precisions,
+codec identity and atomic malformed-state rejection, exact performance ownership,
+analytic rendering, mute/release/completion, tails and lifecycle. Its 2000 prepared
+workload cycles count no C++ new/delete actions. Workspace default Clippy,
+doctests, both warning-denied Rustdoc builds, formatting and documentation checks
+pass. Execution uses the checksum-verified local runner described in W152.
+
+See [decision 0165](decisions/0165-public-native-performance-reference.md) and the
+[native guide](native-processing.md). This archive has no SDK instrument factory,
+controller, native editor or DAW validation. SDK instrument adoption is next;
+these local results do not establish physical-device or deadline support.
+
+
+## W154: Public VST3 performance instrument — SDK and offline DAW validation passed
+
+The public performance archive now has a distinct external-SDK processor and
+controller: no audio input, mono/stereo f32/f64 output, one 16-channel event input,
+Level schema/state and five audible note-expression declarations. Recall shares
+the transactional event stream with automation and performance input, preserving
+voice progress and pending state after late faults. Completion is suppressed
+explicitly because VST3 has no native NoteEnd equivalent. No custom editor is
+declared; the host can provide generic controls.
+
+The linked actual-archive SDK contracts pass 1000 prepared cycles across both
+precisions/layouts with no C++ heap actions, analytic audio, exact velocity and
+signed IDs, cents/absolute expression order, mute/release/ID reuse, exact phase
+and envelope preservation after late faults, canonical state/text rejection,
+controller connection recall and the shared 1024-event capacity. The dynamically
+loaded bundle passes all 47 SDK validator tests, zero failures, on the local
+macOS arm64/Xcode toolchain. Strict C++ syntax and formatting checks, four DAW
+fixture/guard regressions and the documentation checker pass. The strict fixture
+command suppresses an external SDK final-class virtual-destructor warning;
+framework warnings remain errors. Rust processing is unchanged from W152/W153's
+workspace validation.
+
+A new isolated REAPER test copy initially scanned unrelated system plug-ins.
+After cancellation, the guarded script rejected discovery before inserting tracks
+or playing audio; no DAW evidence follows from that failed run. Startup notice
+automation returned an unchanged evaluation window. Only the owned test process
+was restarted with its explicit public plug-in path; validation was still pending
+at that point.
+No production project, licence, physical route or global audio service was used.
+See [decision 0166](decisions/0166-vst3-performance-instrument.md).
+
+The subsequent owned instance discovered and instantiated the actual public
+VST3 instrument. Its live transport-region check stalled and supplied no live
+audio proof. A guarded offline apply-FX fixture then passed three stereo 48 kHz
+DAW renders for Level .8, saved/restored .8 and held .4/.8 automation. Independent
+PCM checks pass peak/RMS (.04/.028284 and .02/.014142), A4 frequency, channel
+agreement and pre/post-note silence in twelve interior regions. `lsof` confirms
+the prepared public VST3 binary loaded in the explicit isolated REAPER 7.82
+process; the script verifies muted hardware destinations and stopped transport.
+No native editor, host note-expression editing, live device/deadline or other
+host/platform claim follows. W154's implementation/SDK/offline-host milestone
+is complete; remaining format/framework work continues independently.
+
+
+## W155: Reusable LV2 native control/state — completed locally
+
+Gain now adopts a reusable native f32 processor/cache/publication profile and
+portable LV2 state extension. The actual module passes existing stereo/mono
+audio/lifecycle/alias contracts plus canonical state/default/malformed recalls,
+restore versus host control precedence, atomic control/audio faults, optional
+URID map and host refusal. 4000 prepared run/save cycles count no C++ heap or
+URID-map calls; 20000 audio blocks overlap coherent state saves. Root review
+caught invalid-constructor channel indexing; guarded connect/run and direct
+invalid-profile fixtures now preserve sentinels for zero/oversized channels and
+missing table callbacks. Misalignment and oversized callbacks preserve tails.
+Strict C++17 warning checks pass against external LV2 1.18.10 on macOS27 ARM.
+No Atom/MIDI/UI/f64/auxiliary, DAW/Linux-runtime or hardRT claim follows. See
+[decision0167](decisions/0167-lv2-native-schema-state.md).
+
+## W156: Verified indexed native-FLAC seeks — completed locally
+
+Explicit CompressedReader::new_indexed_flac verifies a known-duration native
+FLAC stream once and retains compressed packets rather than complete PCM. Exact
+seeks binary-search packet offsets and decode one containing packet. The default
+FLAC/MP3/Vorbis replay policy is unchanged. Existing stopped CompressedReadAhead
+generation replacement accepts the indexed reader and retains failed seeks.
+
+Six existing compressed regressions, four new integration groups and the new
+actual-decoder-call unit test pass, along with package all-feature Clippy. Tests
+use independent PCM16/24 oracles across1/2/8 channels, packet boundaries/EOF,
+malformed digest/count/truncation, failed seeks/tails and stopped queue generations.
+Instrumentation proves one decode per arbitrary seek in a shared33-packet index
+and zero at EOF/invalid targets. Input/payload/index/frame limits, upfront decode
+cost and worker allocations are explicit. No lossy/Ogg/file-backed indexed seek,
+physical clock/recording or deadline claim follows. See
+[decision0168](decisions/0168-indexed-flac-worker-seeks.md).
+
+## W157: Bounded composite focus and piano ownership — completed locally
+
+Reusable RovingFocus manages1..256 fixed members with orientation/RTL/wrap,
+Home/End, disabled/hidden/inert filtering, explicit refresh and original-tabindex
+restoration. Piano now has one Tab stop and chromatic arrow navigation, separate
+Space/Enter ownership and exact note release on focus moves, hiding/removal,
+disabling and teardown. Observer/listener lifetime is explicit.
+
+Thirty focused checks initially passed in collaborative Chromium and hidden native WebKit;
+the surface crate's15 all-feature tests/doctest pass. Actual T3 Tab/ArrowRight/Tab
+traverses first member, second member and following control; piano navigation
+moves MIDI60to61 and Enter emits one matching original-source on/off pair.
+Chromium document.hasFocus remains false; this is DOM keyboard/contract evidence,
+not visual/native focus or assistive-technology validation. An initial WebKit
+relative-script fixture was blocked by local-file read restrictions; inline
+fixture assembly matching production embedding then passed. No screen-reader,
+other-platform or device claim. See
+[decision0169](decisions/0169-bounded-web-focus.md).
+
+
+### Shared W155–W157 verification
+
+The fixed source snapshot passes647 all-feature workspace tests/doctests,
+all-feature all-target workspace Clippy with warnings denied, default workspace
+doctests, both default/all-feature warning-denied Rustdoc builds, formatting,
+33 script regressions, four DAW fixture/evidence regressions, catalogue/link
+checks and whitespace checks. Cargo was serialized across agents with two
+compiler jobs and the checksum-identical local test runner. No redundant native
+host/device/platform claims follow from these workspace checks. Next packages
+resume after this accepted snapshot.
+
+Subsequent W157 review hardened iframe ownership: node creation, hit testing and
+keyboard/blur/visibility listeners now bind to the piano root's owner document
+and live window. Constructors reject missing/closed windows before replacing
+markup or tab state. The expanded38 Chromium and38 hidden WebKit checks pass,
+including parent-versus-child event isolation and exact-source release/teardown.
+Embedding/frame lifetime remains consumer-owned. Updated Rustdoc/workspace
+checks are grouped with the next parallel packages.
+
+
+## W159: Automatic read-ahead and buffered playback — completed locally
+
+W159 — automatic read-ahead ownership and buffered playback completed.
+
+ReadAheadWorker<P>/ReadAheadPump and prepared BufferedPlayback now integrate
+existing WAV and replay/indexed compressed read-ahead sources. Explicit start
+runs an automatic bounded worker with retained suffix/backpressure and 2 ms
+polling park timeout. Callback play/pause/render uses prepared ring storage and
+atomics; source cursor advances only for consumed frames; running underruns stall
+source position and silence suffixes; paused callbacks consume nothing. Verified
+EOF requires full pending publication and queue drain. Control seek/stop joins,
+positions and restarts; foreign/failed seeks preserve original generations.
+shutdown returns owned pump plus original pump error; panic cannot report EOF.
+
+Executed on local macOS 27 ARM64:
+- python3 target/programme-command-runner.py cargo test -p ravet-audio-file --all-features --test automatic --test compressed_stream --test compressed_buffered --test compressed_indexed --test buffered --locked: 21 passed (7 new automatic groups; 14 scoped regression groups).
+- python3 target/programme-command-runner.py cargo clippy -p ravet-audio-file --all-features --all-targets --locked -- -D warnings: passed.
+- scoped fmt passed; joint workspace doctests/warning-denied Rustdoc/docs remain root-owned.
+
+Tests cover concurrent retained suffixes, 1000 heap-free paused callbacks and active
+heap-free consumption, exact pause/resume/EOF drain, gated true underrun/cursor stall,
+malformed buffer atomic rejection, failed/foreign stopped generations, successful
+stop/seek, source reclamation while ring-full, pump error prefix/original-error/source
+ownership, successful fault recovery, panic distinct from EOF, exact whole indexed
+FLAC playback/recall and unchanged NaN/signed-zero/infinite/subnormal WAV float bits.
+
+Limits: explicit source-rate/channel playback and start; control-only join/seek/drop,
+cooperative stop cannot cancel backend I/O or guarantee deadline. No clock alignment,
+resampling, streamed loop/live seek/mailbox/crossfade/device/physical recording claim.
+Thread creation failure retains pump; restart failure cannot undo a completed seek.
+Panicked pump ownership is lost during worker unwind and shutdown returns Poisoned.
+Custom ReadAheadPump implementers own bounded pumping/matching/seek contracts.
+
+## W161: Distinct CLAP validator example names — completed locally
+
+Sine and sidechain now explicitly name their Cargo examples validate-sine and
+validate-sidechain, preserving the validator source paths. Commands and runtime
+workflow follow those names; workspace builds no longer infer colliding validate
+artifacts. Cargo metadata confirms exactly one distinct example per package.
+Both renamed commands pass against the existing public built CLAP bundles:
+sine MIDI/state/audio acceptance passes3024 blocks over three activation cycles;
+sidechain native f32/f64 port/audio/fault/heap acceptance passes6006 blocks over
+three activation cycles. Catalogue regeneration and documentation checking pass.
+No newly built bundle, DAW/platform or device claim follows from this command fix.
+
+
+## W158: Packaged LV2 MIDI performance instrument — completed locally
+
+The public native performance archive now has a zero-input mono/stereo f32 LV2
+instrument with ordered bounded Atom MIDI notes, generic Level control and
+canonical complete recall. Actual-module contracts cover analytic pitch/velocity/
+timing, exact splits, late-fault voice-history rollback, pending restore,
+channel-scoped release, full event budget and2000 prepared heap/URID-free cycles.
+The explicit --plugin performance bundler produces a self-contained .lv2 directory
+with metadata, module and licence notices. Both Performance and original Gain
+packaged-module contracts pass; three Python boundary tests pass. Shared build/
+package/verification mechanics reside in scripts/lv2_bundle.py. No host install,
+LV2 DAW/Linux/device/deadline claim. See decision0170.
+
+## W160: Bounded shaped paragraph layout — completed locally
+
+ParagraphLayout combines explicit width/line spacing/physical alignment with
+Unicode line opportunities and retained paragraph bidi context across soft wraps.
+Original UTF8 content/separator ranges and glyph clusters remain available;
+TrueType SVG paragraph outlines roll back complete output on late faults.
+Six new paragraph groups and21 surface tests/doctests plus package lint pass.
+The collaborative Chromium preview renders joined Arabic/Latin paragraphs with
+192 finite outline paths inside the720x420 source bounds; no SVG text nodes.
+Unicode15 line breaking and Unicode16 bidi, explicit font/style, greedy wrapping,
+unbreakable overflow, whitespace and byte/line/run/glyph limits are documented.
+No implicit fallback/dictionary/justification/caret/native GPU/accessibility or
+other-platform claim. See decision0172.
+
+## W162: AIFF prepared worker handoff — completed locally
+
+W162 — AIFF PCM read-ahead/recording worker adapters completed.
+
+AiffReadAhead/AiffRecorder reuse extracted private PCM handoff mechanics with
+unchanged public WAV buffering/recording semantics. AIFF read-ahead also implements
+ReadAheadPump, so automatic worker ownership and buffered playback accepts AIFF.
+Matching scratch/channel bounds, retained suffixes, stopped-generation clearing,
+retry-preserving reads, dequeue poison and one-ring-capacity final drains remain
+explicit. Stream PCM conversion/count/FORM/padding/flush rules are unchanged.
+
+Executed locally on macOS27 ARM64:
+- python3 target/programme-command-runner.py cargo test -p ravet-audio-file --all-features --test aiff_buffered --test aiff --test buffered --test automatic --locked: 19 passed (5 new AIFF groups + 14 stream/WAV/automatic regression groups).
+- python3 target/programme-command-runner.py cargo clippy -p ravet-audio-file --all-features --all-targets --locked -- -D warnings: passed.
+- package fmt passed; root owns grouped workspace doctest/docs/registry/diff gates.
+
+Exact tests cover PCM16/24/32 at 1/2/8 channels, backpressure suffix/seek generations,
+reader I/O failure retry, allocation-free callback transfer, bounded final recorder
+drains with mono PCM24 odd padding, dequeued nonfinite/partial-write poison and
+actual automatic AIFF playback/stopped recall. Existing WAV/automatic fixtures
+pass after extraction. No AIFF-C/new widths/metadata/markers/resampling/device/path/
+physical clock/recording/deadline claim added.
+
+
+### Shared W158–W162 verification
+
+The accepted source snapshot passes 665 all-feature workspace tests/doctests,
+all-target all-feature Clippy with warnings denied, default workspace doctests,
+default/all-feature warning-denied Rustdoc, formatting, 39 script regressions,
+four DAW evidence regressions, catalogue/link checks and whitespace checks.
+Cargo was serialized with two compiler workers and checksum-identical local
+executable launching. Later W163–W167 work begins after this accepted snapshot;
+its evidence is recorded separately. No new DAW/device/platform support follows.
+
+
+## W165: Explicit VST3 reference bundle profiles — completed locally
+
+The public bundler now accepts --plugin performance while preserving default
+Gain behavior and its existing paths/options. Build/package/validation mechanics
+are shared in scripts/vst3_bundle.py. Performance uses its own build root and
+contract target; Gain-only editor/program switches reject before mutation.
+Selected generated bundles receive public notices, local signing and dynamic SDK
+validation; unrelated stale outputs are neither signed nor loaded.
+
+The complete Performance pipeline passes its archive contract and 47 SDK tests;
+the original default Gain pipeline passes all 12 CTest contracts and 47 SDK tests.
+Three new Python profile/rejection/error-propagation boundary groups pass and were
+included in the accepted shared regression snapshot. Local execution used external
+SDK 3.8.1 on macOS27 ARM64 and checksum-identical test launching for the known
+volume startup delay. No host installation, production signing, native editor/
+program revalidation, publication or other-platform claim. See decision0176.
+
+
+## W167: Explicit local-video worker extraction — completed locally
+
+The new separate ravet-media prototype opens bounded explicitly selected local
+video and extracts first-track timestamped complete RGBA frames through a narrow
+AVFoundation boundary. Native assets stay on their creation worker/UI thread;
+returned data is owned and no window/audio/device/network URL/playback clock is
+selected. Paths/files/duration/dimensions and complete frame output are bounded;
+native decoder transient allocations/I/O/time remain OS-owned and unbounded.
+
+Three actual H.264/MP4 integration groups plus the thread-transfer compile-fail
+doctest pass on macOS27 ARM64. They check independent size/duration/source times,
+out-of-order frames, red/blue regions and top-white-strip orientation, malformed/
+missing/empty/oversized/non-UTF8 paths, rejected timestamps and twelve worker
+create/extract/drop cycles. A native draft probe exposed an inverted raster row
+transform; the final renderer removes it and the independent orientation test
+passes. Lossy/native color conversion tolerance is explicit. All-target package
+Clippy with warnings denied passes. Shared workspace/API docs are grouped with
+the next accepted parallel snapshot. No general codec/colorimetric/AV sync/live
+playback/GPU-window/other-platform support follows. See decision0178.
+
+
+## W164: Prepared paragraph source carets and selections — completed locally
+
+CaretMap derives Unicode extended-grapheme byte boundaries, bidi/wrap affinity
+positions, nearest-line/pen hit tests and complete caller-buffer visual selection
+boxes from immutable paragraph source/layout identity. Lookup/hit/selection avoid
+heap actions after preparation; invalid ranges/capacity preserve output slots.
+Ligature interiors use explicit equal-grapheme interpolation; unsupported backend
+clusters reject. Unicode17 graphemes remain separate from Unicode15 breaks and
+Unicode16 bidi. Hard separators have no selection pen width.
+
+Six focused groups and all 27 surface tests/doctest pass, plus package all-feature
+all-target Clippy with warnings denied. The first-party generated ffi fixture
+regenerates byte-identically and shapes as one glyph; independent caret positions
+are 0/24/48/72 at size72. Tests include RTL combining, bidi/wrap affinity,
+CRLF/empty lines, invisible ties/zero-width selections, extreme finite coordinates,
+full source capacity and 3000 heap-free prepared operation iterations. Collaborative
+Chromium renders 73 finite paths in720x320 with distinct byte3 affinities and two
+disjoint bidi selection boxes. No interactive editor/IME/clipboard/native caret,
+screen-reader, font GDEF/ink precision or complete Unicode support claim. Root
+review found no new source-mapping/selection issue. See decision0175.
+
+
+## W163: AUv2 native performance MusicDevice reference — completed locally
+
+Implemented separate public aumu/RvPS/Ravt component, native performance archive plus embedded VST3, zero input/mono-stereo f32. Owned SDK subclass/factory provides absent-identity MIDI channel/key release; fractional StartNote tuning and unquantized float velocity with nonwrapping opaque group/key IDs; bounded expanded queue and timed Level; malformed canonical state and AU dictionary preflight before SDK mutation; coherent processor-authoritative saved streams; caller-supported silence/tails on rejected render. Explicit maximum-frame factory-selector preflight is necessary because AUBase bypasses the virtual property setter. Invalid formats/capacities reject before configuration; null property outputs are guarded. Full-width UInt32 MIDI words are preflighted before SDK byte narrowing; malformed status/data, undefined system statuses and nonzero unused arguments reject while retaining queued notes. Defined non-note short channel/system messages are ignored; SysEx start/end are unsupported. SDK files remain external.
+
+Shared au_bundle.py reuses root vst3_bundle runtime; --plugin performance produces a self-contained public component including embedded module and applicable notices. Gain stays default and retains editor/program flags. No global host installation or distribution signing.
+
+Executed:
+- Whole final Performance AU bundler via programme runner PASS: target/w163-final-bundle.log, actual packaged component native contracts plus nested performance VST3 contracts/SDK47 tests, 0 failures. Component target/au-performance/release/AU/ravet_performance_au.component.
+- Whole default Gain AU bundler regression PASS: target/w163-gain-regression.log; original VST3 SDK47/0 and actual AU gain lifecycle/audio/bypass/state/tails contracts.
+- Actual probe mono/stereo48k: analytic timed440Hz attack/velocity, same-key channels, fractional identified notes/group/float velocity, same-frame MIDI zero/order, offset8 Level, zero-frame control, coherent complete Level state, malformed product/identity/controller-type rejection, maximum1023 MIDI batch/rejection, invalid active offset recovery, AUBase4097 vs4096 prefix silence/tail, SysEx reject, 200 render/release cycles. Invalid f64/interleaved-stereo/nonfinite rate and zero/65537/UINT32_MAX capacities reject; previous capacity retained.
+- Final focused actual packaged-module probe after full-width MIDI hardening PASS: target/w163-midi-final-contracts.log; 9 malformed full-width/short-message cases preserve the previously accepted timed note and six defined ignored channel/system cases leave analytic audio unchanged. C++ rebuild warning-free: target/w163-midi-build.log. Bundler/runtime were unchanged after the whole-bundle pass.
+- Python AU runtime boundary suite4/4 PASS, strict C++17 fixture syntax -Wall -Wextra -Werror PASS, git diff --check PASS, docs checker PASS before root registry integration. No Rust API/manifest changes in W163.
+
+These are local macOS arm64 actual-binary/in-process AudioComponentAPI results, not DAW discovery/session/auval, physical devices, sandbox, allocation/deadline, other architecture/platform, accessibility or production support.
+
+
+## W166: Automatic recording worker ownership — completed locally
+
+W166 / ADR0177 automatic recording worker ownership COMPLETE, pending root grouped workspace gates.
+
+Implementation:
+- RecordingWorker<P>/RecordingPump/RecordingStatus/RecordingExit drive existing WAV, AIFF and optional FLAC bounded recorders with explicit prepare/start/stop/bounded-final-drain/finalize and owned source/original-error reclamation.
+- Existing automatic read-ahead thread ownership extracted into private BackgroundWorker without changing playback contract; OS spawn failure retains source, cooperative stop/join/drop remain control-only, worker panic never reports success, no implicit Drop finalization.
+- Queue token preflight rejects foreign producer before stop; direct finish_stopped requires reclaimed unique producer. from_recorder accepts hidden callback producers; AudioProducer Drop permanently publishes Release retirement, AudioConsumer diagnostics/worker Acquire retirement proves no later publication before joined bounded final drain. Live/leaked producers reject before stop. CPAL/physical shutdown timing is external, not established offline.
+- Recording faults preserve original error/source until reclaimed; saved error returned by finish once. Consuming finish fault loses sink and remains Failed; Finalized only on successful complete sink return. Explicit accepted-prefix overload and backend count semantics unchanged; prepared capture push remains heap/lock/I/O-free.
+
+Exact successful scoped commands, all via serial programme runner:
+python3 target/programme-command-runner.py cargo test -p ravet-audio-file --all-features --test recording --test automatic --test aiff_buffered --test buffered --test flac_recorder --locked
+  PASS 26 tests (6 new recording groups + 20 regression groups).
+python3 target/programme-command-runner.py cargo test -p ravet-device --test recording_worker --test input --locked
+  PASS 7 tests (2 actual PreparedCapture hidden-producer ownership integration tests + 5 input regressions), default features.
+python3 target/programme-command-runner.py cargo test -p ravet-audio-file --test recording --test automatic --locked
+  PASS 11 tests (5 default recording + 6 default playback groups).
+python3 target/programme-command-runner.py cargo clippy -p ravet-audio-file --all-features --all-targets --locked -- -D warnings
+  PASS.
+python3 target/programme-command-runner.py cargo clippy -p ravet-device --test recording_worker --locked -- -D warnings
+  PASS.
+python3 target/programme-command-runner.py cargo fmt -p ravet-audio-file -p ravet-device --check
+  PASS.
+git diff --check
+  PASS.
+
+Environment correction: default ravet-device dependency initially reused stale pre-RecordingWorker audio-file artifact despite changed unconditional source. Narrow cargo clean -p ravet-audio-file removed only generated package artifacts and forced correct dependency rebuild; all above then passed. No broad clean, Cargo.lock modification, private project/process changes or backend claims.
+
+Files: new src/background.rs, src/recording.rs; extracted src/automatic.rs; adapters buffered.rs/pcm_buffered.rs/aiff_buffered.rs/flac_recorder.rs; public ring retirement/lib exports; tests/recording.rs and ravet-device/tests/recording_worker.rs. Guide audio-files.md and ADR0177.
+Root integration record: target/w166-feature-record.toml. Add automatic background.rs to existing automatic-read-ahead sources; existing audio-handoff-ring summary can mention permanent producer retirement + diagnostic, tests add recording.rs and device recording_worker.rs, limits clarify live/leaked producers never prove stopped. Input feature existing no-integrated-recording limit should narrow to no physical validated integrated recording; synthetic automatic adapter is now exercised.
+No physical capture/route, deadline, long-session clock drift, resampling or platform claim.
+
+Root review confirms original source/error retention, explicit consuming-finish
+failure and producer-retirement acquire/release ownership. No new issue found.
+
+
+## W163–W167 accepted shared validation snapshot
+
+After integration of AUv2 performance, paragraph caret/selection, public VST3
+profile packaging, automatic recorder ownership and local-video frames:
+`target/w163-167-gates.log` completed successfully through the serial programme
+runner, two compiler jobs and checksum-preserving local executable runner.
+All-feature workspace tests and doctests:683 passed, zero failed/ignored.
+Workspace/all-target/all-feature Clippy with warnings denied, default workspace
+doctests, default and all-feature warning-denied Rustdoc, workspace format,
+documentation catalogue,43 script regression tests,4 host-evidence regression
+tests and git diff whitespace checks all passed. This accepts the current scoped
+contracts; platform/DAW/device/deadline limitations remain as recorded per package.
+
+
+## W168: Explicit Metal offscreen rectangles — implemented locally
+
+Separate `ravet-metal` macOS package outside the umbrella/processing graph owns
+an explicit thread-confined device/queue/pipeline/shared texture and bounded
+instance buffer. Portable f64 rectangles clip then convert to f32 endpoints;
+ordered source-over premultiplied RGBA8Unorm readback returns independent owned
+images, with no window or implicit gamma/color-space conversion. Limits:
+1..4096 dimensions,0..4096 raw input rectangles,64 MiB output and67,108,864
+conservative clear/covered-pixel work. Complete input/work faults reject before
+submission; native failure exposes no partial public frame. Native resources,
+creation/submission/wait/readback/destruction are not globally time/memory bounded.
+
+Actual local macOS27 ARM64 M4 GPU strict native probe passed after correcting a
+reserved shader parameter and adding explicit failed-library/function guards.
+`target/w168-metal-tests.log`: three independent GPU integration groups PASS,
+including13x9 non256-aligned packed readback, CPU half-open/source-over pixel
+oracle (component tolerance2), clipped extremes, empty capacity/work rejection,
+owned prior image stability, repeated reuse and12 worker-owned rendering cycles.
+Thread-transfer compile-fail doctest also PASS. All-target package Clippy with warnings denied PASS (`target/w168-metal-clippy.log`);
+next shared workspace/doc gates remain pending. No display-window/path/text/image rendering,
+antialiasing, physical presentation cadence, other-GPU/platform or deadline claim.
+
+
+## W171: Reusable AUv2 native schema/control/state adoption — completed locally
+
+Added NativeAuParameters fixed-bound immutable native-cache owner: full UInt32 IDs, complete retained CF names/units and normalized AU f32 metadata/list; declared writable-ID/value/offset preflight before SDK mutation; native range/log/step/ties-up canonicalization; full physical round-trip formatting and bounded strict ASCII parsing with unchanged outputs on failure. CF lifecycle/text is control-owned, cached scalar conversion does not borrow DSP or consumer providers. AU normalized-f32 and Apple SDK property-dispatch quirks remain explicit.
+
+Added NativeAuState private publication validator paired to the exact schema/native state tables: decodes both native streams and exact typed AU dictionary identities before SDK restore, accepts explicit native migrations, cohere validates processor-authoritative saved streams before dictionary mutation. It never borrows live DSP or publishes a restore consumed by audio. Backend rollback/host bypass/notifications remain consumer responsibilities.
+
+PerformanceAU consumes schema/list/info/getter/setter/text/state helpers, refuses invalid-helper initialization and replaces duplicated codec/CF guards. Render/note/lifecycle/preparation limits remain unchanged. CMake and performance bundler execute the new native-helper fixture alongside actual component tests.
+
+Executed:
+- Whole normal Performance AU bundle command via shared programme runner PASS, target/w171-bundle.log: actual self-contained component, native helper fixture, nested Performance VST3 contract and external SDK47tests/0failures. Selected performance fixture retains all mono/stereo200-cycle timing/state/fault checks and now tests actual native schema IDs/name/role, physical text complete conversion, malformed text outputs preserved, unknown UInt32 getter/setter and element/offset preflight preserving queued notes.
+- Actual default Gain component regression PASS, target/w171-gain-regression.log (registration/schema/stereo/audio/bypass/complete gain recall/preserved host bypass/tails); no Gain-source or default-profile behavior changes.
+- Native helper fixture PASS actual Gain/Performance tables and Gain20-byte explicit legacy-state migration; full UINT32_MAX IDs; log/step/ties-up and readonly roles; complete128-UTF16-unit supplementary name past String128 limit; caller-retained names after helper retirement; bad text/embeddedNUL/oversize/mapping failure and malformed schema/table/factory/companion rejection with safe retirement. State wrong types/partial-preset/codec/save coherence rejection is isolated and atomic before live mutation.
+- Both fixtures strict C++17 -Wall -Wextra -Werror syntax PASS; normal CMake build warning-free, target/w171-build.log; AU runtime Python4/4 PASS; docs checker and git diff --check PASS before root registry integration. No public Rust API/manifest change; shared Cargo was only invoked by normal native bundle under programme lock after the audio-agent lock-safe notice.
+
+Local macOS arm64 external-SDK/native actual-binary/component evidence only. No global installation, SDK source vendoring, DAW discovery/session/auval, physical devices, sandbox, other architecture/platform, all runtime heap or callback deadline claims.
+
+
+## W169: Bounded source text editing and layout identity — completed locally
+
+TextEditBuffer owns<=4096 UTF8 source/replacement bytes and<=64 exact snapshots
+across undo/redo. Grapheme-safe directional selection, replacement/backward/forward
+delete, post-join forward caret snapping and exact no-ops/errors preserve contracts.
+Unique nonwrapping process-local owner identity and monotonic revision invalidate
+foreign/stale/undo-restored tokens and PreparedTextLayout source caches. Selection
+changes conservatively invalidate cache identity without entering/clearing history.
+Font/style identity remains caller-owned; no native/DOM/IME/clipboard adapter inferred.
+
+Root source review found no new issue. target/w169-tests.log:21 focused checks
+(2 owner/revision exhaustion,7 editing,6 paragraph,6 caret) PASS.
+Current compiler deprecated Atomic.fetch_update; rename to try_update preserves
+contract, then2 exhaustion checks PASS (target/w169-exhaustion-final.log).
+All-feature/all-target warning-denied package Clippy PASS (target/w169-clippy.log);
+2 docs PASS including new edit/undo example (target/w169-doctests.log).
+Documentation/diff PASS before registry integration (target/w169-docs.log).
+No dependency/lock change, native input/accessibility/deadline or platform claim.
+
+
+## W172: Explicit Metal bitmap scenes — implemented locally
+
+Added immutable validated packed premultiplied RGBA8 assets, zero-copy validated
+readback adoption and synchronous ordered rectangle/image composition. Whole
+scene/resource/work preflight enforces prepared command count,16 distinct bitmap
+objects,64 MiB distinct uploads (clipped objects included),64 MiB output and
+67,108,864 conservative clear/covered pixels. Clipped f32 destination/source UV,
+nearest edge-clamped numeric sampling and source-over preserve explicit color
+semantics. Fresh native shared textures stay private to each call; immutable CPU
+assets transfer independently of thread-confined renderer/native ownership.
+
+Actual strict native two-by-two nearest-scale/top-bottom probe PASS. Public Rust
+`target/w172-metal-tests.log`:3 new actual-GPU groups plus3 rectangle regressions
+and thread-transfer compile-fail doc PASS. Independent mixed-scene pixel oracle
+covers clipping/scaling/translucency/ordered overlay; invalid exact shape/premul,
+17 distinct inputs/raw command/64 MiB upload budgets, duplicate dedup, retained
+images and post-rejection reuse are checked. Explicit local VideoReader fixture
+frames at0/1s upload at exact2x with every pixel matching decoded source bytes;
+no implicit reader, hidden color transform or playback/window is created.
+All-target package Clippy with warnings denied PASS (`target/w172-metal-clippy.log`).
+Positive16-object boundary follow-up PASS (`target/w172-images-boundary.log`,3groups). Shared workspace
+API/documentation gates follow the next stable snapshot. No native window, text/
+path rendering, high-quality resampling, cross-GPU/platform or deadline claim.
+
+
+## W174: Prepared AUv2 native planar bus mapping — completed locally
+
+Added NativeAuAudioBusMap stopped configuration and fixed caller-owned NativeAuAudioBlock. Full native config/layout preflight, explicit independent compact input/output AU indexing for main/input-only/output-only/mixed logical buses, exact planar list/channel shapes, sample byte capacities/alignment/address overflow and all-output-disjoint checks precede pointer publication. Inputs may alias any output. Failed configure/map retains previous valid profile/native views; mapping never writes sample data/tails. Mapped-block copies retarget views to owned arrays. Explicit zero-frame omission keeps declared native channels with null arrays; exact zero-frame lists still validate metadata. No host routing registration is inferred.
+
+Performance Initialize configures mapper to its prepared zero-input/mono-stereo f32 layout; Render validates SDK output buffers before transferring parameters/native processing. Its owned caller selector also preflights valid prepared raw output lists before AUBase processing/copying, rejecting aliases without advancing live phase/envelope or consuming accepted queued notes. Existing AUBase oversized rejection and bounded supported caller silence/tails remain explicit. Cleanup clears retained pointer views only after callbacks stop.
+
+Executed:
+- Whole normal performance AU bundler via shared programme runner PASS, target/w174-bundle.log: native audio + parameter/state fixtures, actual self-contained component and nested VST3 contracts/SDK47tests/0failures.
+- Final owned caller guard and allocation-counter changes focused rebuilt/re-signed actual component PASS, target/w174-final-component.log. Mono/stereo timing/Level/state/fault/200-cycle suite plus aliased caller supported-prefix/tail/unrelated-buffer preservation; exact recovered oscillator+ADSR decay proves unadvanced live state; accepted queued note survives invalid caller buffers and appears at its original offset next valid block. The phase oracle explicitly includes the native10ms decay following5ms attack.
+- Final native audio fixture PASS, target/w174-final-audio.log: four logical main/input-only/output-only/mixed buses retain source order through compact directions; maximum9by64(576output channels), late full/partial overlaps, unaligned/overflow/insufficient capacities, single-buffer interleaving, disconnected late input, wrong counts, oversized active slice, invalid configured/unused/empty layouts, copy view ownership, zero-frame policies and actual native Gain output/in-place + Performance analytic bindings/tails. 2000 maximum accepted and2000 late-fault mapping calls while tracking C++new/delete record0 allocations/retirements, exercising libc++std::sort on both paths. This does not prove all runtime/SDK/Rust heap behavior or deadlines.
+- Existing default Gain actual component regression PASS, target/w174-gain-regression.log; no Gain source/profile/default behavior changes.
+- Strict C++17 -Wall -Wextra -Werror audio and component fixtures PASS; owned CMake final build warning-free, target/w174-final-build.log; final component fixture rebuild target/w174-final-fixture-build.log. AU Python runtime4/4 PASS; docs checker and git diff --check PASS before root registry integration. No Rust/manifest/dependency changes.
+
+Prototype limits: macOS arm64 actual native/component/offline evidence only. No generic AU host auxiliary routing, global installation, vendored SDK sources, DAW discovery/session/auval, devices, sandbox, other architecture/platform, format negotiation, f64 AU buffers or production/deadline support claims. Framework buffer mapping is separate from SDK scheduling, host registration and native processor ownership.
+
+
+Validation observation: the first recovered-phase oracle omitted the native10ms
+ADSR decay after240samples; its failure alone did not establish advanced phase.
+The final complete oscillator/envelope oracle above passes. Raw-caller preflight
+is now explicit before AUBase rather than relying on SDK-substituted buffers.
+
+
+## W170: Optional bounded Ogg Vorbis worker encoding — completed locally
+
+W170 / ADR0181 COMPLETE: optional bounded single-worker Ogg Vorbis encoding.
+
+Public encode_vorbis/VorbisWriter/VorbisFormat, default-disabled vorbis-encode exact vorbis_rs0.5.6 default-features=false; safe local !Send codec, explicit rate/quality/serial, 4096-frame planar batches, total/call/output bounds, finite [-1,1] whole-call rejection, accepted-source/actual-output counts, original partial I/O faults, explicit EOS/flush and no implicit Drop output. Complete source <=4,194,304samples; calls<=65536frames; total<=16,777,216frames; encoded<=64MiB. Mono8..96kHz, stereo16..96kHz, quality-0.2..1.
+
+Bounded first-priming-packet Ogg framing identifies completed identification/comment/setup headers; max physical page65,307bytes, fixed282header scratch, no sync search/trimming. Packet/lacing/body/serial preserved, first packet isolated at granule0, remainder/following sequences/CRC rewritten with checked counters; transformed bytes budgeted. Continued/mixed headers/spanning priming reject; explicit finish rejects buffered partial or missing EOS. Every parser/partial flush/I/O/budget failure gates backend retry/automaticDrop immediately, including constructor failure.
+
+Measured stereo8k backend sustained second-channel degradation isolated independently from framing: channel0 whole46.25dB, channel1 whole7.26/interior6.98dB, direct and reframed native output identical, lag/gain/window edges do not repair. Safe builder offers no coupling control; wrapper rejects stereo<16k before sink writes. No hidden resampling/quality policy. Accepted11 mono/stereo profiles 8/16/22.05/44.1/48/96k as applicable measured FFmpeg native whole-stream37.8849..48.1078dB, exact8193frames and Symphonia PCM agreement<1e-4. Native FFmpeg6.1.1 used /Applications/miniconda3/bin/ffmpeg -c:a vorbis (not libvorbis decoder). Tiny1/17 tails exact independently; backend packet oracle bitexact and exactly+27 transformed bytes in tested streams.
+
+Dependencies: lock added only vorbis_rs0.5.6,aotuv_lancer_vorbis_sys0.1.6,ogg_next_sys0.1.5,tinyvec1.13.3, no existing-version changes. Existing cc/errno/thiserror suffice. Binding exactpublished sourcecommit6934784e7188e98dd053370c79604c72b201e97a and complete BSD binding/libogg/aoTuV/libvorbis notices retained third-party/vorbis.md; LICENSING and guide updated. C compiler needed; no systemcodec/bindgen/libclang/defaultRNG.
+
+Scoped gates (all Cargo through target/programme-command-runner.py, serial lock/jobs2/local identical runner):
+- cargo test -p ravet-audio-file --all-features --locked PASS69 unit/integration/doc-tests (2 native tests ignored), before last additional parser retirement test.
+- FINAL cargo test -p ravet-audio-file --all-features --lib --test vorbis --locked PASS6 library+7 integration tests,2 native tests ignored; latest parser retirement regression included.
+- FINAL cargo test -p ravet-audio-file --all-features --test vorbis ffmpeg_native_decoder --locked -- --ignored --nocapture PASS1 independently invoked native decoder oracle,11 supportedprofiles.
+- cargo test -p ravet-audio-file --features vorbis-encode --test vorbis --locked PASS5tests,2 native tests ignored (compressed-specific tests absent).
+- cargo test -p ravet-audio-file --all-features --test vorbis diagnose_low_rate --locked -- --ignored --nocapture PASS1 diagnostic before lower-stereo wrapper rejection, evidence retained above.
+- FINAL cargo clippy -p ravet-audio-file --all-features --all-targets --locked -- -D warnings PASS after last parser test/type alias.
+- cargo clippy -p ravet-audio-file --features vorbis-encode --all-targets --locked -- -D warnings PASS.
+- FINAL cargo test -p ravet-audio-file --all-features --doc --locked PASS1 !Send compile-fail contract.
+- cargo fmt -p ravet-audio-file PASS; git diff --check PASS.
+
+Parent owns registry/features/work-status/index and joint workspace docs/lint/gates. Suggested registry target/w170-feature-record.toml. ADR0181 scopedimplemented. No codec working-memory ceiling, bitexact/perceptual/automaticcapture/physical recording/RT deadline or cross-platform claim. W175 worker-created !Send capture integration approved separately, target-only until shared snapshot releases freeze.
+
+
+## W173: Bounded browser textarea editing — completed locally
+
+TextEditor owns one consumer-labelled connected live-document textarea, configured
+maximum1..4096 UTF-8 bytes (committed source0..maximum), LF scalar source, browser
+Intl.Segmenter grapheme-safe directional byte selections and combined0..64 undo/redo
+snapshots. Exact object-identity revisions, nonwrapping exhaustion, quiet consumer
+resynchronization, native DOM reconciliation and one pending composition/history
+transaction preserve explicit local ownership. Browser Unicode data is unpinned
+and independent of Rust EditRevision/Unicode17; no Rust transport/ack protocol is
+implied. Native preedit, browser layout/history and OS work remain opaque.
+
+Root review found token changes during selection synchronization could incorrectly
+classify a later validation failure as a callback exception. Explicit notification
+exception tracking now preserves original direct-call exceptions and correct native
+InvalidInput/Capacity/RevisionExhausted diagnostics; committed source/history remain
+intact, while legal synchronized selection may advance its revision.
+
+Actual Chromium and hidden WebKit both20/20 DOM contract groups PASS,
+target/w173-native-final.log, including changed-selection validation failures and
+throwing callbacks. Focus/piano38-case native regression PASS,
+target/w173-focus-regression.log. Trusted Chromium typing, backward selection,
+deletion, undo/redo, newline and Tab exit also passed. document.hasFocus=false
+limits that evidence to DOM keyboard behavior; synthetic composition does not
+validate native IME, visual focus, screen readers or mobile keyboards. CMake/docs/
+diff focused checks passed; workspace Rust/API gates follow the shared snapshot.
+
+
+## W168–W174 programme snapshot — accepted locally with concurrent-member limit
+
+Before an independently developed Foundry workspace member was added during the
+run, all-feature workspace tests/doc-tests passed712 with zero failures and2
+explicit native Vorbis diagnostics ignored (already executed separately).
+Evidence: target/w168-174-gates.log. The later Clippy step detected its newly added
+manifest; offline metadata resolution added Foundry plus serde_spanned/toml/
+toml_writer, no existing package identity/version changes. A complete retry found
+its then-missing HTML include; no unrelated application source was repaired.
+
+Remaining programme Cargo gates passed with that concurrent member explicitly
+excluded: all-target/all-feature Clippy with warnings denied, default doc-tests,
+warning-denied default and all-feature Rustdoc. Evidence:
+target/w168-174-gates-remaining.log. Whole-workspace format check reported only
+concurrent Foundry differences; explicit programme package formatting passed.
+The owner subsequently added Foundry's registry evidence, allowing unmodified
+check-docs.py --write/check to pass.43 packaging/documentation Python and4 host
+evidence Python tests plus git diff --check passed:
+target/w168-174-final-checks-retry.log. This snapshot does not validate Foundry or
+claim a final complete-current-workspace gate; its full build/format evidence
+remains separate. W175–W180 implementation tracks resume after this scoped snapshot.
+
+
+W175 / ADR0186 Worker-created automatic Vorbis capture ownership — complete 2026-10-10.
+
+A dedicated prepared-ring controller creates/uses/finalizes/drops the genuinely !Send codec on its single worker. Only transferable Send preparation/result crosses threads. Acknowledged pause/resume, bounded stopped ring-tail drain, exact producer identity/permanent retirement preflight, retained startup/pump/finish errors, private-constructed Finalized/Aborted/Failed completion evidence, and recovered destination/consumer/counts implemented. Outer Ok proves recovery only and must not be confused with finalized file evidence. Codec/sink panic loses unwound local owners and reports Poisoned; no synthetic recovery. Spawn failure preserves preparation. Abort/Drop never drain/EOS/flush; downstream sink destructor separate. Existing W170 public writer consuming new/finish error signatures unchanged.
+
+Default-disabled ravet-device vorbis-recording forwards optional vorbis-encode for actual PreparedCapture hidden-producer integration. Synthetic concurrent capture validates no callback heap use, accepted source counts and exact final Ogg granule; no physical CPAL shutdown, input clock drift, device deadline or total backend memory claim. Existing W170 supported profiles/parser/frame/output bounds remain.
+
+Focused tracked receipts, all via python3 target/programme-command-runner.py:
+PASS cargo test -p ravet-audio-file --all-features --lib --test vorbis --test vorbis_recording --locked: 7 library +7 writer +11 worker =25;2 optional external decoder/diagnostic groups ignored (independent evidence recorded W170).
+PASS cargo test -p ravet-device --features vorbis-recording --test vorbis_recording --locked: 2 actual PreparedCapture integration groups.
+PASS cargo test -p ravet-audio-file --features vorbis-encode --lib --test vorbis_recording --locked: 6 library +11 worker=17, without compressed dependency.
+PASS cargo clippy -p ravet-audio-file --all-features --all-targets --locked -- -D warnings.
+PASS cargo clippy -p ravet-device --features vorbis-recording --test vorbis_recording --locked -- -D warnings.
+PASS cargo test -p ravet-audio-file --all-features --doc --locked: 2, worker example +writer !Send compile-fail.
+PASS cargo fmt -p ravet-audio-file -p ravet-device -- --check before final ADR status update; final queued recheck no Rust changes.
+PASS git diff --check scoped audio-file/device forwarding/tests/audio-files guide/ADR.
+Isolated earlier unique own-lock package independently passed25 tests,Clippy,2 doctests before tracked release.
+
+Tests exercise prepared abort/no codec headers, shape/format/budget rejection, injected OS spawn failure/retry, worker-local sink thread evidence, concurrent fixed-ring capture/backpressure, repeated32 pause/resume handshakes, failed live/foreign/leaked proof preserving state, stopped/retired tail drain including neverstartedworker, exact independent decoded timing+lossyPCM, empty stream failed ownership, wholebatch invalid source with preserved queue suffix, separate dequeued/accepted counts on capacity, startup partial-header original sink error, postacceptance sink/output faults, flush failure, paused abort preserving suffix, no finalization I/O on abort/Drop, panic without false ownership/completion.
+
+
+## W177: AUv2 block-start host transport preflight — completed locally
+
+Added immutable NativeAuTransportSnapshot and stopped-independent native availability sidecar. Each supported supplied callback executes at most once; State2 takes precedence with no legacy fallback after error. Missing/error tuples remain unknown. Successful incomplete/malformed tuples reject atomically. Foreign returned float sentinels use integer-bit initialization and IEEE finite checks so optimized fast-math cannot silently retain zero fields. Samples receive finite/integral/range checks before i64 casts; signature numerators/denominators receive exact bounds before u16 casts. Actual changed/discontinuity/cycling and State2 recording survive direct native collection, while unsupported bar/clock/pre-roll/sample-loop meanings are not inferred.
+
+Canonical native signature requires DETAILS. Signature-only collection therefore uses unknown/default detail flags, with callback sidecar distinguishing those placeholders and legacy unknown recording from actually supplied State2 recording. All pre-roll values remain unknown/default. The native codec has no per-flag DETAILS availability; consumers needing that distinction must use the sidecar. The external VST3 projection requires actually known playing and samples before publishing a nonnull context, retaining partial independent native music/signature in the snapshot while explicitly omitting it from that bridge. No system clock or other missing fields are invented.
+
+Performance Render adopts collector/projector after audio/note preflight and before transferring pending SDK parameter intent or invoking native processing. Malformed successful host callbacks produce supported-prefix silence/tail preservation without consuming accepted timed MIDI/Level or advancing native voice history. Errors/absence remain valid unknown transport. AUBase still owns timestamp caching including failed renders; tests recover with a new timestamp. Performance DSP currently ignores transport, so acceptance proves boundaries/scheduling rather than transport-driven DSP.
+
+Executed:
+- Whole normal Performance AU bundler through shared programme runner PASS, target/w177-bundle.log: nested public Performance VST3 contracts plus SDK47/0, Apple SDK build, self-contained ad hoc signed public component/notices, all five AU validators. Actual mono/stereo component tests include typed HostCallbackInfo, +2^63 fault silence/backing tails, preserved accepted timed MIDI and Level recovered at -2^63, fractional/missing returned signatures, callback errors/State2 precedence, legacy and absent callbacks, plus existing note/state/audio fault and 200 synthetic voice cycles.
+- Normal and -O3 -ffast-math native transport fixtures PASS through the same packaged CMake targets. Four thousand accepted and four thousand rejected collector/projection cycles each use zero counted ordinary C++ heap actions. Initialized missing values, -2^63/+2^63 and neighboring range bounds, fractional sample/signature, nonfinite foreign bytes, strict Boolean/loop/order, independent availability, sidecar/default DETAILS and incomplete SDK projection are covered. Actual authoritative Rust performance zero-frame processing accepts complete/signature-only/music-only/legacy-only/unknown collected snapshots and rejects missing DETAILS dependency, reserved-field and unused-coordinate corruption.
+- Existing default Gain actual component regression PASS, target/w177-gain-regression.log. Gain sources/profile/transport behavior unchanged.
+- AU Python runtime4/4, documentation checker and git diff --check PASS before root feature registry integration. No Rust/Cargo/lock metadata changes on this track.
+
+Prototype limits: local macOS arm64 native/actual component/offline evidence. Foreign callback coherence/ownership and callback allocation remain host obligations. No DAW timeline/auval/global registration, device/sandbox/other architecture, all-SDK/Rust heap or deadline/production distribution support claim. SDK sources stay external.
+
+
+## W178–W179: Local document ownership and popup menus — completed locally
+
+Parameter gestures now share ownership per original live document, with connected
+same-document paired inputs validated before mutation and owner-window lifecycle
+routing. Rejected end/disposal retains ownership until accepted retry. PopupMenu
+composes one level of 1..256 consumer-created native action buttons, unique bounded
+action strings, roving focus, native keyboard activation, outside dismissal and
+exact owned-attribute restoration. Focus restoration and notification share a
+reentrancy guard; disposal during focus cancels action and nested trigger labels
+retain trigger ownership.
+
+Integrated Chromium and hidden WebKit each passed31 owner-document,25 popup,
+20 textarea and38 focus/piano groups (114 total). Receipts:
+target/w178-179-integrated-chromium.json and native owner-documents/popup-menu/
+text-editor/focus logs. Trusted keyboard cases explicitly reopen between keys
+because hidden automation blurs the window; document.hasFocus=false establishes
+DOM behavior only. No actual screen-reader/native-window focus certification,
+cross-origin/shadow access or automatic frame/stylesheet retirement claim.
+
+
+## W176: Optional CPU paths/strokes and local-font pixels — completed locally
+
+Default-disabled surface/umbrella raster features pin tiny-skia/path0.12.0 with
+std only, plus arrayref0.3.9/strict-num0.1.1; exact primary archives/checksums and
+complete upstream BSD/MIT notices retained. Minimal offline resolution adds only
+those four packages, no removed/version-changed identities; current concurrent
+Foundry dependency changes are preserved separately. Owned PMA RGBA8 canvases,
+finite affine typed paths, explicit fill/stroke/AA and whole-call budgets reject
+before pixels/counters change. Optional text prepares local TrueType geometry
+without retained source/font borrows. Positive thin AA uses backend coverage;
+zero-width/dash/fallback/window/presenter/gamma policies are not inferred.
+
+Promoted focused tests PASS5 raster-only and7 raster+text groups,
+target/w176-focused-gates.log; actual local Metal upload/readback PASS1 comparing
+every curved translucent path/Arabic glyph component within1byte. The first Metal
+lint rejected a test-only constant chunks_exact; corrected as_chunks passes
+all-target/all-feature Surface/Metal Clippy with warnings denied and3 surface
+doctests, target/w176-remaining-gates.log. Warning Rustdoc exposed an unescaped
+numeric interval; corrected interval code formatting now passes. Final default-free
+all-feature LinuxARM64 and iOSARM64 compiler checks PASS,
+target/w176-doc-cross-gates.log; those are not target-runtime support claims.
+
+Independent rectangle/source-over equations and fontTools synthetic glyph bounds,
+winding/cutout/affine/caps/AA, raw4096draws/cumulative65536commands/67108864work and
+whole-run failure preservation cover bounded contracts. A first font oracle forgot
+horizontal-side-bearing normalization; corrected independent FontTools BoundsPen
+matches actual x[3,100),y[20,90) ink. Public480x240 preview includes Latin/Arabic,
+cubic/quadratic stroke and evenodd cutout; target/w176-draft/preview.png inspected.
+Backend working memory/flattening/time remain outside input/output/work budgets;
+no native editor/GPU path/deadline/other-runtime certification follows.
+
+## W181: Local labelled tabbed panels — completed locally
+
+Fixed1..256 consumer native-button/panel pairs, stable IDs, manual/automatic
+activation, independent focus/selection, native Tab navigation and exact owned
+attributes restore are implemented. Original-document membership/type/ID/nesting
+retirement and null/first eligible lifecycle fallback preserve bounded association.
+Root review added full selected/eligibility/actual-focus checks before and after
+notification; fallback focus handlers cannot return stale success and callback
+membership mutation retires immediately. Quiet focus:false updates explicitly
+leave retiring-panel focus policy to consumers; failed focus retains committed
+selection with observer/explicit refresh reconciliation.
+
+Integrated Chromium and hidden WebKit both25tabs+31owner-doc+25popup+20textarea+
+38focus/piano=139 groups PASS, target/w181-integrated-chromium.json and native
+integrated logs. Trusted manual arrows/Enter/Tab and automatic arrows/Space pass,
+target/w181-keyboard.json. Hidden document.hasFocus=false/explicit focus-event
+wrappers limit proof to DOM behavior; no screenreader/native OS focus certification.
+CMake5targets/check-docs/scoped diff pass; shared Cargo/API gates follow.
+
+
+## W180: Prepared LV2 block-start time:Position transport — completed locally
+
+Added standalone Lv2TimePositionTypes and Lv2TimePosition collection with stopped cached exact URIs and fixed bounded parsing. Complete sequence/header/timestamp/order/property/padding/type/context/duplicate preflight precedes candidate publication. Long signed sample coordinates preserve full i64 range, Double beats preserve exact f64 including signed zero, Float tempo widens exactly; signature bounds/integrality precede casts. Unknown properties and unrelated bounded events stay opaque without recursive validation claims. Missing independent values remain unavailable. At most one offset0Position supplies context, later positions fully validate then omit, no extrapolation/field carry/mid-block dispatch. Unsupported valid speeds reject rather than become stopped. Signature requires canonical DETAILS; recording/loop/pre-roll false flags remain unknown/default placeholders because native DETAILS lacks per-flag availability and this profile supplies no such flags.
+
+NativeLv2Processor gains an explicit fourth template bool Transport=false requiring its existing instrument Atom input. Gain and default MIDI-only processing/URI requirements remain unchanged. The public Performance opts in, advertises Position alongside MIDI, caches all URIs on stopped control and passes the exact direct native snapshot or null when unknown. Full audio/control/MIDI/time preflight precedes pending complete-state apply, control publication and DSP, preserving accepted recall/control/phase/history on malformed time and supported prefix silence/tails. Performance DSP currently ignores transport.
+
+Executed:
+- Whole normal Performance LV2 bundle through shared programme runner PASS, target/w180-performance-bundle.log: self-contained public .lv2 with manifest/performanceTTL/module/notices/local ad hoc signature; actual mono/stereo full instrument suite plus normal/optimized-fast-math native transport and forwarded helper validators. Mixed Position+MIDI analytic split/audio timing; missing required mapped time URI; later unsupported speed whole-block faults preserving exact phase/Level/pending complete state; valid exact-minimum sample recovery; supported silence/tails;2000prepared note/release cycles with zero counted ordinary C++ heap actions or URI maps.
+- Whole default Gain LV2 bundle PASS, target/w180-gain-bundle.log: default CMake optionalPerformance flag cleared, actual packaged Gain lifecycle/controls/bypass/state/zero-frame/tails/alias/fault contracts,4000ordinary C++heap-free run/save cycles and concurrent coherent save test. Gain factory/control/state behavior unchanged.
+- Direct collector normal and -O3 -ffast-math strict C++17 -Wall -Wextra -Werror builds/execution PASS. Exact i64min/max, original Double precision/signedzero, Float widening, independent/partial/unknown fields, type/context/body/extent/padding/unit/order/aliasURI/duplicate-object/property/bound faults, unsupported speeds/nonfinite foreign bytes, maximum128properties/1024events and prior-output retention.2000accepted plus2000late-rejected cycles have zero counted ordinary C++heap actions. Authoritative actual Rust native zero-frame processing accepts complete/signature-only/music-only/sample-only/unknown snapshots and rejects missing canonical DETAILS dependency/unavailable details flags.
+- Strict forwarded-native helper fixture PASS: controlled matching native tables deliver exact transport to real Rust processor; late invalid Position yields zero apply/process calls and supported-prefix silence/tail retention; recovery applies pending complete recall and connected control intent; unknown is null; default MIDI-only helper requires no time URIs, ignores opaque unsupported time body and delivers timed notes with null context. No arbitrary foreign-table authentication claim.
+- LV2 Python runtime3/3 and docs checker PASS; focused build logs contain no owned warnings. No Rust/Cargo/lock metadata changes on this track. Final git diff --check PASS after root registry integration.
+
+Prototype limits: local macOS arm64 actual-native/packaged-module/offline checks only. No Linux runtime, DAW discovery/session timeline, devices, metadata validation, hardRTCapable, all-runtime/backend heap or deadline/production support. Foreign pointers/ranges remain host obligations, no generic rollback after backend failure/state apply, and SDK sources stay external.
+
+
+## W175–W181 shared programme snapshot — accepted locally
+
+All-feature full workspace tests/doc-tests PASS746, zero failures,2 known external
+Vorbis diagnostic groups ignored (previously executed independently). Current
+concurrent Foundry member now participates successfully; the earlier W168–174
+exclusion remains a historical limit for that older snapshot only. Whole workspace
+all-target/all-feature Clippy with warnings denied, default doc-tests,
+warning-denied default+all-feature Rustdoc, full formatting, unmodified docs check,
+43 packaging/documentation Python tests,4 host-evidence Python tests and diff check
+PASS. Evidence target/w175-181-gates.log, final command process exit0. No skips or
+member exclusions used for this snapshot. Individual AU/LV2/native/DOM/Metal/device
+recording evidence and limits remain in the package records above.
+
+Tracked source hold released. Next independently prepared packages MP3 encoding,
+worker image codecs, modal dialogs and native AU MIDI output remain drafts until
+focused review/validation; shared success does not make those APIs implemented or
+establish physical device/other-platform/DAW/production/deadline support.
+
+
+## W182: Optional bounded MP3 worker encoding — completed locally
+
+Default-disabled mp3-encode supplies complete/incremental MPEG1 Layer III encoding
+with explicit mono/stereo32/44.1/48k and CBR192/256/320 highest-quality profiles.
+Whole finite normalized source preflight precedes codec work; prepared4096-frame
+batches/output scratch, total source and physical-write budgets include finalized
+Info-frame replacement. Write+Seek must start at EOF; original seek/I/O failures
+retain sink ownership and diagnostics without unsafe restoration retries. Failed
+writes expose a borrowed retained original error; consuming finish recovers it.
+Abort/Drop never encode/finalize/write/seek/flush and intentionally discard public
+abort diagnostics. Exact parsed MPEG/Info/LAME3.100 CRC/delay/padding/source/file
+counts precede final rewrite, end restoration and explicit flush.
+
+Tracked focused gates PASS:17 all-feature library/matrix/fault tests;10 MP3-only
+library/fault tests;all-target/all-feature Clippy with warnings denied;3 doctests;
+scoped formatting/diff. Explicit independent native FFmpeg completed-file test
+PASS72 bit-rate/rate/channel/length profiles with exact source counts and maximum
+PCM difference3.359e-5 versus independent Symphonia. Physical data-frame bitrate,
+header/frame counts/tag CRC and one-frame partition scratch stability pass.
+Sink fixtures cover retryable whole-call rejection, payload-identical original
+errors, partial/zero/overreported writes, failed seeks, metadata rewrite/flush,
+poisoned no-retry and nonfinalizing abort/Drop. Evidence target/w182-status.txt.
+
+Raw gain/SNR exposes the pinned192kbps preset's0.97 input scale without framework
+compensation;256/320 use1.0. Gapless-aware completed-file readers preserve exact
+source count; seekless stream players can retain padding. Bundled static LAME3.100
+requires Unix configure/make/C tools; only local macOS arm64 evidence. Complete
+independent LGPL3 binding, LibraryGPL2-or-later core and LGPL2.1-or-later ReplayGain
+notices/40 component attributions are retained; RAVET commercial terms do not
+relicense or certify combined/static distribution. No physical capture, generic
+perceptual, all-platform or deadline claim. Automatic MP3 capture is W186 pending.
+
+Joint W182/W183 offline lock resolution adds14 exact package identities, removes
+none, preserves every existing package version/identity and changes only the two
+owned direct package dependency lists. Shared/API documentation gates follow.
+
+
+## W183: Optional owned PNG/JPEG worker assets — completed locally
+
+Default-disabled Surface/umbrella image features provide explicit byte codecs,
+validated immutable straight RGBA8, consuming integer PMA conversion and bounded
+private-sink PNG output. Whole PNG chunk/JPEG marker-and-entropy preflight checks
+source/extents/dimensions/completion before framework output allocation; backend
+strict validation retains CRC/Adler checks. Static PNG expansion/Adam7/high-byte
+16-bit and selected8-bit mono/RGB/YCbCr baseline/progressive JPEG are deliberate
+profiles. Numeric components receive no ICC/gamma/EXIF orientation transform.
+Source16MiB, dimensions4096/output64MiB,8192records and32scans are framework limits;
+backend working memory/allocation/time remain unbounded worker obligations.
+
+Tracked focused PASS:6 independent-oracle/fault/budget groups;actual Metal decoded
+PNG PMA adoption/readback1group, all components within1byte;Surface+Metal all-target
+all-feature Clippy warnings denied;4 Surface doctests;warning-denied Rustdoc;
+ARM64Linux+iOS compilation only. Evidence target/w183-public-gates.log, final
+process exit0. First-party Python/Pillow generator reproduces all24 PNG/JPEG/raw
+fixture files byte-for-byte; provenance retains hashes and exact local tools.
+Seven JPEG profiles differ at most3 numeric component bytes from Pillow, with4byte
+fixture tolerance. Truncated prefixes, trailing bytes, CRC/Adler corruption,
+animation, header/scan/marker bounds and output budgets reject explicitly.
+
+Exact png0.18.1/zune-jpeg0.5.15/core0.5.3 and complete backend/transitive notices
+were reviewed against primary archive hashes. JPEG std-only/safe runtime; selected
+PNG pure-Rust miniz backend, optional zlib-rs lock entry unselected. Default normal
+graph adds no image dependency. No JPEG encoding/GIF/WebP/animation/SVG parser,
+window, color-management, all-platform/device or deadline claim. Shared/API gates
+follow alongside W182–185.
+
+
+## W185: Bounded AUv2 native MIDI output delivery — completed locally
+
+Added exact canonical native short MIDI and ordinary nonidentity-note conversion without invented identity/completion semantics. Finite/exact-f32 scalar, unused positive-zero/detail/word fields, MIDI status/length/data and active-slice checks precede publication. Fixed external CoreMIDI owner validates whole ordered lists, stages complete packet storage and delivers one callback with exact render timestamp/output index. Reentrant stage/delivery cannot mutate borrowed serialized packet bytes. Fresh failed stages preserve diagnostics but invalidate readiness, and every delivery attempt consumes readiness. Empty output needs no callback; missing callback/time and host refusal cannot replay stale data. Typed receipts preserve exact host error and attempted records, with acceptance unknown and no output/history rollback.
+
+A separate synthetic actual external-SDK MusicDevice AudioComponent owns retained output-name metadata and copied callbacks, performs prepared staging before a real public native Performance process, then delivers controlled fixture records. Production Performance continues advertising no MIDI output. Raw factory selectors prove owned exact-size/scope/element/stopped setter validation; observed public AudioToolbox size/element normalization and cached protocol routing are explicit limits. No original-facade rejection/atomicity is claimed from raw SDK results.
+
+Executed:
+- Normal Performance AU bundle through shared programme runner PASS, target/w185-bundle.log: nested VST3 SDK47/0, bundled real Performance component and all eight AU validators. Actual synthetic component properties/render/native ordering, max1024notes, exact render timestamp/index/bytes, host refusal/no replay, supported late-fault silence/tail retention/pre-DSP process count and recovery PASS.
+- Default existing Gain actual-component regression PASS, target/w185-gain-regression.log: local checksum-identical executable against unchanged Gain bundle, native parameters/stereo rendering/bypass/coherent recall and tails.
+- Promoted direct normal and -O3 -ffast-math strict C++17 -Wall -Wextra -Werror builds and execution PASS, target/w185-strict.log and target/w185-fast-strict.log. Real Rust native ingress accepts every supported defined MIDI channel/system form and ordinary note; malformed canonical cases reject authoritatively. Actual native full-identity NoteEnd is unsupported and produces no host callback. Exact packet contents/order, minimum1/max1024template bounds, foreign address overflow, late faults/prior retained diagnostics, readiness consumption, status-77 refusal and actual serialized packet bytes across reentrant calls PASS.2000maxaccepted/late-fault cycles count zero ordinary C++ heap allocation/deallocation; this excludes backend/host/CoreMIDI deadline and allocation guarantees.
+- AU Python runtime4/4, documentation checker and git diff --check PASS. No Rust/Cargo/lock metadata changes on this track. Final source headers/fixtures are public; external SDK remains outside repository.
+
+
+## W184: Local native modal dialogs — completed locally
+
+ModalDialog composes a consumer-created native dialog with bounded labels/values,
+explicit initial focus, browser-owned modality and guarded close/form/cancel
+completion. One original-document owner survives queued live close through
+notification; one node owner prevents replacement replay. Disposal cancels
+callbacks, restores original attributes/returnValue and releases document
+admission only after synchronous native close/focus and callback unwind. A
+per-node tombstone remains until actual trusted close; synthetic events cannot
+drain it. Different nodes remain usable after retired-node event abandonment,
+while same-node reuse requires actual drain without guessed timeout/deadline.
+Unsupported external reopening/open removal receives guarded native cleanup;
+previous-focus restoration under that ownership violation is not guaranteed.
+
+Chromium and hidden WebKit29 modal groups each PASS, then public integrated
+29modal+139existing=168 groups each PASS. Six native CMake targets build PASS;
+trusted Tab/ShiftTab/Escape closes exactly once and restores prior outside focus.
+Receipts target/w184-integrated-chromium.json, target/w184-integrated-*.log,
+target/w184-keyboard.json. Hidden preview hasFocus=false/browser focus-boundary
+and explicit fixture focus dispatch limits remain. Native Chromium close events
+were delayed but completed without framework source/timing workaround. Removing
+retired nodes or closing frames/windows may abandon scheduling; no node reuse,
+OS focus, accessibility/screenreader or drain deadline is inferred. Strict docs
+passes, tracked source frozen for shared W182–185 validation.
+
+
+## W182–W185 shared programme snapshot — accepted locally
+
+All-feature workspace tests/doc-tests PASS766, zero failures,3 external decoder
+checks ignored in the shared run (2 Vorbis diagnostics and1MP3 FFmpeg matrix,
+explicitly executed independently). Workspace all-target/all-feature Clippy with
+warnings denied, default doc-tests, warning-denied default+all-feature Rustdoc,
+full formatting, strict documentation check,43 packaging/documentation Python
+and4 host-evidence Python tests and diff check PASS. Evidence
+ target/w182-185-gates.log, final process exit0. Foundry participates, no member
+exclusions. Individual MP3/oracle/Metal/DOM/AU receipts and limits remain above;
+no new DAW/device/other-platform/runtime-deadline support follows.
+
+Accepted package source hold released. W186 automatic MP3 capture, W187 AU native
+64-bit profiles, W188 concrete control semantic/disabled contracts and W189 JPEG
+writing remain isolated drafts until their own review/gates. Concurrent native
+context-menu work belongs to its separate owner and requires its own runtime
+receipts; shared Cargo commands do not establish that native capability's behavior.
+
+
+## W187: Prepared AUv2 native f64 mapping and complete formats — completed locally
+
+Generalized fixed prepared audio block/map storage to explicit float/double types while preserving original f32 aliases/API. Double mapping uses8byte samples/alignment without conversion, preserves native main/input-only/output-only/mixedaux order through compact independent directional AU element arrays, and performs full shape/capacity/address/outputdisjoint preflight before candidate publication. Copy-retargeting, failed-map retention, zero-frame shape/omission and foreign ownership rules remain unchanged.
+
+Added complete stopped ASBD/native-entry profiles. Exact structural table precision/functions and native configuration/directional counts, finite equal sample rate, native packed float encoding, mono planar-flag exception, chosen bits/bytes/frame/packet, channel shape and reserved0 all validate before accepted profile/config/map publication. No temporary mixed profile is dispatched. SDK mutations/allocations/notifications remain consumer owned; candidate helper atomicity is not arbitrary SDK rollback. Stock Apple StreamFormat setter copies36bytes/discards original reserved/padding, and unchanged active ASBD can succeed before writable checks, explicitly excluded from direct helper original-facade guarantees. Parameter companion creates its handle via its own processor_entry; separate exported table address equality is not assumed.
+
+Separate actual fixed64 MusicDevice component retains distributed Performance32 factory, owns stopped mono/stereo format negotiation and native64 setup/render, rejects changed initialized formats and supports exact unchanged no-op. Complete f32 Level ClassInfo state validates component identity/native codec before stopped recall; voices/history, normalized AU parameter UI and cross-precision migration remain outside this fixture. Caller faults retain backing tails and perform no native DSP before supported silence/recovery.
+
+Executed:
+- Normal public Performance AU bundle through shared runner PASS, target/w187-bundle.log: nested VST3 SDK47/0 and all eleven AU validators, including unchanged distributed32 component plus actual64 helper/component validators. No owned warnings.
+- Default existing Gain actual component regression PASS, target/w187-gain-regression.log: checksum-identical local executable validates parameters/stereo render/bypass/coherent complete recall/tails against unchanged Gain component.
+- Strict C++17 -Wall -Wextra -Werror normal and -O3 -ffast-math draft builds/execution PASS, target/w187-audio64-normal.log and target/w187-audio64-fast.log; promoted equivalent binaries execute in normal bundle. Actual Gain64 .25+2^-40 survives exactly through mapped output/in-place processing, real Performance64 timed analytic notes and zero-frame bindings, full main/aux direction order, float-aligned/double-unaligned pointer rejection,8byte capacity, alias/overlap/address/count/order/copy/late fault retention and maximum576outputs.2000maximum accepted/late-fault maps count no ordinary C++ heap allocation/deallocation. Complete format profile tests cover exact32 matching regression,64 metadata precision, malformed late ASBD bytes/flags/rates/nonfinite/reserved/channels, foreign array overflow/missing/count faults and prior profile retention.
+- Strict C++23 actual synthetic AudioComponent PASS, target/w187-component.log and normal package validator: stopped stereo64 negotiation/readback and f32/interleaved/bytes/rate/channel rejection; initialized changed format rejection/unchanged no-op; timed MusicDevice notes/real native64 AudioUnitRender analytic stereo; late caller-byte fault before DSP with bounded complete-sample silence/tails/recovery; complete native64 Level save/changed recall, wrong subtype/malformed stable-ID rejection retaining accepted Level; stopped mono44100 reprepare preserving Level and exact221-sample attack oracle.
+- AU Python runtime4/4, docs checker and git diff --check PASS. No Rust/Cargo/lock metadata changes on this track. External SDK remains outside repo.
+
+
+## W188: Local control semantic ownership — completed locally
+
+Custom Knob enabled state coordinates owned tabindex/ARIA and paired native number
+disabling/restoration. Rejected or throwing end retains original ownership and
+blocks edits/re-enable until accepted retry. Healthy disabled host refresh remains
+eligible under existing focus/active rules. Original pair retirement permits only
+end recovery; callbacks revalidate admission after existing-owner end before a new
+begin/edit and again before DOM painting. An accepted host message is irreversible
+if its callback retires the target; stale UI painting is suppressed and accepted
+begin retains end recovery. Meter explicit labels remove competing aria-labelledby
+and restore names exactly; live pair checks and formatter guards reject stale
+display writes after callback disposal/removal/adoption.
+
+Public integrated25new+168prior=193 groups PASS Chromium and hidden WebKit; seven
+native CMake targets build PASS. Trusted keys skip disabled knob/number, produce
+one enabled begin/value/end and no disabled edit, target/w188-keyboard.json.
+Receipts target/w188-integrated-chromium.json and seven native integrated logs.
+All12 component roles/names/states use native/DOM properties, not native AX or
+screenreader evidence. Hidden hasFocus=false/window-focus limits remain explicit.
+Strict docs/diff pass; no new dependencies. Shared W186–189 gates follow.
+
+
+## W190: Owned WebKit native accessibility inspection — unavailable content evidence
+
+A bounded informational probe inspected an owned synthetic WKWebView through
+public modern and legacy NSAccessibility getters, then through own-process
+AXUIElement reads in a separately owned visible validation window. Native
+application/window/group/title metadata was readable. The remote WebKit proxy
+returned kAXErrorCannotComplete (-25204) for its role; neither test button nor
+input native names could be observed. All variants reported unavailable content
+evidence (exit 3), not successful control-tree validation.
+
+Strict C++17 ARC builds with -Wall/-Wextra/-Werror PASS; legacy deprecation
+suppression is confined to the documented compatibility helper. Traversal was
+bounded to 512 records, depth 16 and 1024-code-unit strings. Each owned window
+and native view was closed/destroyed. No application activation, accessibility
+actions, trust/settings change, private SPI, other-process traversal or DOM
+substitute was used. Receipts remain local under target/w190-feasibility-*.log
+and target/w190-feasibility-notes.md. This exact profile does not establish native
+content access, screen-reader support or general platform inaccessibility;
+existing DOM semantics remain separately validated.
+
+
+## W189: Optional bounded opaque JPEG encoding — completed locally
+
+The separate default-disabled Surface/umbrella jpeg-encode feature adds checked
+quality 1..100 and explicit 4:4:4/4:2:2/4:2:0 baseline 8-bit encoding. Whole-source
+alpha preflight requires opaque pixels before constructing codec/private output;
+consumers composite first. A private 1..16 MiB gate publishes only complete
+owned bytes, preserves source pixels and performs no caller I/O. Average chroma
+filtering and standard Huffman tables are explicit; metadata/color management,
+perceptual quality, working allocations and deadlines remain consumer limits.
+
+Exact jpeg-encoder 0.7.1 selects std only, defaults/SIMD disabled, no runtime
+dependencies/native C. Primary archive hash and upstream commit were verified;
+complete MIT/Apache-2.0/IJG texts, original DCT attribution and required executable
+acknowledgement are retained independently of RAVET commercial terms. Minimal
+locked metadata added this one package, removed none, changed no existing
+versions and changed only Surface's existing dependency list. The image-only
+dependency graph excludes the encoder.
+
+Promoted public tests PASS three groups, including the explicitly invoked
+independent Pillow decoder across all 36 generated dimension/quality/sampling
+profiles. Actual headers, quantization, sampling, source preservation, exact
+output capacity and alpha/quality faults validate; strict Zune/Pillow maximum
+component difference is 2 within a 4-byte fixture tolerance. Six existing image
+groups, all-target/all-feature Surface warning-denied Clippy, five doc-tests,
+warning-denied Rustdoc and Linux/iOS ARM64 compiler-only checks PASS. Evidence
+target/w189-public-gates.log, exit 0; strict documentation/diff checks PASS.
+These are local codec fixtures, not a general fidelity or runtime platform claim.
+See [image assets](image-assets.md) and
+[decision0201](decisions/0201-bounded-opaque-jpeg-encoding.md).
+
+
+## W186: Worker-created automatic MP3 capture — completed locally
+
+The shared private local-codec recording controller retains encoder construction,
+operations and destruction on its worker, without a Send requirement on codec
+sessions. Existing Vorbis public APIs and genuinely non-Send ownership remain
+unchanged. The MP3 factory adds matching stopped/retired producer proof, acknowledged
+pause/resume, bounded final tail and explicit Finalized/Aborted/Failed(original)
+completion with recovered seekable destination/consumer. Outer Ok proves recovered
+ownership, not finalization; accepted/dequeued source frames, file bytes and
+physical writes remain distinct. First operational failure stops later dequeue
+and returns its original error; abort/Drop never drain/finalize/rewrite/seek/flush.
+Control joins and sink I/O may block without a deadline; panic can lose unwound
+local ownership. Existing writer profiles/gapless/gain/licence limits apply.
+
+Tracked focused checks PASS 49 audio-file groups and four actual PreparedCapture
+retirement/overload/heap groups, warning-denied all-target/all-feature audio-file
+and device Clippy, and four doc-tests: 57 passed, three external codec oracles
+ignored here and previously executed independently. MP3 worker decoded PCM clears
+the existing 256 kbps >45 dB raw SNR fixture threshold. Individual MP3-only and
+Vorbis-only feature/doc/lint receipts pass; scoped formatting, strict docs and
+diff checks pass. Packet target/w186-integration.md; no audio-file manifest or
+lock changes, only default-disabled device mp3-recording forwarding. Native CPAL
+capture/shutdown, drift, cancellation/deadlines and other targets remain outside
+these synthetic capture checks. Shared W186–189 workspace gates now follow.

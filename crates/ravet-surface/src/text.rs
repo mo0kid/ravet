@@ -1,7 +1,9 @@
 //! Optional local-font single-run shaping on UI/worker threads.
 //! Font loading/shaping allocates and may run backend work beyond output limits;
 //! neither belongs in an audio callback. No font discovery/network access,
-//! fallback, wrapping, rasterization or native UI is added. Single-line bidi
+//! fallback or native UI is added by shaping. The separate `raster` feature can
+//! explicitly render prepared local-font outlines. Independent runs do not wrap;
+//! [`crate::paragraph`] supplies explicit bounded wrapping. Single-line bidi
 //! ordering is available separately in [`crate::bidi`].
 use harfrust::{
     Buffer, BufferFlags, Direction, Feature, Font, Language, Script, ShapeOptions, ShaperFont, Tag,
@@ -293,5 +295,13 @@ pub(crate) fn valid_single_line(text: &str) -> bool {
             || matches!(c, '\u{2028}' | '\u{2029}')
             || (0xfdd0..=0xfdef).contains(&(c as u32))
             || c as u32 & 0xffff >= 0xfffe
+    })
+}
+
+// Shared paragraph/editing control policy.
+pub(crate) fn valid_paragraph(text: &str) -> bool {
+    text.chars().all(|c| {
+        matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+            || valid_single_line(c.encode_utf8(&mut [0; 4]))
     })
 }

@@ -4,6 +4,10 @@ use clack_host::events::{
     event_types::{NoteExpressionEvent, NoteExpressionType},
 };
 use ravet_foundation::{EventData, EventError, NoteExpression, NoteId, NoteTarget, ProcessError};
+// CLAP volume is strictly positive even though portable/native zero means mute.
+fn valid_clap_value(expression: NoteExpression, value: f64) -> bool {
+    expression.is_valid_value(value) && (expression != NoteExpression::Volume || value > 0.)
+}
 pub(crate) fn encode(
     port: u16,
     target: NoteTarget,
@@ -12,7 +16,7 @@ pub(crate) fn encode(
     time: u32,
     index: usize,
 ) -> Result<NoteExpressionEvent, ProcessError> {
-    if !expression.is_valid_value(value) {
+    if !valid_clap_value(expression, value) {
         return Err(ProcessError::Events(EventError::InvalidValue { index }));
     }
     let target = encode_target(port, target, index)?;
@@ -87,7 +91,7 @@ pub(crate) fn decode(port: u16, event: &NoteExpressionEvent) -> Result<Option<Ev
         kind if kind == NoteExpressionType::Pressure.into_raw() => NoteExpression::Pressure,
         _ => return Ok(None),
     };
-    if !expression.is_valid_value(raw.value) {
+    if !valid_clap_value(expression, raw.value) {
         return Err(());
     }
     let Some(target) = decode_target(port, raw.port_index, raw.channel, raw.key, raw.note_id)?
@@ -205,6 +209,28 @@ mod tests {
             )
             .is_err()
         );
-        assert!(encode(1, NoteTarget::default(), NoteExpression::Volume, 0., 2, 0).is_err());
+        for value in [0., -0., -f64::from_bits(1)] {
+            assert!(
+                encode(
+                    1,
+                    NoteTarget::default(),
+                    NoteExpression::Volume,
+                    value,
+                    2,
+                    0
+                )
+                .is_err()
+            );
+            let mut raw = *good.as_raw();
+            raw.expression_id = NoteExpressionType::Volume.into_raw();
+            raw.value = value;
+            assert_eq!(decode(1, &NoteExpressionEvent::from_raw(&raw)), Err(()));
+            raw.port_index = 0;
+            assert_eq!(decode(1, &NoteExpressionEvent::from_raw(&raw)), Ok(None));
+        }
+        let tiny = f64::from_bits(1);
+        let native = encode(1, NoteTarget::default(), NoteExpression::Volume, tiny, 2, 0).unwrap();
+        assert_eq!(native.value().to_bits(), tiny.to_bits());
+        assert!(decode(1, &native).unwrap().is_some());
     }
 }

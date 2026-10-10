@@ -8,7 +8,7 @@ mod sealed {
 ///
 /// Sealed to `f32` and `f64`. Precision is selected by the processor/adapter;
 /// buffers never convert or allocate samples implicitly.
-pub trait Sample: sealed::Sealed + Copy + Default + std::fmt::Debug {}
+pub trait Sample: sealed::Sealed + Copy + Default + core::fmt::Debug {}
 impl Sample for f32 {}
 impl Sample for f64 {}
 
@@ -228,8 +228,8 @@ impl<'channels, 'samples, S: Sample> AudioBuffer<'channels, 'samples, S> {
     }
 }
 
-impl std::fmt::Display for BufferError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for BufferError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InputTooShort {
                 channel,
@@ -250,4 +250,4 @@ impl std::fmt::Display for BufferError {
         }
     }
 }
-impl std::error::Error for BufferError {}
+impl core::error::Error for BufferError {}

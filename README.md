@@ -5,6 +5,10 @@
 **Rust Audio Visual Engineering Toolkit** — a Rust framework in development
 for audio plug-ins and standalone audio applications.
 
+Version **0.0.1** is an early source preview with provisional APIs and scoped
+validation. See the [release notes](docs/releases/0.0.1.md) for capabilities,
+checks and publication limits.
+
 The first working milestone is a portable mono/stereo gain processor with
 sample-timed automation, linear smoothing, and deterministic offline tests.
 A loadable CLAP gain prototype is now implemented and tested on macOS arm64.
@@ -67,14 +71,23 @@ in [work status](docs/WORK_STATUS.md). Native editor checks use a Cocoa main loo
 and do not establish DAW compatibility. See the
 [CLAP backend decision](docs/decisions/0002-clap-backend.md) for adapter limits.
 
+## Project creation
+
+[RAVET Foundry](docs/foundry.md) creates and builds independent offline, application
+and effect/instrument plug-in projects using the RAVET UI. The guide includes
+source-build instructions for Foundry on macOS, Windows and Linux, and validation
+limits for generated targets.
+
 ## Workspace
 
 The [generated package list](docs/FEATURES.md#workspace-packages) follows Cargo
 workspace manifests. See [architecture](docs/architecture.md) for crate boundaries
 and [feature status](docs/FEATURES.md) for implementation scope.
 
-The portable framework crates have no third-party runtime dependencies and
-forbid unsafe code. The CLAP adapter also forbids unsafe code and uses Clack.
+Portable processing stays independent of host, device and editor backends;
+optional codecs and drawing/text backends have their own dependencies and notices.
+Foundation uses pure-Rust libm for no_std parameter math. Portable processing
+crates forbid unsafe code. The CLAP adapter also forbids unsafe code and uses Clack.
 The export/host packages isolate ABI export, dynamic loading, and raw test
 fixtures behind narrow unsafe allowances. The explicit macOS WebKit binding
 is isolated from portable DSP; Xcode is required for native workspace builds. Gain tests use a development-only

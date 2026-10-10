@@ -1,4 +1,5 @@
 //! Explicit native note conversion. No voice allocation or metadata is inferred.
+//! CLAP volume expressions require 0 < value <= 4; portable zero mute rejects.
 use crate::BridgeError;
 use clack_plugin::events::{
     Event as ClapEvent, Match, Pckn, UnknownEvent,
@@ -48,6 +49,11 @@ fn kind(raw: i32) -> Option<NoteExpression> {
         _ => return None,
     })
 }
+// CLAP excludes mute (zero) from its linear volume range. Portable/native
+// expression validation is deliberately wider; never substitute an epsilon.
+fn valid_clap_value(expression: NoteExpression, value: f64) -> bool {
+    expression.is_valid_value(value) && (expression != NoteExpression::Volume || value > 0.)
+}
 pub(crate) fn decode(port: u16, event: &UnknownEvent) -> Result<Option<EventData>, BridgeError> {
     if event.header().as_raw().space_id != 0 {
         return Ok(None);
@@ -65,7 +71,7 @@ pub(crate) fn decode(port: u16, event: &UnknownEvent) -> Result<Option<EventData
             return Ok(None);
         };
         let target = target(raw.channel, raw.key, raw.note_id)?;
-        if !expression.is_valid_value(raw.value) {
+        if !valid_clap_value(expression, raw.value) {
             return Err(BridgeError::InvalidEvent);
         }
         return Ok(Some(EventData::NoteExpression {
@@ -196,7 +202,7 @@ pub(crate) fn encode(port: u16, event: Event) -> Option<NativeNote> {
         value,
     } = event.data
     {
-        if !expression.is_valid_value(value) {
+        if !valid_clap_value(expression, value) {
             return None;
         }
         let kind = match expression {
@@ -250,4 +256,45 @@ pub(crate) fn encode(port: u16, event: Event) -> Option<NativeNote> {
         NotePhase::On => NativeNote::On(NoteOnEvent::new(time, pckn, f64::from(velocity))),
         NotePhase::Off => NativeNote::Off(NoteOffEvent::new(time, pckn, f64::from(velocity))),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn volume_keeps_exact_positive_minimum_and_rejects_portable_mute() {
+        for value in [0., -0., -f64::from_bits(1), f64::from_bits(1), 4.] {
+            let portable = Event {
+                frame_offset: 0,
+                data: EventData::NoteExpression {
+                    target: NoteTarget::default(),
+                    expression: NoteExpression::Volume,
+                    value,
+                },
+            };
+            let raw = NoteExpressionEvent::new(
+                0,
+                Pckn::new(1u16, Match::All, Match::All, Match::All),
+                NoteExpressionType::Volume,
+                value,
+            );
+            if value > 0. {
+                let Some(NativeNote::Expression(encoded)) = encode(1, portable) else {
+                    panic!("positive volume rejected");
+                };
+                assert_eq!(encoded.value().to_bits(), value.to_bits());
+                let Some(EventData::NoteExpression {
+                    value: restored, ..
+                }) = decode(1, raw.as_ref()).unwrap()
+                else {
+                    panic!("positive volume filtered");
+                };
+                assert_eq!(restored.to_bits(), value.to_bits());
+            } else {
+                assert!(encode(1, portable).is_none());
+                assert_eq!(decode(1, raw.as_ref()), Err(BridgeError::InvalidEvent));
+            }
+            assert_eq!(decode(0, raw.as_ref()), Ok(None));
+        }
+    }
 }

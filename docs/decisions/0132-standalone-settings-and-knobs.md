@@ -44,6 +44,16 @@ MIDI packets arrive at block boundaries; native timestamps are not sample-mapped
 At most 16 MIDI inputs, 256 packets per input and 64 polling attempts per block
 bound the example. Queue loss clears voices to avoid stuck notes.
 
+## Pointer adjustment default (10 October 2026)
+
+Shared knobs and slider/faders leave paired numeric editing when a pointer
+adjustment starts. Knobs do not force focus; native ranges keep their browser drag
+behavior and release pointer focus on completion/cancellation. Shared theme CSS
+suppresses pointer focus outlines until keyboard input. Cancelling control click
+activation prevents a surrounding label from opening its numeric editor after a
+drag. Direct numeric entry and keyboard navigation keep their existing behavior.
+This default belongs in the framework controls so all consumers inherit it.
+
 ## Status and limits
 
 The portable synth, routing and heap fixtures are implemented. The default

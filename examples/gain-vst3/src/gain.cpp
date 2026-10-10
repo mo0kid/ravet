@@ -1,5 +1,10 @@
 // Public reference adapter. No private consumer code or SDK source is vendored.
 #include "RavetGain.h"
+#include "RavetNativeClient.hpp"
+#include "RavetVst3Parameters.hpp"
+#include "RavetVst3ParameterInput.hpp"
+#include "RavetVst3Transport.hpp"
+#include "RavetVst3Audio.hpp"
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivsthostapplication.h"
@@ -17,7 +22,6 @@
 #endif
 #if defined(__APPLE__) && defined(RAVET_NATIVE_WEB_EDITOR)
 #include "RavetGainEditor.h"
-#include "RavetGainMeters.h"
 #include "RavetWebEditor.h"
 #include "public.sdk/source/common/pluginview.h"
 #include <optional>
@@ -94,36 +98,20 @@ bool writeState(IBStream *stream, float gain, uint32_t bypass) {
   }
   return true;
 }
-void silence(ProcessData &data) {
-  if (data.numSamples < 0 || !data.outputs)
-    return;
-  for (int32 bus = 0; bus < data.numOutputs; ++bus) {
-    auto &output = data.outputs[bus];
-    if (data.symbolicSampleSize == kSample32 && output.channelBuffers32) {
-      for (int32 channel = 0; channel < output.numChannels; ++channel)
-        if (output.channelBuffers32[channel])
-          std::fill_n(output.channelBuffers32[channel], data.numSamples, 0.f);
-    } else if (data.symbolicSampleSize == kSample64 &&
-               output.channelBuffers64) {
-      for (int32 channel = 0; channel < output.numChannels; ++channel)
-        if (output.channelBuffers64[channel])
-          std::fill_n(output.channelBuffers64[channel], data.numSamples, 0.);
-    }
-    output.silenceFlags = ~uint64_t(0);
-  }
-}
 class GainProcessor final : public AudioEffect {
 public:
-  GainProcessor() : dsp(ravet_gain_create()), dsp64(ravet_gain64_create()) {
+  GainProcessor() : dsp(ravet_native_processor_v1(32), ravet_native_audio_state_v1(32), ravet_native_telemetry_v1(32)),
+      dsp64(ravet_native_processor_v1(64), ravet_native_audio_state_v1(64), ravet_native_telemetry_v1(64)),
+      cache32(ravet_native_cached_parameters_v1(32)), cache64(ravet_native_cached_parameters_v1(64)) {
     setControllerClass(controllerID);
   }
-  ~GainProcessor() override { ravet_gain_destroy(dsp); ravet_gain64_destroy(dsp64); }
+  ~GainProcessor() override = default;
   static FUnknown *create(void *) {
     return static_cast<IAudioProcessor *>(new GainProcessor);
   }
   tresult PLUGIN_API initialize(FUnknown *context) override {
     auto result = AudioEffect::initialize(context);
-    if (result != kResultOk || !dsp || !dsp64)
+    if (result != kResultOk || !dsp.valid() || !dsp64.valid() || !cache32.valid() || !cache64.valid())
       return kResultFalse;
     addAudioInput(STR16("Input"), SpeakerArr::kStereo);
     addAudioOutput(STR16("Output"), SpeakerArr::kStereo);
@@ -149,6 +137,9 @@ public:
   tresult PLUGIN_API canProcessSampleSize(int32 size) override {
     return size == kSample32 || size == kSample64 ? kResultOk : kResultFalse;
   }
+  uint32 PLUGIN_API getProcessContextRequirements() override {
+    return ravet::vst3::nativeTransportRequirements;
+  }
   tresult PLUGIN_API setupProcessing(ProcessSetup &setup) override {
     prepared = false;
     if ((setup.symbolicSampleSize != kSample32 && setup.symbolicSampleSize != kSample64) ||
@@ -156,24 +147,25 @@ public:
         !std::isfinite(setup.sampleRate) || setup.sampleRate <= 0.)
       return kResultFalse;
     sampleSize = setup.symbolicSampleSize;
-    const auto preparation = sampleSize == kSample64
-        ? ravet_gain64_prepare(dsp64, setup.sampleRate, uint32_t(channels), uint32_t(setup.maxSamplesPerBlock))
-        : ravet_gain_prepare(dsp, setup.sampleRate, uint32_t(channels), uint32_t(setup.maxSamplesPerBlock));
-    if (preparation != 0)
-      return kResultFalse;
+    // Stopped preparation owns all allocation; complete published state is
+    // selected on the first fully validated callback, including zero-frame flush.
+    dsp.deactivate(); dsp64.deactivate();
+    RavetNativeProcessorConfigV1 config{};
+    config.version = 1; config.maximum_frames = uint32_t(setup.maxSamplesPerBlock);
+    config.maximum_events = uint32_t(maximumEvents); config.bus_count = 1;
+    config.sample_rate = setup.sampleRate; config.buses[0] = {uint32_t(channels), uint32_t(channels)};
+    if (!audioMap.configure(config, setup.symbolicSampleSize == kSample64 ? 64u : 32u) || selectedDSP().prepare(config) != 0) return kResultFalse;
     maximumFrames = setup.maxSamplesPerBlock;
-    auto current = state.load(std::memory_order_acquire);
-    if (restoreDSP(unpackGain(current), unpackBypass(current)) !=
-        0)
-      return kResultFalse;
-    appliedGeneration = generation(current);
+    restorePending = true;
     prepared = true;
-    return AudioEffect::setupProcessing(setup);
+    const auto result = AudioEffect::setupProcessing(setup);
+    if (result != kResultOk) { prepared = false; selectedDSP().deactivate(); }
+    return result;
   }
   tresult PLUGIN_API setProcessing(TBool active) override {
     if (!active) {
-      ravet_gain_reset(dsp);
-      ravet_gain64_reset(dsp64);
+      dsp.reset();
+      dsp64.reset();
     }
     return kResultOk;
   }
@@ -218,137 +210,89 @@ public:
   tresult PLUGIN_API process(ProcessData &data) override {
     if (!prepared || data.symbolicSampleSize != sampleSize ||
         data.numSamples < 0 || data.numSamples > maximumFrames) {
-      silence(data);
+      audioMap.silenceSupportedOutputs(data);
       return kResultFalse;
     }
-    if (data.numSamples > 0 &&
-        (data.numInputs != 1 || data.numOutputs != 1 || !data.inputs ||
-         !data.outputs || data.inputs[0].numChannels != channels ||
-         data.outputs[0].numChannels != channels)) {
-      silence(data);
+    std::array<RavetNativeProcessorBusV1, 9> buses{};
+    if (!audioMap.map(data, buses)) {
+      audioMap.silenceSupportedOutputs(data);
       return kResultFalse;
     }
-    if (data.numSamples > 0) {
-      if (sampleSize == kSample64) {
-        if (!data.inputs[0].channelBuffers64 || !data.outputs[0].channelBuffers64) {
-          silence(data); return kResultFalse;
-        }
-        for (int32 channel = 0; channel < channels; ++channel)
-          if (!data.inputs[0].channelBuffers64[channel] || !data.outputs[0].channelBuffers64[channel]) {
-            silence(data); return kResultFalse;
-          }
-      } else {
-        if (!data.inputs[0].channelBuffers32 || !data.outputs[0].channelBuffers32) {
-          silence(data); return kResultFalse;
-        }
-        for (int32 channel = 0; channel < channels; ++channel)
-          if (!data.inputs[0].channelBuffers32[channel] || !data.outputs[0].channelBuffers32[channel]) {
-            silence(data); return kResultFalse;
-          }
-      }
+    RavetNativeTransportV1 transport{};
+    if (!ravet::vst3::nativeTransport(data.processContext, transport)) {
+      audioMap.silenceSupportedOutputs(data); return kResultFalse;
     }
-    size_t used = 0, seen = 0;
-    if (data.inputParameterChanges) {
-      auto queueCount = data.inputParameterChanges->getParameterCount();
-      if (queueCount < 0 || queueCount > int32(maximumEvents)) {
-        silence(data);
-        return kResultFalse;
+    size_t used = 0;
+    const auto &cache = sampleSize == kSample64 ? cache64 : cache32;
+    auto insertEvent = [&](RavetNativeEventV1 event) {
+      // Stable bounded insertion preserves queue traversal order on ties.
+      size_t insert = used;
+      while (insert > 0 && events[insert - 1].offset > event.offset) {
+        events[insert] = events[insert - 1]; --insert;
       }
-      for (int32 index = 0; index < queueCount; ++index) {
-        auto *queue = data.inputParameterChanges->getParameterData(index);
-        if (!queue) {
-          silence(data);
-          return kResultFalse;
-        }
-        int32 count = queue->getPointCount();
-        if (count < 0 || size_t(count) > maximumEvents - seen) {
-          silence(data);
-          return kResultFalse;
-        }
-        seen += size_t(count);
-        auto id = queue->getParameterId();
-        int32 previous = 0;
-        for (int32 point = 0; point < count; ++point) {
-          int32 offset;
-          ParamValue value;
-          if (queue->getPoint(point, offset, value) != kResultOk ||
-              offset < previous || offset < 0 ||
-              (data.numSamples == 0 ? offset != 0
-                                    : offset >= data.numSamples) ||
-              !std::isfinite(value) || value < 0. || value > 1.) {
-            silence(data);
-            return kResultFalse;
-          }
-          previous = offset;
-          auto insertEvent = [&](RavetGainEvent event) {
-            // Stable bounded insertion: preserve queue traversal order on ties.
-            size_t insert = used;
-            while (insert > 0 && events[insert - 1].offset > event.offset) {
-              events[insert] = events[insert - 1]; --insert;
-            }
-            events[insert] = event; ++used;
-          };
+      events[insert] = event; ++used;
+    };
+    const auto accepted = ravet::vst3::visitValidatedGlobalParameters(
+        data.inputParameterChanges, data.numSamples,
+        [&](const ravet::vst3::GlobalParameterPoint &point) {
 #if defined(RAVET_GAIN_PROGRAMS)
-          if (id == programID) {
+          if (point.id == programID) {
+            const auto count = ravet_gain_program_count();
+            if (count == 0 || maximumEvents - used < 2) return false;
+            const auto selected = uint32_t(std::floor(point.normalized * double(count - 1) + .5));
             RavetGainProgramInfo program{};
-            const auto selected = uint32_t(std::floor(value * double(ravet_gain_program_count() - 1) + .5));
-            if (maximumEvents - used < 2 || ravet_gain_program_info(selected, &program) != 0) {
-              silence(data); return kResultFalse;
-            }
-            insertEvent({uint32_t(offset), gainID, program.gain});
-            insertEvent({uint32_t(offset), bypassID, float(program.bypass)});
-            continue;
+            if (ravet_gain_program_info(selected, &program) != 0) return false;
+            insertEvent(parameterEvent(point.offset, gainID, program.gain));
+            insertEvent(parameterEvent(point.offset, bypassID, float(program.bypass)));
+            return true;
           }
 #endif
-          if (id != gainID && id != bypassID) continue;
-          if (used == maximumEvents) { silence(data); return kResultFalse; }
-          insertEvent({uint32_t(offset), id, float(id == gainID ? value * 4. : value)});
-        }
-      }
-    }
+          float physical = 0.f;
+          const auto mapped = cache.map(point.id, point.normalized, physical, false);
+          if (mapped == ravet::vst3::ParameterInputResult::Unknown) return true;
+          if (mapped != ravet::vst3::ParameterInputResult::Value || used == maximumEvents) return false;
+          insertEvent(parameterEvent(point.offset, point.id, physical));
+          return true;
+        });
+    if (!accepted) { audioMap.silenceSupportedOutputs(data); return kResultFalse; }
     // Validate the entire host stream before applying an accepted restore.
     auto current = state.load(std::memory_order_acquire);
-    if (generation(current) != appliedGeneration) {
-      if (restoreDSP(unpackGain(current), unpackBypass(current)) !=
-          0) {
-        silence(data);
+    if (restorePending || generation(current) != appliedGeneration) {
+      const auto recalled = restoreDSP(unpackGain(current), unpackBypass(current));
+      if (recalled != 0) {
+        if (recalled == 2) prepared = false;
+        audioMap.silenceSupportedOutputs(data);
         return kResultFalse;
       }
       appliedGeneration = generation(current);
+      restorePending = false;
     }
-    float gain = unpackGain(current);
-    uint32_t bypass = unpackBypass(current);
-    int32_t result;
-    if (sampleSize == kSample64) {
-      const double *const *inputs = data.numSamples == 0 ? nullptr : data.inputs[0].channelBuffers64;
-      double *const *outputs = data.numSamples == 0 ? nullptr : data.outputs[0].channelBuffers64;
-      result = ravet_gain64_process(dsp64, inputs, outputs, uint32_t(channels), uint32_t(data.numSamples), events.data(), uint32_t(used), &gain, &bypass);
-    } else {
-      const float *const *inputs = data.numSamples == 0 ? nullptr : data.inputs[0].channelBuffers32;
-      float *const *outputs = data.numSamples == 0 ? nullptr : data.outputs[0].channelBuffers32;
-      result = ravet_gain_process(dsp, inputs, outputs, uint32_t(channels), uint32_t(data.numSamples), events.data(), uint32_t(used), &gain, &bypass);
-    }
+    RavetNativeProcessorResultV1 report{};
+    auto &owner = selectedDSP();
+    auto result = owner.process(buses.data(), audioMap.busCount(), uint32_t(data.numSamples), events.data(), uint32_t(used), &transport, nullptr, 0, report);
+    std::array<RavetNativeParameterValueV1, 2> values{};
+    if (result == 0) result = owner.snapshotState(values.data(), uint32_t(values.size()));
+    const float gain = values[0].value;
+    const uint32_t bypass = uint32_t(values[1].value);
     if (result != 0) {
       if (result == 2)
         prepared = false;
-      silence(data);
+      audioMap.silenceSupportedOutputs(data);
       return kResultFalse;
     }
 #if defined(__APPLE__) && defined(RAVET_NATIVE_WEB_EDITOR)
     // The audio owner copies readings, then the host mediates processor to
     // controller delivery. Never expose the live DSP pointer to the editor.
     if (data.numSamples > 0 && data.outputParameterChanges) {
-      RavetGainMeters meters{};
-      const auto copied = sampleSize == kSample64 ? ravet_gain64_meters(dsp64,&meters) : ravet_gain_meters(dsp,&meters);
+      std::array<RavetNativeTelemetryValueV1, meterParameterCount> meters{};
+      const auto copied = owner.snapshotTelemetry(meters.data(), uint32_t(meters.size()));
+      if (copied == 2) { prepared = false; audioMap.silenceSupportedOutputs(data); return kResultFalse; }
       if (copied == 0) {
-        const RavetGainMeterReading readings[]{meters.input[0],meters.input[1],meters.output[0],meters.output[1]};
-        for (int32 reading=0; reading<4; ++reading) {
-          const double values[]{meterLevel(readings[reading].peak),meterLevel(readings[reading].rms),double(readings[reading].nonfinite!=0)};
-          for (int32 field=0; field<3; ++field) {
-            int32 index=0;
-            auto* queue=data.outputParameterChanges->addParameterData(firstMeterID+3*reading+field,index);
-            if (queue) queue->addPoint(data.numSamples-1,values[field],index);
-          }
+        for (int32 field = 0; field < meterParameterCount; ++field) {
+          const double value = field % 3 == 2 ? meters[field].value : meterLevel(meters[field].value);
+          int32 index = 0;
+          auto *queue = data.outputParameterChanges->addParameterData(meters[field].id, index);
+          if (queue) queue->addPoint(data.numSamples - 1, value, index);
         }
       }
     }
@@ -377,16 +321,23 @@ public:
   }
 
 private:
+  ravet::native::NativeProcessorClient &selectedDSP() { return sampleSize == kSample64 ? dsp64 : dsp; }
   int32_t restoreDSP(float gain, uint32_t bypass) {
-    return sampleSize == kSample64 ? ravet_gain64_restore(dsp64, gain, bypass) : ravet_gain_restore(dsp, gain, bypass);
+    const std::array<RavetNativeParameterValueV1, 2> state{{{gainID, gain}, {bypassID, float(bypass)}}};
+    return selectedDSP().applyState(state.data(), uint32_t(state.size()));
   }
-  RavetGain *dsp = nullptr;
-  RavetGain64 *dsp64 = nullptr;
+  static RavetNativeEventV1 parameterEvent(uint32_t offset, uint32_t id, float value) {
+    RavetNativeEventV1 event{}; event.offset = offset; event.kind = RAVET_NATIVE_PARAMETER_VALUE;
+    event.parameter_id = id; event.value = double(value); return event;
+  }
+  ravet::native::NativeProcessorClient dsp, dsp64;
+  ravet::vst3::CachedParameterInput cache32, cache64;
+  ravet::vst3::NativeAudioBusMap audioMap;
   int32 channels = 2, maximumFrames = 0, sampleSize = kSample32;
-  bool prepared = false;
+  bool prepared = false, restorePending = true;
   uint32_t appliedGeneration = 0;
   std::atomic<uint64_t> state{pack(1.f, 0, 0)};
-  std::array<RavetGainEvent, maximumEvents> events{};
+  std::array<RavetNativeEventV1, maximumEvents> events{};
 };
 #if defined(RAVET_GAIN_PROGRAMS)
 using GainControllerBase = EditControllerEx1;
@@ -406,12 +357,8 @@ public:
     // separately. Its controller values may lag SetParameter until a UI timer;
     // treating that snapshot as authoritative would overwrite processor recall.
     persistControllerControls = !FUnknownPtr<IVst3ToAUWrapper>(context);
-    parameters.addParameter(new RangeParameter(STR16("Gain"), gainID,
-                                               STR16("x"), 0., 4., 1., 0,
-                                               ParameterInfo::kCanAutomate));
-    parameters.addParameter(
-        STR16("Bypass"), nullptr, 1, 0.,
-        ParameterInfo::kCanAutomate | ParameterInfo::kIsBypass, bypassID);
+    if (!ravet::vst3::registerParameters(parameters, ravet_native_parameters_v1(32)))
+      return kResultFalse;
 #if defined(RAVET_GAIN_PROGRAMS)
     addUnit(new Unit(STR16("Gain"), kRootUnitId, kNoParentUnitId, programID));
     auto* list = new ProgramList(STR16("Program"), programID, kRootUnitId);
@@ -627,8 +574,8 @@ IPlugView* GainController::createView(FIDString name) {
 BEGIN_FACTORY("RAVET", "", "", PFactoryInfo::kNoFlags)
 DEF_CLASS2(INLINE_UID_FROM_FUID(processorID), PClassInfo::kManyInstances,
            kVstAudioEffectClass, "RAVET Gain", Vst::kDistributable, "Fx|Tools",
-           "0.1.0", kVstVersionString, GainProcessor::create)
+           "0.0.1", kVstVersionString, GainProcessor::create)
 DEF_CLASS2(INLINE_UID_FROM_FUID(controllerID), PClassInfo::kManyInstances,
            kVstComponentControllerClass, "RAVET Gain Controller", 0, "",
-           "0.1.0", kVstVersionString, GainController::create)
+           "0.0.1", kVstVersionString, GainController::create)
 END_FACTORY

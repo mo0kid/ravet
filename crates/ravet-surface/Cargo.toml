@@ -11,13 +11,22 @@ workspace = true
 
 [features]
 default = []
-text = ["dep:harfrust", "dep:read-fonts", "dep:unicode-bidi"]
+image = ["dep:png", "dep:zune-jpeg"]
+jpeg-encode = ["image", "dep:jpeg-encoder"]
+raster = ["dep:tiny-skia"]
+text = ["dep:harfrust", "dep:read-fonts", "dep:unicode-bidi", "dep:unicode-linebreak", "dep:unicode-segmentation"]
 
 [dependencies]
+jpeg-encoder = { version = "=0.7.1", default-features = false, features = ["std"], optional = true }
+png = { version = "=0.18.1", default-features = false, optional = true }
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"], optional = true }
+tiny-skia = { version = "=0.12.0", default-features = false, features = ["std"], optional = true }
 ravet-foundation.workspace = true
 harfrust = { version = "=0.14.0", optional = true }
 read-fonts = { version = "=0.45.0", optional = true }
 unicode-bidi = { version = "=0.3.18", optional = true }
+unicode-linebreak = { version = "=0.1.5", optional = true }
+unicode-segmentation = { version = "=1.13.3", optional = true }
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
@@ -33,3 +42,15 @@ required-features = ["text"]
 [[example]]
 name = "bidi-outlines"
 required-features = ["text"]
+
+[[example]]
+name = "paragraph-outlines"
+required-features = ["text"]
+
+[[example]]
+name = "paragraph-carets"
+required-features = ["text"]
+
+[[example]]
+name = "raster-preview"
+required-features = ["raster", "text"]

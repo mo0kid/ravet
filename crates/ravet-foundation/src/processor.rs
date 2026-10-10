@@ -321,8 +321,8 @@ pub enum Tail {
     Infinite,
 }
 
-impl std::fmt::Display for PrepareError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for PrepareError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             Self::AudioSessionActive => "stop the audio-owner session before preparation",
             Self::InvalidSampleRate => "sample rate must be finite and positive",
@@ -335,10 +335,10 @@ impl std::fmt::Display for PrepareError {
         })
     }
 }
-impl std::error::Error for PrepareError {}
+impl core::error::Error for PrepareError {}
 
-impl std::fmt::Display for ProcessError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidTransport => f.write_str("transport context cannot be represented by the backend"),
             Self::BackendFailure => f.write_str("backend execution failed; histories may have advanced"),
@@ -350,12 +350,12 @@ impl std::fmt::Display for ProcessError {
                 write!(f, "block has {frames} frames; capacity is {maximum}")
             }
             Self::OutputEventCapacity => f.write_str("output event storage is missing, nonempty, undersized or has the wrong frame count"),
-            Self::Events(error) => std::fmt::Display::fmt(error, f),
+            Self::Events(error) => core::fmt::Display::fmt(error, f),
         }
     }
 }
-impl std::error::Error for ProcessError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for ProcessError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Events(error) => Some(error),
             _ => None,

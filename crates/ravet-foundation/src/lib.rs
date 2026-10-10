@@ -3,9 +3,14 @@
 //! Safe, planar `f32`/`f64` processing with bounded main/auxiliary buses and
 //! borrowed input/output events. Individual processors declare their support.
 //! Borrowed parameter schemas and fixed-size versioned state are also provided.
+//! Default features retain desktop `std` math. Disable default features for
+//! allocation-free `no_std` contracts with pure-Rust `libm` parameter mappings.
+//! Snapshot mailboxes are available only with native 64-bit atomics.
 //! This crate is independent of editors, plug-in formats, and device backends.
 //! Processing implementations must avoid allocation, deallocation, blocking,
 //! and I/O. See [`Processor`] for the lifecycle and failure contract.
+
+#![cfg_attr(not(feature = "std"), no_std)]
 
 mod audio;
 mod event;

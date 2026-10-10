@@ -5,6 +5,8 @@
 // Parents: NSView on macOS, HWND on Windows, X11 Window ID cast to void* on Linux.
 // Returned views are owned by this API until destroy. Context outlives the view.
 // Message/snapshot strings are UTF-8; callbacks may allocate off the audio thread.
+// Cocoa/WebKitGTK suppress browser context menus in every loaded frame while
+// preserving event propagation for consumer right-click/reset/custom-menu actions.
 typedef void (*RavetWebMessage)(void* context, const char* json);
 typedef const char* (*RavetWebSnapshot)(void* context);
 // Buffer snapshots copy into caller-owned storage; return UTF-8 byte count, or 0.

@@ -2,8 +2,8 @@
 
 The explicit `ravet-audio-file` crate supplies bounded seekable WAV/AIFF readers and
 writers plus a prepared interleaved SPSC audio ring. File methods allocate or
-perform blocking I/O on control/worker threads. Only prepared ring push/pop
-belongs in audio callbacks; endpoint destruction follows callback shutdown.
+perform blocking I/O on control/worker threads. Prepared ring push/pop and transport renders belong in audio callbacks; endpoint
+destruction follows callback shutdown.
 
 ## WAV decoding and recording
 
@@ -49,9 +49,8 @@ Reads and frame seeks have the same destination/position preservation and retry
 policy as WAV. Writers require an empty destination, reject invalid complete
 blocks before I/O, clip/round finite PCM and explicitly finalize FORM/COMM/SSND
 lengths and padding. Partial writes poison further writing/finalization; Drop does
-no I/O. File size must fit the 32-bit FORM limit. WAV read-ahead/recorder workers
-currently remain WAV-specific; AIFF consumers explicitly drive these readers and
-writers on control/worker threads and can use the shared prepared audio ring.
+no I/O. File size must fit the 32-bit FORM limit. AIFF and WAV also have explicit
+read-ahead/recorder adapters sharing the same prepared handoff mechanics below.
 
 Create a new synthetic interoperability file (existing files reject):
 
@@ -80,9 +79,9 @@ packet capacity to 65536 frames and demux progress to 1,048,576 packets. Rates a
 These bound RAVET's accepted input/output; dependency-internal allocations and
 execution time remain backend-owned, with no total-memory or deadline guarantee.
 No filesystem/network/clock access occurs inside decoding. Encoded readers,
-Compressed encoders, indexed/file-backed random access and automatic clocked
-transport remain separate work; the lazy worker reader below provides exact
-replay-based seeking.
+Other compressed encoders, file-backed random access and automatic clocked
+transport remain separate work. The lazy worker reader below supplies exact replay
+seeks; its explicit native-FLAC indexed mode avoids replaying earlier audio.
 
 The selected default track retains encoded rate/channel order. Configuration
 changes/chained resets, decode errors, nonfinite samples, declared-length mismatch
@@ -193,7 +192,7 @@ commands, and 10,000 prepared operations with no Rust heap activity. See
 
 ## Optional lazy compressed reader
 
-`CompressedReader` uses the same optional/pinned FLAC/MP3/Vorbis backend with
+`CompressedReader::new` uses the same optional/pinned FLAC/MP3/Vorbis backend with
 one owned copy of explicitly supplied encoded bytes (1..64 MiB). It decodes lazily
 into pending packets instead of building a complete decoded clip. Construction
 probes/decodes the first nonempty packet; rate/channel order stay fixed. Caller
@@ -214,15 +213,60 @@ alone does not establish that verification. Changing/chained configuration rejec
 from the beginning to the exact decoded-frame target and replaces state only on
 success. Past-end or failed replay preserves the old cursor/decoder/poison state;
 a successful replay can recover a poisoned reader. End positions are valid.
-This deliberately provides O(target) bounded worker seeking, without assuming
-codec-native timestamp/preroll behavior. It is not efficient indexed random access,
-file-backed streaming, a sample-clock scheduler or callback-safe seeking.
+This default mode provides O(target) bounded worker seeking without assuming
+codec-native timestamp/preroll behavior. Native FLAC also has the explicit indexed
+mode below. Neither mode supplies file-backed streaming, a sample-clock scheduler
+or callback-safe seeking.
 
 Synthetic encoded fixtures for all three formats match complete decode exactly
 under variable short reads and forward/backward/packet-boundary/end seeks. Tests
 also cover output tails, malformed/oversized inputs, failed-seek preservation,
 deferred corruption/poison and successful recovery. See
 [decision 0068](decisions/0068-compressed-worker-streams.md).
+
+## Indexed native-FLAC seeks
+
+`CompressedReader::new_indexed_flac(encoded, maximum_frames)` supplies the same
+reader/read-ahead API with a worker-built compressed-packet index. Construction
+requires native `fLaC` bytes with a nonzero declared duration, decodes every packet,
+checks contiguous frame timestamps and durations, fixed rate/channel layout,
+finite samples, declared total and the backend's available whole-stream MD5.
+It retains compressed packets and their timestamps; it retains neither the full
+PCM clip nor the original container copy. `indexed_packets()` reports the retained
+packet count, or `None` for the default replay reader.
+
+The input copy is temporarily at most 64 MiB. Retained packet payload is separately
+capped at 64 MiB and packet/index entries at 65,536. Caller duration and total
+16,777,216-sample bounds remain in force; each decoded packet is at most 65,536
+frames. Backend working memory, metadata and temporary candidate storage are
+additional; these are bounded framework capacities, not a total process-memory
+or real-time deadline guarantee. All construction, reads, seeks and destruction
+stay on workers. MP3, Vorbis, Ogg-FLAC and streams without declared duration reject
+this constructor; they can retain the existing replay reader where supported.
+
+An indexed seek binary-searches the immutable timestamp index, creates a fresh
+FLAC decoder and decodes only the containing packet. It trims the packet prefix
+to the exact requested frame without decoding preceding packets. EOF seeks decode
+none and report verified EOF immediately because construction already checked the
+whole stream. Other reads report EOF once they exhaust their pending/indexed
+packets. Whole-stream MD5 verification is disabled for fresh suffix decoders;
+the immutable packets were already verified during construction. Failed or
+past-end candidates preserve the live reader and cursor.
+
+```rust,ignore
+let reader = ravet_audio_file::CompressedReader::new_indexed_flac(&encoded, maximum_frames)?;
+let mut pump = ravet_audio_file::CompressedReadAhead::new(reader, producer, 4096)?;
+// Reclaim matching endpoints after their users stop, then discard the old generation.
+pump.seek_stopped(&mut consumer, selected_frame)?;
+```
+
+The tests compare exact indexed audio to independently generated integer PCM for
+mono/stereo/eight-channel PCM16/24 streams, including every packet edge, first/last
+frame and EOF. Instrumented backend decode calls establish that arbitrary seeks
+in a 33-packet stream decode one packet, and EOF/invalid seeks decode none. Tests
+also cover truncated input, bad MD5/counts, unsupported profiles, short-read tails,
+failed-seek preservation and stopped read-ahead generations with allocation-free
+consumer transfer. See [decision 0168](decisions/0168-indexed-flac-worker-seeks.md).
 
 ## Compressed worker read-ahead
 
@@ -239,8 +283,9 @@ the decoder has completed its duration/integrity checks; queued/pending audio ca
 still require playback. A decode fault poisons the pump and publishes none of
 that failed read. Earlier queued audio remains; consumed data cannot be rolled
 back. `seek_stopped` requires matching endpoints reclaimed after stopping/joining
-users. It first completes exact replay, then clears queued/pending old-generation
-audio and poison. Foreign rings or failed replay preserve queued/pending state.
+users. It first completes the reader's exact replay or indexed seek, then clears
+queued/pending old-generation audio and poison. Foreign rings or failed seeks
+preserve queued/pending state.
 
 All three actual compressed fixtures pass bounded backpressure/seek/end delivery
 and worker-to-consumer sample-order checks. Consumer handoffs measure zero heap
@@ -286,9 +331,9 @@ range five-channel PCM24 fallback fixture; it never replaces an existing directo
 All eight channel counts, both precisions, frame boundaries/extrema and rate edges
 pass exact Symphonia roundtrips. Independent FFmpeg CRC-checked decoding matches
 all seven incremental PCM records byte for byte, including the fallback profile.
-Vorbis/MP3 encoding, physical recording, file-backed seeking and automatic
-clocked playback remain
-separate work. See [decision 0070](decisions/0070-worker-flac-encoding.md).
+Optional Vorbis encoding and automatic prepared capture are documented below.
+MP3 encoding is documented below. Physical recording, compressed file-backed seeking and automatic
+clocked playback remain separate work. See [decision 0070](decisions/0070-worker-flac-encoding.md).
 
 ## Incremental lossless FLAC output
 
@@ -352,3 +397,418 @@ ties/overload policy, stopped tail draining, malformed/capacity and partial outp
 poison, and exact threaded order with measured heap-free producer handoff. This
 is synthetic capture, with no physical device/real-time deadline claim. See
 [decision 0075](decisions/0075-flac-capture-workers.md).
+
+## Automatic read-ahead playback ownership
+
+`ReadAheadWorker::new(pump, consumer, maximum_render_frames)` prepares a control
+owner and paused `BufferedPlayback` endpoint for a matching `WaveReadAhead`,
+`AiffReadAhead` or `CompressedReadAhead`. Preparation requires no queued frames or pending worker
+scratch; a reader already positioned by a stopped seek is accepted. The source
+rate remains explicit, and maximum render size is 1..65,536 frames. Call
+`worker.start()` on control to start a named automatic worker, then call
+`playback.play()` on its audio owner when playback should begin.
+
+The worker repeatedly performs the pump's bounded read/publication operation,
+retains every unqueued suffix under backpressure and parks with a 2 ms timeout after
+an attempt publishes no frames. Pump file I/O and decoder allocations stay on the
+worker; callback rendering never decodes, reads a file, joins a thread or locks.
+The transfer mutex is used only during control ownership/startup/exit, outside
+pumping and callback rendering. `ReadAheadPump` is an explicit extension contract
+for other worker sources, including matching endpoint ownership, bounded pumps
+and failed-seek preservation.
+
+`BufferedPlayback::render` fills all output with available source frames and a
+zero suffix. Source-frame position advances only by consumed source frames; a
+running-worker underrun stalls that position and reports `underflow_frames`.
+Pause retains the position and does not consume queued frames. Invalid or
+oversized whole-frame output shapes or a conservative u64 cursor-addition overflow
+silence the complete supplied buffer while preserving position, play/pause and
+queue; zero frames preserve play/pause.
+Playback uses the source rate and channel order with no conversion or amplitude
+change; WAV floating-point values retain their bits, including nonfinite samples.
+
+Worker EOF means its retained suffix has been completely published. Audible
+`ended` is true only when that generation's ring also drains. End stops playback;
+its zero suffix is distinct from running-worker underflow. A pump fault reports
+`Failed`, retains any earlier queued audio for once-only consumption, and stops
+playback once that prefix drains. It cannot report successful EOF. Status snapshots
+can change concurrently; they are diagnostics, not a sample-clock synchronization
+contract.
+
+`seek_stopped` requires the matching callback endpoint reclaimed after its user
+stops. It joins the worker before seeking, then restarts automatic read-ahead.
+Foreign endpoints reject before stopping the worker. A source seek rejection
+preserves cursor, queued/pending generation, callback source position and
+play/pause; the old generation resumes. Successful positioning clears old audio,
+updates source position and retains play/pause. `stop_stopped` seeks to zero and
+pauses while allowing the new generation to prefetch. These are control operations;
+there is no live callback seek or asynchronous command mailbox.
+
+Worker thread creation/restart failure retains the pump in its owner, reports
+`Failed` and returns an I/O error; callers may retry `start` or reclaim through
+`shutdown`. Already completed source-seek generation changes are not rolled back
+if restart fails. `shutdown` joins and returns the owned pump plus its original
+pump error. Drop also joins, so both belong outside callbacks. Stop is cooperative
+between bounded pump calls and does not cancel active file I/O or guarantee a join
+deadline. A worker panic reports `Failed`; its unwound source is lost and control
+reclamation returns `Poisoned`.
+
+Local tests exercise concurrent retained backpressure, pause/resume, exact EOF
+drain and indexed-FLAC recall; gated running underruns and failed/foreign seeks
+establish cursor/generation behavior. Callback heap measurements cover repeated
+paused renders and active consumption. Pump error/panic tests establish prefix
+retention, source reclamation and failure distinct from EOF. No physical recording,
+clock drift, device/DAW deadline, streamed loop, resampling or crossfade claim follows
+from these tests. See [decision 0171](decisions/0171-automatic-read-ahead-playback.md).
+
+## AIFF PCM read-ahead and recording
+
+`AiffReadAhead::new(reader, producer, maximum_frames)` prepares matching channels
+and scratch within the reader's 1..65,536-frame capacity. It shares WAV's bounded
+handoff implementation: at most one read per pump, complete-frame ring publication,
+retained unqueued scratch under backpressure and EOF distinct from pending/queued
+playback. Failed file reads preserve logical position and publication and may be
+retried explicitly. Matching `seek_stopped` first validates the source target, then
+clears all queued/pending old-generation audio; failed/foreign seeks preserve it.
+The adapter also implements `ReadAheadPump` for the automatic owner above.
+
+`AiffRecorder::new(destination, format, maximum_frames, consumer)` validates matching
+channels before writing a header to the caller's empty seekable destination.
+`pump` drains at most 1..65,536 prepared scratch frames. Empty pumps perform no file
+I/O. PCM conversion/FORM/count limits remain those of `AiffWriter`; PCM16/24/32
+finite clipping/rounding and big-endian bytes are unchanged. Once audio is dequeued,
+any validation/write failure poisons further pumping/finalization because the
+consumed input cannot be restored. An I/O failure can leave a partial output file.
+
+Stop/join the producer before `finish`. It drains at most one ring capacity,
+patches FORM/COMM/SSND lengths, adds odd-payload padding and flushes. Continuing
+publication can reject finalization or lose late frames. Drop performs no implicit
+drain, finalize or file I/O. No capture device, sample clock, hidden recording
+worker or path is chosen; only prepared ring push/pop/transport rendering belongs
+in callbacks. Physical recording/routing and resampling remain consumer/backend
+work.
+
+Tests cover exact PCM16/24/32 at 1/2/8 channels, retained suffixes, stopped-generation
+replacement, read failure/retry, callback heap counts, bounded final recorder drains,
+odd PCM24 payload padding, nonfinite/partial-write poison and automatic playback
+with stopped recall. Existing WAV and automatic/compressed worker regressions
+exercise the shared handoff extraction. See
+[decision 0173](decisions/0173-aiff-pcm-worker-adapters.md).
+
+## Automatic recording worker ownership
+
+`RecordingWorker::new(recorder, &producer)` prepares a control owner for a matching
+`WaveRecorder`, `AiffRecorder` or optional `FlacRecorder`. The recorder's explicit
+format, scratch and output/count budgets remain unchanged; its preparation may
+already have written the selected sink's header. Call `start` to begin a named
+automatic worker. The capture callback keeps its unique `AudioProducer` and only
+calls its prepared `push`. Full-ring input returns an accepted whole-frame prefix;
+the caller must retain/retry or explicitly count/drop the suffix. The worker adds
+no implicit callback blocking, allocation, file I/O or device selection.
+
+Automatic pumping repeatedly drains one source scratch batch and uses a 2 ms park
+timeout when no frames are available. The common private worker owner also serves
+read-ahead playback, retaining the source through OS thread-creation failure and
+keeping ownership-transfer locks outside pumping/callbacks. `stop` cooperatively
+joins without draining/finalizing and leaves the recorder available to restart.
+Stop/join/Drop belong on control and cannot cancel active backend I/O or establish
+a join deadline. Drop joins but never patches headers, flushes or finalizes a file.
+
+Reclaim the unique producer after its capture user stops/joins, then call
+`finish_stopped(&mut producer)`. A foreign queue rejects before the worker stops.
+The owner joins and invokes the recorder's existing bounded final ring drain and
+consuming file/codec finalization on control.
+
+For capture adapters whose producer stays inside a callback, prepare with
+`RecordingWorker::from_recorder(recorder)`. Stop/drop the device stream or capture
+owner, then use `finish_after_producer_retired()`. The unique producer's Drop
+publishes permanent atomic retirement; it cannot be resurrected. An acquire proof
+synchronizes the final publication, then joining the recording worker permits its
+bounded remaining drain. Live or leaked producers reject before stopping the
+worker. `AudioConsumer::producer_retired()` exposes the same diagnostic; retirement
+does not discard queued audio or establish a finalized recording. This matches
+`ravet-device::PreparedCapture` and `open_input`'s hidden-producer ownership; it does
+not implicitly stop a device, and offline capture tests do not establish backend
+stream-destruction timing or physical capture support.
+
+`Finalized` means that finalization succeeded and returned the complete sink;
+further start/finish reject. Concurrent
+late publication violates stopped-producer ownership and may reject or lose audio.
+The API does not implicitly stop a physical input device or callback thread.
+
+Pump failures report `Failed` and retain the poisoned recorder and original error;
+earlier accepted/written prefixes cannot be rolled back. `shutdown` returns the
+owned recorder plus that error without finalizing. If either finish method returns a
+saved pump error first, it returns that error once and keeps the recorder available
+to `shutdown`; reclamation then has no duplicate error. A failure during consuming
+finalization loses the sink, cannot be retried, and cannot advertise a complete
+file. A worker panic reports `Failed` and `Poisoned`; its unwound recorder is lost.
+WAV/AIFF frame counts represent successful writes, while FLAC counts accepted
+encoder frames including its retained block; neither means finalized capture.
+
+Tests exercise concurrent exact synthetic capture, accepted-prefix overload,
+callback heap counts, stop/restart and final drain, matching queue ownership,
+original write/PCM errors, owned-source reclamation, terminal final flush failure,
+panic distinct from successful finalization, permanent producer retirement,
+actual hidden-producer PreparedCapture integration and AIFF odd PCM24 padding.
+Optional FLAC tests cover exact explicit clipping, overload/nonfinite rejection and total
+capacity poison. No physical capture, long-session drift, device deadline, rate
+conversion or hidden clock/path policy is established. See
+[decision 0177](decisions/0177-automatic-recording-workers.md).
+
+## Optional bounded Ogg Vorbis worker encoding
+
+Enable `ravet-audio-file`'s default-disabled `vorbis-encode` feature for
+`encode_vorbis`, `VorbisWriter` and `VorbisFormat`. The backend is pinned safe
+vorbis_rs 0.5.6 with default features disabled, over vendored BSD libogg and
+aoTuV/libvorbis. Ordinary builds require a C compiler through cc and supplied
+bindings; they do not require a system codec library, bindgen/libclang or random
+serial generation. Preserve [the backend notices](../crates/ravet-audio-file/third-party/vorbis.md).
+
+Callers select mono/stereo Vorbis I channel order, encoded rate (mono 8000..96000 Hz, stereo 16000..96000 Hz),
+finite perceptual quality -0.2..1 and an explicit i32 Ogg stream serial. Quality
+controls the backend's lossy encoding; no exact PCM or subjective quality promise
+is made. Finite interleaved samples must be within [-1,1]; overload/nonfinite
+input rejects instead of clipping. No implicit resampling, channel mapping, path,
+clock, device, thread or serial policy is selected. Logical streams chained or
+multiplexed by consumers need distinct serials; that container policy is separate.
+
+Stereo rates below 16000 Hz reject before sink output. At maximum quality, the
+selected backend's 8000 Hz synthetic stereo fixture showed sustained second-channel
+loss: whole-channel SNR 7.26 dB and interior SNR 6.98 dB, compared with first-channel
+46.25 dB. Direct backend and reframed native decoding agreed; lag/gain fitting did
+not repair the loss. The public wrapper excludes that profile instead of changing
+input rate or silently choosing another quality/coupling policy. Its safe builder
+does not expose channel-coupling control. Mono 8000 Hz remains supported; selected
+16000/22050/48000 Hz stereo fixtures retained more than 25 dB whole-stream SNR.
+These measured synthetic figures describe the reviewed backend on macOS arm64,
+without a perceptual or cross-platform guarantee.
+
+`encode_vorbis(samples, format)` produces a complete nonempty owned byte stream
+from at most 4,194,304 f32 samples with output capped at 64 MiB.
+`VorbisWriter::new(destination, format, maximum_frames, maximum_bytes)` prepares
+an incremental writer, with total frames 1..16,777,216 and output bytes
+1..67,108,864. It writes the initial headers at the sink's current position; the
+caller supplies the intended destination/offset and owns truncation policy.
+Header-output failure can consume the sink and leave an irreversible prefix.
+
+Whole calls to `write_frames` preflight shape, samples and per-call/total counts
+before accepting input. Each call accepts at most 65536 frames and is divided
+into prepared 4096-frame planar batches. Empty input is a no-op; it does not
+signal EOS. Wrapper scratch remains fixed, including one physical Ogg page at most 65,307
+bytes; backend working allocations remain its own contract. The encoder output
+is framed with a separate zero-granule priming packet page, preserving every
+packet/lacing/body/serial and exact final granule while rewriting sequence/CRC.
+Header packets and the priming packet must terminate within a physical page;
+continued headers, mixed header/audio pages and spanning priming packets reject.
+This boundary is tested for the selected mono/stereo backend profiles and is not
+an arbitrary Ogg repackaging API. `accepted_frames` includes submitted batches even on a later
+encoding failure; `written_bytes` counts bytes actually accepted by the sink,
+including failed partial writes. Neither count proves a complete file.
+
+Preflight failures preserve a usable writer. Codec, I/O or output-budget failures
+after acceptance poison it; earlier output cannot be rolled back. Explicit
+nonempty `finish` writes EOS and flushes once before returning the sink. A failed
+consuming finish loses the sink and has no complete-file or retry guarantee.
+The private sink gate latches every parser/partial-page/sink/budget failure and disables writes
+before Drop, so the backend's automatic-drop EOS does not write or flush the
+caller sink. User-supplied sink destructors retain their own contract.
+
+Create, use, finish and drop an incremental writer on one worker thread: the safe
+backend's raw-pointer ownership is not Send/Sync. A consumer may move the input
+format/sink into a worker and construct the writer there. Every codec method and
+teardown belongs outside callbacks. The dedicated `VorbisRecordingWorker` below
+creates the codec locally for automatic prepared capture; it does not implement
+the movable `RecordingPump` contract or establish an audio deadline.
+
+Tests cover mono/stereo rates and short/final tails through independent Symphonia
+decoding, declared page CRC/serial/BOS/EOS/exact final granules, lossy synthetic
+PCM alignment and SNR, partitioned writes/preflight preservation, sink/output
+budget poison, original errors and write/flush counters across ordinary/failed
+Drop. An explicitly invoked ignored test exercises the independent FFmpeg native
+Vorbis decoder using generated synthetic streams:
+
+```sh
+RAVET_TEST_FFMPEG=/path/to/ffmpeg cargo test -p ravet-audio-file --all-features --test vorbis --locked -- --ignored ffmpeg_native_decoder_independently_agrees_on_pcm_timing_and_channel_order
+```
+
+This synthetic codec evidence does not validate physical capture, subjective
+listening quality, host devices, deadlines or another target toolchain. See
+[decision 0181](decisions/0181-bounded-vorbis-worker-encoding.md).
+
+### Automatic Vorbis capture ownership
+
+With `vorbis-encode`, `VorbisRecordingWorker` prepares a selected Send sink and
+exact capture-ring consumer, then constructs, uses and destroys the !Send Vorbis
+codec on the named worker. `new` validates format/queue/budgets and prepares
+1..4096-frame source scratch without codec/header/thread creation. `start`
+acknowledges OS spawn only; inspect status and the eventual outcome for startup
+header errors. OS spawn failure retains preparation for retry or abort.
+
+Capture callbacks keep prepared `AudioProducer::push` or `PreparedCapture`
+ownership. A full ring accepts a prefix; the caller explicitly retries or drops
+the suffix. Pause waits for worker acknowledgement after active sink I/O; after
+success it leaves queued frames untouched. Resume acknowledges the same running
+codec. These control methods and join can block indefinitely on selected sink
+I/O; they do not cancel I/O or provide a real-time deadline.
+
+Stop and reclaim the exact producer before `finish_stopped`, or drop the hidden
+callback producer before `finish_after_producer_retired`. Foreign/live/leaked
+producers reject before changing worker state. Finish drains at most the stopped
+fixed-ring tail, emits EOS, validates complete pages and flushes on the codec's
+owning worker. Even a never-started controller creates the codec there. Its
+`Ok` result means ownership was recovered: inspect the private-constructed
+`VorbisRecordingCompletion` through `completion()`.
+
+- `Finalized` proves EOS and successful flush for the returned sink.
+- `Aborted` returns an incomplete sink without final drain/EOS/flush.
+- `Failed(error)` returns an incomplete irreversible prefix with the original
+  startup/pump/drain/EOS/flush error.
+
+The exit also returns the owned consumer and accepted encoder-frame,
+dequeued-ring-frame and actual sink-byte counts. A rejected dequeued batch can
+make source/dequeue counts differ; failed workers stop further ring consumption
+until explicit finish/abort. `abort` recovers partial ownership without encoding
+or flushing more input. Drop requests gated abort and joins but discards the
+returned ownership; sink destructor behavior remains caller-owned. Panic loses
+the unwound worker-local sink/source and reports Failed/Poisoned rather than
+pretending they can be reclaimed. Existing `VorbisWriter::new`/`finish` retain
+their consuming-failure signatures.
+
+The default-disabled device feature `vorbis-recording` forwards the audio-file
+encoder for `PreparedCapture` integration. Synthetic callback tests cover hidden
+producer retirement, allocation-free publication and automatic bounded final
+ring drain; physical CPAL shutdown timing and recording deadlines remain
+unvalidated. Rates/quality/PCM/output/framing and backend-memory limits remain
+those of the Vorbis writer above.
+
+See [decision 0186](decisions/0186-worker-created-vorbis-recording.md).
+
+```sh
+cargo test -p ravet-audio-file --all-features --test vorbis_recording --locked
+cargo test -p ravet-device --features vorbis-recording --test vorbis_recording --locked
+```
+
+## Optional local MP3 encoding
+
+Default-disabled `mp3-encode` pins `mp3lame-encoder` 0.2.5 and `mp3lame-sys`
+0.1.11 with defaults disabled, including the unmodified LAME 3.100 encoder.
+Unix builds require a working C compiler, configure and make. The encoder builds
+statically; no system LAME library or executable is selected implicitly. Only
+this macOS arm64 build and offline fixtures have been validated. Codec/target
+support elsewhere is not established by the upstream build script alone.
+
+`encode_mp3` handles complete clips and `Mp3Writer<W: Write + Seek>` handles
+incremental worker-thread output. Callers explicitly choose `Mp3Bitrate` 192,
+256 or 320 kbps, mono/stereo and 32, 44.1 or 48 kHz. Encoding uses the pinned
+backend's highest quality CBR profile. No ID3 metadata, VBR, hidden resampling,
+channel remapping or physical device support is added.
+LAME's 192 kbps preset scales input by 0.97; its 256/320 presets use 1.0. RAVET
+adds no gain compensation. Lossy output can have codec filtering/transients;
+measured raw and gain-fitted signal agreement are separate evidence.
+
+Source calls require finite normalized [-1, 1] interleaved samples. Shape,
+value, complete-call source count and format preflight precede codec mutation.
+Invalid preflight calls are retryable. Prepared encode scratch handles at most
+4,096 source frames and 12,320 output bytes per batch; the tag buffer is 4 KiB.
+Calls accept at most 65,536 frames, total source at most 16,777,216 frames,
+complete clips at most 4,194,304 samples and actual sink writes at most 64 MiB,
+with tighter caller budgets. Codec-owned working allocations remain outside
+these adapter bounds; no RSS ceiling or real-time deadline is claimed.
+
+Construction requires current sink position at EOF and saves that fresh region's
+origin. Existing caller prefix bytes can remain outside the encoded region;
+callers own truncation, reading and concurrent-access policy. A non-EOF rejection
+restores the original position after successful seek; an actual seek error is
+returned immediately with its original error and sink, with no hidden restoration
+retry. A failed selected seek may already have changed its own cursor.
+
+Explicit `finish` uses standalone codec flush, validates the emitted MPEG frame,
+Info/Xing identity, LAME version, tag CRC and signaled delay/padding/source-frame
+relation, then replaces the reserved first metadata frame, restores the file end
+and flushes. Metadata frame bit rate need not match data-frame bit rate. Actual
+write budgets/counts include the rewritten metadata bytes, whereas `file_bytes`
+measures the encoded region. Successful finalization supplies exact source-frame
+metadata. Gapless-aware completed-file decoders honor it; stream players may
+retain padding. RAVET never trims arbitrary decoded PCM to force agreement.
+
+`Mp3WriteError::Rejected` owns a retryable preflight error;
+`Mp3WriteError::Failed` borrows the retained original operational error. Failed
+encoding/write/seek/flush or output-capacity checks poison the writer and block
+further encoding and sink I/O. Consuming `finish` returns `Mp3Failure<W>`
+with the recovered partial sink, original error and accepted/file/write counts.
+An accepted source batch can remain irreversible even when its output write
+fails. `abort` recovers the incomplete sink and intentionally discards stored
+error/counts; inspect getters first, or finish a poisoned writer to recover its
+error without further I/O. Ordinary and poisoned Drop never write, seek, flush
+or finalize; downstream sink destructor behavior belongs to its caller.
+
+The optional binding crates declare LGPL 3.0, core LAME source grants Library
+GPL 2-or-later and ReplayGain analysis grants LGPL 2.1-or-later. Complete notices,
+source provenance and attribution are in [the backend notices](../crates/ravet-audio-file/third-party/mp3.md).
+RAVET's commercial agreement does not relicense these components; consumers must
+review their own combined/static-linking, source/relinking and distribution
+obligations. No commercial compliance or patent-clearance certification is made.
+
+See [decision 0193](decisions/0193-bounded-mp3-worker-encoding.md).
+
+```sh
+cargo test -p ravet-audio-file --all-features --test mp3 --test mp3_faults --locked
+RAVET_TEST_FFMPEG=/path/to/ffmpeg cargo test -p ravet-audio-file --all-features --test mp3 --locked -- --ignored ffmpeg_native_file_decoder_agrees_on_all_bitrates_timing_pcm_and_gain_policy
+```
+
+## Automatic MP3 capture ownership
+
+With `mp3-encode`, `Mp3RecordingWorker<W: Write + Seek + Send + 'static>`
+prepares a consumer, transferable destination and 1..4,096-frame scratch on
+control. Preparation validates writer configuration, ring channels and bounds;
+it neither constructs the encoder nor seeks/writes the sink. The encoder is
+created, pumped, explicitly finalized and dropped on one named worker.
+Vorbis and MP3 share the private controller's ownership, proof, bounded drain
+and acknowledged pause/resume mechanics; no `Send` bound is added to their local
+codec sessions and the public Vorbis APIs retain their signatures.
+
+`start` acknowledges OS thread creation; consult status and eventual completion
+for startup errors. A failed OS spawn preserves preparation for retry or abort.
+`pause` waits for the active batch and sink I/O to finish, then acknowledges no
+further dequeue until resume or finalization. These control operations, join
+and Drop may wait indefinitely on caller I/O; no cancellation or deadline is
+provided. Prepared-ring publication retains its existing callback heap/lock/I/O
+bounds and full-ring accepted-prefix/drop policy.
+
+After stopping capture, call `finish_stopped` with the matching mutable producer,
+or drop its unique owner and call `finish_after_producer_retired`. Retirement
+also works with the hidden producer in `PreparedCapture`/`open_input`. Foreign
+or live/leaked producer proofs reject before changing worker state. The stopped
+final tail is bounded by queue capacity. The controller's outer `Ok` proves
+recovered ownership only: inspect the private-constructed completion enum
+`Finalized`, `Aborted` or `Failed(original error)`. Only `Finalized` proves the
+codec finish, validated metadata rewrite, restored file end and successful flush.
+
+Failures stop later dequeue and return the original sink/source/error, accepted
+codec frames, dequeued source frames, encoded `file_bytes` and actual
+`written_bytes` including metadata rewrites and partial failed writes. A rejected
+source batch can make dequeued and accepted counts differ. A failing encoded
+batch can have irrevocably accepted its source before output failure. The shared
+adapter preserves the writer's original owned operational error even though the
+public writer exposes a borrowed error. Startup seek faults trigger no automatic
+restoration retry; partial destinations remain caller-owned.
+
+`abort` recovers incomplete ownership without draining, rewriting or flushing.
+Prepared abort touches no sink. Drop requests abort and joins, discarding recovered
+ownership; downstream sink destructors retain their own contract. Worker panic
+loses the unwound destination/source and reports Failed/Poisoned rather than
+claiming recoverable ownership or a complete file. MP3 profiles, normalized PCM,
+physical-output bounds, gain policy, gapless-file requirements and independent
+LGPL obligations remain those of the writer above.
+
+The default-disabled `ravet-device` feature `mp3-recording` forwards the encoder
+for actual `PreparedCapture` integration. Synthetic tests cover hidden-producer
+retirement, bounded automatic drain, counted overload and allocation-free input
+publication. Physical CPAL shutdown/capture timing and recording deadlines remain
+unvalidated. See [decision 0198](decisions/0198-worker-created-mp3-recording.md).
+
+```sh
+cargo test -p ravet-audio-file --all-features --test mp3_recording --test vorbis_recording --locked
+cargo test -p ravet-device --features mp3-recording,vorbis-recording --test mp3_recording --test vorbis_recording --locked
+```

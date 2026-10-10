@@ -270,3 +270,33 @@ output collection. This profile chooses the most specific target dimension
 (ID/key/channel/port); global flags do not imply scoped support. Full-f64 scoped
 process/flush values remain separate from saved base state. See
 [mapped scoped parameters](plugin-hosting.md#mapped-scoped-parameter-values-and-modulation).
+
+
+Optional native facades expose bounded global schema metadata, pure range mapping,
+complete stopped-owner snapshots/state and explicit consumer legacy decoding through
+the [native processor companion](native-processing.md). The portable processor
+stays backend-independent; live publication, scoped metadata and SDK registration
+remain separate consumer/backend work.
+
+The optional native live-state companion adds an independent coherent publication
+object and explicit prepared audio apply/conditional reflection for facades that
+opt into heap-free base-state hooks. Its ownership, Busy/Stale retry and newer
+restore priority are described in [native processing](native-processing.md).
+
+Native consumers can also prepare an immutable schema cache on control for
+provider-free scalar mapping and complete normalized-event conversion on audio.
+See [cached native parameter mapping](native-processing.md).
+
+Consumers with an existing explicit controller publication protocol can opt into
+[direct native audio-owner complete state](native-processing.md#direct-prepared-audio-owner-state).
+It uses a control-created immutable cache and exclusively prepared owner, with
+whole-state preflight before one atomic restore and revalidated ordered snapshots.
+No byte codec/provider runs on audio, and no implicit mailbox or host scheduling
+is added. This direct companion and its explicit audio hooks have no 64-bit atomic
+requirement; coherent live native publication retains its independent atomic gate.
+
+[Prepared native telemetry](native-processing.md#prepared-native-telemetry) exposes
+complete stable-ID physical f64 readouts and exact measurement-window counts on
+exclusive prepared audio owners. Its independent metadata/cache/table keep meter
+observations separate from saved f32 parameter state; consumers explicitly own
+UI/host publication, display normalization and measurement/retention policy.

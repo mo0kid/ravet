@@ -30,12 +30,12 @@ pub enum ParameterError {
     UnsupportedVersion(u32),
     WrongParameter(ParameterId),
 }
-impl std::fmt::Display for ParameterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ParameterError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "parameter error: {self:?}")
     }
 }
-impl std::error::Error for ParameterError {}
+impl core::error::Error for ParameterError {}
 
 impl ParameterRange {
     /// `intervals = Some(n)` gives n+1 choices, including both endpoints.
@@ -86,7 +86,7 @@ impl ParameterRange {
             let fraction =
                 (value as f64 - self.minimum as f64) / (self.maximum as f64 - self.minimum as f64);
             (self.minimum as f64
-                + (fraction * n as f64).round() / n as f64
+                + round(fraction * n as f64) / n as f64
                     * (self.maximum as f64 - self.minimum as f64)) as f32
         } else {
             value
@@ -100,7 +100,7 @@ impl ParameterRange {
         let max = self.maximum as f64;
         Some(match self.scale {
             ParameterScale::Linear => ((value - min) / (max - min)) as f32,
-            ParameterScale::Logarithmic => ((value / min).ln() / (max / min).ln()) as f32,
+            ParameterScale::Logarithmic => (ln(value / min) / ln(max / min)) as f32,
         })
     }
     /// Clamp a finite normalized value to 0..=1, then map and snap it.
@@ -120,7 +120,7 @@ impl ParameterRange {
         let max = self.maximum as f64;
         self.canonicalize(match self.scale {
             ParameterScale::Linear => (min + value * (max - min)) as f32,
-            ParameterScale::Logarithmic => (min * (value * (max / min).ln()).exp()) as f32,
+            ParameterScale::Logarithmic => (min * exp(value * ln(max / min))) as f32,
         })
     }
     fn accepts(self, value: f32) -> bool {
@@ -285,5 +285,37 @@ impl<'a, const N: usize> ParameterState<'a, N> {
             values[index] = f32::from_le_bytes(pair[4..].try_into().unwrap());
         }
         schema.state(values)
+    }
+}
+
+// Keep desktop mappings unchanged; bare-metal targets have no platform libm.
+fn round(value: f64) -> f64 {
+    #[cfg(feature = "std")]
+    {
+        value.round()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        libm::round(value)
+    }
+}
+fn ln(value: f64) -> f64 {
+    #[cfg(feature = "std")]
+    {
+        value.ln()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        libm::log(value)
+    }
+}
+fn exp(value: f64) -> f64 {
+    #[cfg(feature = "std")]
+    {
+        value.exp()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        libm::exp(value)
     }
 }

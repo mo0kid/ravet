@@ -11,7 +11,7 @@ is deliberately separate from its mapping contract.
 
 ```sh
 python3 scripts/bundle-clap.py --plugin sidechain --profile release
-CARGO_BUILD_JOBS=2 cargo run -p ravet-sidechain-clap --example validate --locked -- \
+CARGO_BUILD_JOBS=2 cargo run -p ravet-sidechain-clap --example validate-sidechain --locked -- \
   "target/clap/release/RAVET Sidechain.clap"
 ```
 

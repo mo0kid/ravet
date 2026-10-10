@@ -145,3 +145,103 @@ its Unicode 16.0 tables and separate upstream notices. Selected unchanged public
 Unicode bidi vectors retain the complete Unicode License v3 and exact source/
 hash under [their fixture directory](crates/ravet-surface/tests/fixtures/bidi/README.md).
 These data terms remain separate from RAVET's first-party licence.
+
+The optional text feature pins unicode-linebreak 0.1.5 (Apache-2.0), whose
+Unicode 15.0 line-opportunity data is separate from the bidi backend's Unicode
+16.0 data. Its downloaded manifest and complete Apache-2.0 licence were reviewed;
+it declares no runtime dependencies. Preserve the applicable upstream notice in
+both distribution routes. This scoped dependency check is not a release-wide
+licence audit.
+
+The optional text feature pins unicode-segmentation 1.13.3 (MIT OR Apache-2.0),
+with Unicode 17.0 extended-grapheme tables and no runtime dependencies. Its
+upstream manifest, copyright and complete MIT/Apache licence texts were reviewed;
+preserve applicable notices in both distribution routes. The separate line-break
+and bidi tables retain their earlier Unicode versions. The tiny synthetic
+[ligature font fixture](crates/ravet-surface/tests/fixtures/caret/README.md) contains
+only first-party rectangular glyphs and a test substitution; no external font
+outlines or product assets are included. This is a scoped dependency check.
+
+## Embedded parameter math
+
+Foundation pins pure-Rust libm 0.2.16 (MIT) for parameter mappings without std.
+Its downloaded Cargo manifest and upstream licence were reviewed; preserve its
+MIT notice when distributing embedded or desktop dependencies. Default desktop
+math still uses std. This scoped dependency review does not replace the complete
+release dependency audit or grant hardware compatibility.
+
+## Optional Ogg Vorbis encoding
+
+The default-disabled audio-file `vorbis-encode` feature pins vorbis_rs 0.5.6
+(BSD-3-Clause) with defaults disabled, using caller-selected Ogg stream serials.
+Its safe bindings use vendored aoTuV/libvorbis and libogg through locked
+aotuv_lancer_vorbis_sys 0.1.6 and ogg_next_sys 0.1.5 (BSD-3-Clause). Reviewed
+exact manifests/build scripts and complete upstream copyright/licence notices:
+ordinary builds use a C compiler via cc and supplied bindings, with no system
+codec library, bindgen/libclang or random-serial feature. The binding crate's
+archive omits its workspace-root licence, so the complete upstream bindings
+notice and archived codec notices are preserved in
+[the backend notices](crates/ravet-audio-file/third-party/vorbis.md). Preserve
+these notices with source/binary distributions in both licence routes. Other
+locked Rust/build dependencies retain their own terms. The newly locked tinyvec
+1.13.3 declares Zlib OR Apache-2.0 OR MIT; its manifest and complete licence texts
+were reviewed. This scoped review does
+not replace the release-wide dependency audit.
+
+## Foundry TOML settings dependencies
+
+Foundry directly pins `toml` 1.1.6+spec-1.1.0 and uses the existing pinned
+Serde/serde_json graph. Its new locked parser/serializer dependencies are
+`toml_datetime` 1.1.2+spec-1.1.0, `toml_parser` 1.1.4+spec-1.1.0,
+`toml_writer` 1.1.2+spec-1.1.0 and `serde_spanned` 1.1.1, all declaring
+MIT OR Apache-2.0, plus `winnow` 1.0.4 declaring MIT. Their downloaded exact
+Cargo manifests and complete licence texts were reviewed for this addition.
+Preserve upstream copyright/licence notices when distributing Foundry. This
+scoped review does not establish a complete release dependency audit. Native
+WebView2/WebKitGTK dependencies retain their own platform distribution terms.
+
+## Optional CPU raster backend
+
+The default-disabled `ravet-surface/raster` feature pins tiny-skia and
+tiny-skia-path 0.12.0 (BSD-3-Clause), arrayref 0.3.9 (BSD-2-Clause) and
+strict-num 0.1.1 (MIT). Only tiny-skia's `std` feature is selected; PNG loading,
+SIMD feature and native Skia are disabled. Preserve the complete
+[upstream notices](crates/ravet-surface/third-party/raster.md) in source and binary
+distribution. Existing transitive components remain part of the release-wide
+dependency audit; this feature review does not establish a release support matrix.
+
+The default-disabled audio-file `mp3-encode` feature pins mp3lame-encoder 0.2.5
+and mp3lame-sys 0.1.11 with defaults disabled. Both bindings declare LGPL 3.0;
+the bundled unmodified LAME 3.100 encoder mostly grants GNU Library GPL
+2-or-later, and ReplayGain analysis grants LGPL 2.1-or-later. Decoder/frontend
+features are disabled. Unix builds statically compile the codec with configure,
+make and a C compiler. Exact published source commits, verified crate archive
+hashes, complete license texts and original component attribution are retained
+in [the backend notices](crates/ravet-audio-file/third-party/mp3.md). These
+components retain their independent obligations: a RAVET commercial agreement
+does not relicense them or certify combined/static-link distribution, source/
+relinking compliance or patent clearance. Consumers must review their own
+distribution route and retain applicable notices/source rights.
+
+## Optional worker image codecs
+
+The default-disabled Surface image feature pins png0.18.1 (MIT OR Apache-2.0)
+and zune-jpeg0.5.15/core0.5.3 (MIT OR Apache-2.0 OR Zlib). Reviewed exact archive
+hashes, manifests and complete compression/backend notices are retained in
+[the image notices](crates/ravet-surface/third-party/image.md). Selected pure-Rust
+compression includes fdeflate, flate2, miniz_oxide, adler2, simd-adler32 and
+crc32fast; each retains its independent copyright/licence terms. Optional
+zlib-rs0.6.8 is locked but unselected here. Preserve applicable notices for
+source/binary distribution; this scoped review does not replace release-wide
+dependency review or establish a platform/support matrix. First-party image
+fixtures contain only generated patterns under the repository licence.
+
+The separate default-disabled `jpeg-encode` feature pins `jpeg-encoder` 0.7.1
+with defaults disabled and only `std`, without runtime dependencies, native C
+or SIMD. Its exact archive hash, manifest, upstream commit and full licence texts
+were reviewed. Upstream declares `(MIT OR Apache-2.0) AND IJG`; preserve the
+complete [JPEG notices](crates/ravet-surface/third-party/jpeg.md), including the
+original Lane/Commander DCT attribution and required executable acknowledgement:
+"this software is based in part on the work of the Independent JPEG Group".
+These obligations remain independent of RAVET's commercial licence. This scoped
+review does not replace the release-wide dependency and distribution review.

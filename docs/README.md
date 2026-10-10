@@ -2,7 +2,7 @@
 
 RAVET provides portable processing/DSP, prepared graphs, observable state and
 preset files, WAV/AIFF workers, MIDI/OSC and optional runtime/device services.
-The shared Rust gain reference exports CLAP, VST3, AUv2, AAX and LV2 prototypes
+The shared Rust gain reference exports CLAP, VST3, AUv2/AUv3, AAX and LV2 prototypes
 with different validation limits; CLAP includes a macOS embedded editor.
 Use these guides to run the examples, understand the processing boundary, and
 track which capabilities are ready to use. Public Rust APIs remain provisional.
@@ -10,8 +10,11 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | Read | Purpose |
 |---|---|
 | [Live documentation site](documentation-site.md) | Searchable portal, automatic rebuilding and integrated API reference |
+| [0.0.1 source preview](releases/0.0.1.md) | Release scope, licensing and publication limits |
 | [Getting started](getting-started.md) | Requirements, offline example, CLAP bundle, and local API documentation |
 | [Small examples](examples.md) | MIDI synth, effect plug-in, MPE expression and MIDI 2.0 walkthroughs |
+| [Embedded projects](embedded-projects.md) | no_std STM32 processing, native Arduino C++ subset and Pi Linux starters |
+| [RAVET Foundry](foundry.md) | Graphical project creation, saved settings, builds and platform source-build instructions |
 | [Project starters](project-starters.md) | Create an independent offline consumer workspace outside RAVET |
 | [Feature catalogue](FEATURES.md) | Current capabilities, implementation limits, source, and test evidence |
 | [Architecture](architecture.md) | Crate boundaries, ownership, lifecycle, and real-time obligations |
@@ -19,6 +22,10 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Plug-in hosting](plugin-hosting.md) | Explicit bounded candidate discovery, trusted CLAP catalogues and entry ownership |
 | [Audio graphs](audio-graphs.md) | Prepared topology, routing, latency compensation and explicit fault progress |
 | [Audio files](audio-files.md) | Bounded WAV/AIFF streams, worker frame buffers and prepared memory transport |
+| [Image assets](image-assets.md) | Optional owned static PNG/JPEG worker codecs and explicit pixel adoption |
+| [CPU raster](cpu-raster.md) | Optional owned path/stroke/local-font RGBA8 rendering |
+| [Metal drawing](metal-drawing.md) | Explicit macOS offscreen rectangles/bitmap scenes and owned GPU readback |
+| [Local video](local-video.md) | Explicit macOS local-video metadata and timestamped worker frame extraction |
 | [Audio devices](audio-devices.md) | Explicit output adapter, selection, configuration and callback probe |
 | [Signal processing](signal-processing.md) | Prepared filters, FFT, FIR convolution and selectable oversampling |
 | [CoreMIDI UMP](core-midi-ump.md) | Exact native IDs, protocol-selected macOS ports and guarded owned endpoint lifetime |
@@ -33,12 +40,16 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Rust runtime services](runtime-services.md) | Bounded files/HTTPS, owned workers/timers and native ownership facade |
 | [Parameter attachments](parameter-attachments.md) | Reusable stable-ID UI bindings, normalized mappings and explicit gesture ownership |
 | [Portable drawing](surface-drawing.md) | Bounded geometry/layout, themed SVG typography and explicit-clock animation |
+| [Control semantics](control-semantics.md) | Explicit knob disabled/end ownership and meter label/formatter lifecycle |
+| [Modal dialogs](modal-dialogs.md) | Browser-owned modality, guarded completion and explicit retirement drains |
 | [Web controls](web-controls.md) | Reusable local slider/number, toggle, choice and action-button components |
 | [Editor control bridge](editor-control.md) | CLAP committed-edit gestures, coherent parameter reads and meter handoff |
 | [Native editor](native-editor.md) | macOS WebKit prototype, ownership, and main-loop probe |
 | [Sidechain CLAP reference](sidechain-clap.md) | Native f32/f64 stereo main buses and mono auxiliary detector validation |
 | [MIDI sine CLAP reference](sine-clap.md) | Native instrument bundle, timed MIDI and atomic level recall |
+| [Native processing adapter](native-processing.md) | Prepared f32/f64 processing, events/transport, lifecycle, schemas, explicit state and telemetry for native shims |
 | [VST3 reference](vst3.md) | Shared Rust DSP, external SDK build and validator/contracts |
+| [AUv3 and mobile](mobile.md) | Native Apple/Android adapters, public app fixtures and validation limits |
 | [AudioUnit v2 reference](audio-unit.md) | External SDK component build, normalized controls and in-process render/state checks |
 | [AAX reference](aax.md) | External SDK build and binary-entry probe; host/signing prerequisites |
 | [LV2 reference](lv2.md) | Mono/stereo descriptors, control ports and actual-binary checks |

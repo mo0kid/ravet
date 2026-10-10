@@ -1,4 +1,10 @@
-# Independent offline project starter
+# Independent project starters
+
+[RAVET Foundry](foundry.md) provides a graphical wizard and shared Rust CLI for
+offline, standalone and CLAP projects, reopening saved settings, conflict-checked
+build metadata regeneration and explicit builds. Its consumer boundary is the
+same as the original Python generator below. See the Foundry guide for platform
+source-build instructions and template/runtime limits.
 
 The explicit generator creates one offline gain starter in a new directory
 outside the RAVET repository. Its parent must already exist; an existing
@@ -44,3 +50,16 @@ explicitly disabled with `StandaloneOptions { io_settings: false, ..Default::def
 The consumer owns its device configuration and audio/MIDI routing; see the
 [standalone window contract](native-editor.md#default-standalone-audiomidi-settings).
 The existing offline starter remains headless and creates no window.
+
+## Embedded starters
+
+The default `--kind offline` behavior is unchanged. Add `--kind embedded-rust`
+for an allocation-free Rust consumer library, `--kind arduino` for a local native
+C++ library/sketch, or `--kind pi-linux` for a headless runnable Rust Linux fixture.
+All preserve repository exclusion and existing-destination rejection. These
+starters supply public reference processing; they do not install toolchains,
+select a codec, flash a board or start audio. The Rust embedded starters depend
+directly on foundation/embedded/reference crates without default std features,
+so they omit the desktop umbrella/surface graph. The Arduino starter copies the
+public C++11 subset locally; update it deliberately when the framework changes.
+See [embedded projects](embedded-projects.md) for STM32, Arduino and Pi usage/limits.

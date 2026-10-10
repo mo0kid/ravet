@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>org.ravet.gain.AudioUnit</string>
+<key>CFBundleName</key><string>RAVET Gain AudioUnit</string>
+<key>CFBundleDisplayName</key><string>RAVET Gain</string>
+<key>CFBundleExecutable</key><string>RavetGainExtension</string>
+<key>CFBundlePackageType</key><string>XPC!</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.0.1</string>
+<key>NSExtension</key><dict>
+<key>NSExtensionPointIdentifier</key><string>com.apple.AudioUnit-UI</string>
+<key>NSExtensionPrincipalClass</key><string>RavetGainExtension</string>
+<key>NSExtensionAttributes</key><dict><key>AudioComponents</key><array><dict>
+<key>name</key><string>RAVET: Gain</string><key>description</key><string>Portable RAVET gain effect</string>
+<key>factoryFunction</key><string>RavetGainExtension</string>
+<key>manufacturer</key><string>Ravt</string><key>subtype</key><string>RvG3</string><key>type</key><string>aufx</string>
+<key>version</key><integer>1</integer><key>sandboxSafe</key><true/>
+<key>tags</key><array><string>Effects</string></array>
+</dict></array></dict></dict>
+</dict></plist>

@@ -1,0 +1,21 @@
+plugins { id 'com.android.application' }
+def minimumApi = providers.gradleProperty('ravetMinApi').orElse('26').get().toInteger()
+def targetApi = providers.gradleProperty('ravetTargetSdk').orElse('36').get().toInteger()
+def compileApi = providers.gradleProperty('ravetCompileSdk').orElse('36').get().toInteger()
+if (minimumApi < 26 || targetApi < minimumApi || compileApi < Math.max(36, targetApi)) {
+    throw new GradleException('Require minimum API >= 26, target SDK >= minimum API, compile SDK >= 36 and target SDK')
+}
+android {
+    namespace 'org.ravet.gain'
+    compileSdk compileApi
+    defaultConfig {
+        applicationId 'org.ravet.gain'
+        minSdk minimumApi
+        targetSdk targetApi
+        versionCode 1
+        versionName '0.0.1'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild { cmake { arguments "-DRAVET_GAIN_LIBRARY=${providers.gradleProperty('ravetGainLibrary').get()}" } }
+    }
+    externalNativeBuild { cmake { path '../CMakeLists.txt'; version '3.31.6' } }
+}

@@ -5,14 +5,18 @@
 //! [`DelayLine`] and [`DelayDiffuser`] provide prepared double-precision
 //! storage and feedback diffusion. [`HalfBand2x`] provides a fixed streaming
 //! oversampling path for effects.
+//! [`CombFilter`] provides fixed-delay feedforward and feedback comb filtering.
 //! [`PeakRmsMeter`] measures caller-selected sample peak/RMS windows.
 //! [`PhaseRotation`] advances caller-owned quadrature oscillator banks.
+//! [`Waveshaper`] applies custom transfer functions or explicit clipping curves.
 
 mod delay;
 mod oversampling;
 mod rotation;
 mod smoothing;
 pub use delay::{DelayDiffuser, DelayLine, EmptyDelay};
+mod comb;
+pub use comb::{CombError, CombFilter, CombKind};
 pub use oversampling::{HalfBand2x, Oversampler, OversamplingFactor};
 pub use rotation::PhaseRotation;
 pub use smoothing::{LinearSmoother, MultiplicativeSmoother, SmoothingError, smoothing_samples};
@@ -71,3 +75,6 @@ pub use fifo_clock::{FifoClockConfig, FifoClockController, FifoClockError};
 
 mod chorus;
 pub use chorus::{ChorusControls, ChorusError, StereoChorus};
+
+mod waveshaper;
+pub use waveshaper::{Waveshaper, WaveshaperLengthError};
