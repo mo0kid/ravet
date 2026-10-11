@@ -1745,6 +1745,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-vst3-reference-native"
+version = "0.0.1"
+dependencies = [
+ "allocation-counter",
+ "ravet-foundation",
+]
+
+[[package]]
 name = "ravet-webview"
 version = "0.0.1"
 

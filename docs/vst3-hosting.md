@@ -318,8 +318,9 @@ Explicit unsafe table/code/module trust remains the caller's obligation. Rust
 allocation counting covers Rust only: foreign SDK/C++ heap, crash isolation and
 real-time deadlines are not established. Evidence is local macOS arm64 with the
 authored Gain/Performance references and authored native fixtures; no DAW,
-third-party plug-in or other-platform support follows. The shared Sidechain
-VST3 reference module is not part of this feature. Framework event translation
+third-party plug-in or other-platform support follows. Auxiliary buses and all nine rich input
+event kinds also have actual-module evidence against the RAVET reference VST3
+modules; see [vst3-reference-modules.md](vst3-reference-modules.md). Framework event translation
 is described above. Editors for scoped instances are described below; editors for Graph-bank
 children are not yet provided.
 

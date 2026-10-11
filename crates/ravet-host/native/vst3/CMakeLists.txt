@@ -205,3 +205,50 @@ if(BUILD_TESTING)
     target_compile_options(ravet-vst3-editor-visible-probe PRIVATE -fobjc-arc -Wall -Wextra -Werror)
     target_link_libraries(ravet-vst3-editor-visible-probe PRIVATE ravet-vst3-host "-framework Cocoa")
 endif()
+
+if(BUILD_TESTING)
+    # RAVET reference VST3 modules (ADR 0274): actual Keyed Sidechain and Event
+    # Probe bundles built from examples/vst3-reference. Arguments are
+    # "/abs/ravet_sidechain_vst3.vst3;/abs/ravet_event_probe_vst3.vst3".
+    # The fast-harness profile compiles only this test harness with
+    # -ffast-math; the modules themselves are built normally.
+    foreach(profile IN ITEMS normal fast-harness)
+        set(target "ravet-vst3-reference-module-${profile}-tests")
+        add_executable(${target} reference-module-tests.cpp)
+        target_compile_features(${target} PRIVATE cxx_std_17)
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror -O2 -UNDEBUG)
+        if(profile STREQUAL "fast-harness")
+            target_compile_options(${target} PRIVATE -ffast-math)
+        endif()
+        target_link_libraries(${target} PRIVATE ravet-vst3-host)
+        if(RAVET_VST3_REFERENCE_MODULES)
+            add_test(NAME ${target} COMMAND ${target} ${RAVET_VST3_REFERENCE_MODULES})
+        endif()
+    endforeach()
+    # Direct SDK robustness tests: load each bundle and drive IAudioProcessor
+    # with malformed and over-capacity ProcessData the provider never sends.
+    add_executable(ravet-vst3-reference-robustness-tests reference-robustness-tests.cpp)
+    target_compile_features(ravet-vst3-reference-robustness-tests PRIVATE cxx_std_17)
+    target_include_directories(ravet-vst3-reference-robustness-tests SYSTEM PRIVATE "${RAVET_VST3_SDK}")
+    target_compile_options(ravet-vst3-reference-robustness-tests PRIVATE -Wall -Wextra -Werror -O2 -UNDEBUG)
+    target_link_libraries(ravet-vst3-reference-robustness-tests PRIVATE ravet-vst3-host)
+    if(RAVET_VST3_REFERENCE_MODULES)
+        add_test(NAME ravet-vst3-reference-robustness-tests
+            COMMAND ravet-vst3-reference-robustness-tests ${RAVET_VST3_REFERENCE_MODULES})
+    else()
+        message(STATUS "RAVET_VST3_REFERENCE_MODULES unset: reference module tests are built but not registered")
+    endif()
+    # Rust hosted-audio Graph bank over the same modules: links the
+    # ravet-host example staticlib built with the vst3-hosted-audio feature.
+    if(RAVET_VST3_REFERENCE_BANK_LIBRARY)
+        add_executable(ravet-vst3-reference-bank-tests reference-bank-main.c)
+        target_compile_options(ravet-vst3-reference-bank-tests PRIVATE -std=c11 -Wall -Wextra -Werror)
+        target_link_libraries(ravet-vst3-reference-bank-tests PRIVATE ravet-vst3-host
+            "${RAVET_VST3_REFERENCE_BANK_LIBRARY}" "-framework Security" "-framework SystemConfiguration" iconv)
+        if(RAVET_VST3_REFERENCE_MODULES)
+            add_test(NAME ravet-vst3-reference-bank-tests COMMAND ravet-vst3-reference-bank-tests ${RAVET_VST3_REFERENCE_MODULES})
+        endif()
+    elseif(RAVET_VST3_REFERENCE_MODULES)
+        message(STATUS "RAVET_VST3_REFERENCE_BANK_LIBRARY unset: Rust Graph-bank reference test not built")
+    endif()
+endif()

@@ -53,3 +53,8 @@ crate-type = ["cdylib"]
 [[example]]
 name = "modulation-fixture"
 crate-type = ["cdylib"]
+
+[[example]]
+name = "vst3-reference-bank"
+crate-type = ["staticlib"]
+required-features = ["vst3-hosted-audio"]

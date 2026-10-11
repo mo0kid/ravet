@@ -7096,3 +7096,52 @@ Rust AUDIO allocations). Pressure and transport reach the actual modules but are
 wire-checked only by the mock. Packet target/w261-adoption.md; superseded R1–R3
 receipts are preserved. Local macOS arm64 only; no DAW, third-party plug-in or
 deadline claim. See [decision0273](decisions/0273-hosted-vst3-graph-framework-events.md).
+
+### W262 RAVET reference VST3 modules public adoption
+
+Two RAVET-owned test reference VST3 modules, built from a new portable crate
+`ravet-vst3-reference-native`, let the hosted-VST3 stack be tested against real
+loaded modules for paths previously covered only by mocks and authored fixtures.
+Keyed Sidechain takes stereo main plus a mono or stereo sidechain (5.1 refused)
+and outputs main × key, honouring input silence flags. Event Probe turns each of
+the nine SDK input event kinds and parameter points into an exact-position pulse
+encoding the payload, echoes events and reports a count and digest. Bundles are
+ad-hoc signed inside build directories only; the plug-in user path is pinned
+empty and a per-bundle no-install CTest guards it. They are test references, not
+public plug-ins.
+
+An independent Sonnet 5.5 review found no blocker but required robustness, ABI
+and allocation evidence. R4 adds a direct SDK harness feeding malformed and
+over-capacity blocks to each loaded bundle (149 Event Probe and 73 Keyed
+Sidechain calls per precision: oversized event lists, bad offsets, non-zero
+buses, unknown kinds, null pointers, empty, parameter-only and zero-frame blocks)
+with silent refusal and unchanged digests; it exposed and fixed three module
+defects (unknown kind with bad offset refusing the block, null buffer
+dereference, setActive before initialize). Direct tests now cover every exported
+C ABI entry point, rejecting overlapping outputs and validating frames before
+slices are formed. A test-only counting allocator measures zero Rust heap
+operations inside both loaded modules around every process call, valid or
+refused, and the ABI tests wrap process/reset in allocation-counter. Same-offset
+code collisions, the count CC meaning and the harness-only fast profile are
+documented.
+
+Twenty-six public paths were adopted after base and staged hash verification;
+Cargo.lock adds only the new package. The stage, built on W261 and W264, passed
+the public gates (1,662 all-feature tests, warning-denied Clippy and Rustdoc,
+formatting, documentation, Python, AU host and ravet-native-dsp checks), native
+CTest 71/71 and reference CTest 6/6 (SDK validator and no-install guard per
+bundle). Packet target/w262-adoption.md; superseded r1–r3 receipts and the
+disk-interrupted step are preserved. Allocation counts exclude allocations inside
+the SDK and C++ module code outside the counters. Local macOS arm64 only; no DAW,
+third-party host or deadline claim. See
+[decision0274](decisions/0274-reference-vst3-modules.md).
+
+### Combined public acceptance after W261, W262 and W264
+
+All fourteen combined commands pass on a fresh cache: 1,550 all-feature runtime
+tests and 112 doctests (zero failed, four ignored), 64 default doctests,
+warning-denied Clippy and Rustdoc, formatting, documentation, Python and
+whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
+checks, with no bound source change. Receipt
+target/combined-7-w261-w262-w264-gates.log, exit 0. The tree included an
+unrelated uncommitted owner edit to scripts/docs/hosted/ravet_tutorials.py.

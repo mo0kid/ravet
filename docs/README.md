@@ -67,6 +67,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Native table identity](native-table-identity.md) | Canonical runtime processor and companion table acquisition |
 | [Native processing adapter](native-processing.md) | Prepared f32/f64 processing, events/transport, lifecycle, schemas, explicit state and telemetry for native shims |
 | [VST3 reference](vst3.md) | Shared Rust DSP, external SDK build and validator/contracts |
+| [Reference VST3 modules](vst3-reference-modules.md) | Keyed Sidechain and Event Probe test modules for hosted auxiliary buses and rich events |
 | [AUv3 and mobile](mobile.md) | Native Apple/Android adapters, public app fixtures and validation limits |
 | [AudioUnit v2 reference](audio-unit.md) | External SDK component build, normalized controls and in-process render/state checks |
 | [AAX reference](aax.md) | External SDK build, registered native parameter/control fixtures and explicit lifecycle/host/signing limits |
