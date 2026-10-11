@@ -1,6 +1,7 @@
 """Build hosted framework guides, section pages, API reference and teaching walkthroughs."""
 from collections import Counter, defaultdict
 from datetime import date
+import hashlib
 import html
 import json
 from pathlib import Path
@@ -9,11 +10,12 @@ from urllib.parse import urlsplit, unquote
 import markdown
 from bs4 import BeautifulSoup
 from ravet_api import build_reference, symbol_link
-from ravet_navigation import api_tree, api_bookmarks
+from ravet_navigation import api_tree, api_nodes, branch_node, link_node, render_nodes
 from ravet_practical_guides import GUIDES
 from ravet_tutorials import load_tutorials, tutorial_html
 from ravet_highlighting import highlight_blocks
 from ravet_intro import INTRODUCTION
+from ravet_version import write_version
 
 EXCLUDED = {'WORK_STATUS.md', 'publication.md', 'documentation-site.md', 'README.md'}
 GROUPS = {
@@ -123,31 +125,27 @@ def build_docs(source, output, write_page, api_dir=None):
     for item in reference['pages'].values():
         add(Path('docs/api')/item['path'],item['title'],
             f'<p class="doc-breadcrumb"><a href="/ravet/docs/api/">API reference</a> / <code>{html.escape(item["title"])}</code></p><div class="api-reference">{item["content"]}</div>',item['kind'])
-    def link(item,current):
-        active=' aria-current="page"' if item['url']==current else ''
-        return f'<a href="{item["url"]}"{active}>{html.escape(item["title"])}</a>'
-    def branch(identifier,label,children,current,default=False):
-        active=any(item['url']==current or current.startswith(item['url']) for item in children)
-        opened=' open' if active or default else ''
-        return f'<details data-nav-id="{identifier}"{opened}><summary>{html.escape(label)}</summary><div class="nav-branch">'+''.join(link(item,current) for item in children)+'</div></details>'
-    def sidebar(current):
-        contents='<a href="/ravet/docs/">Documentation home</a>'
+    def navigation_tree():
+        # Built once and written to a shared file; pages embed only a fallback.
+        def links(items):
+            return [link_node(item['url'],item['title']) for item in items]
+        nodes=[link_node('/ravet/docs/','Documentation home')]
         for group in GROUPS:
             order=GROUPS[group]
             children=sorted(nav[group],key=lambda c:order.index(c['path'].parts[1]) if c['path'].parts[1] in order else len(order))
             identifier=re.sub(r'\W+','-',group.lower()).strip('-')
-            inner=''
+            inner=[]
             for item in children:
-                inner+=link(item,current)
+                inner.append(link_node(item['url'],item['title']))
                 if item['children']:
-                    inner+=branch('guide-'+item['path'].parts[1], 'Topics', item['children'],current)
-            opened=' open' if group=='Getting started' or any(current.startswith(c['url']) for c in children) else ''
-            contents+=f'<details data-nav-id="{identifier}"{opened}><summary>{group}</summary><div class="nav-branch">{inner}</div></details>'
+                    inner.append(branch_node('guide-'+item['path'].parts[1],'Topics',links(item['children']),lazy=True))
+            nodes.append(branch_node(identifier,group,inner,default_open=group=='Getting started'))
         tutorial_home={'url':'/ravet/docs/tutorials/','title':'Tutorial overview'}
-        contents+=branch('tutorials','Example tutorials',[tutorial_home]+nav['Example tutorials'],current)
-        api_contents=api_bookmarks(reference_tree,current)
-        contents+=f'<details data-nav-id="api"'+(' open' if '/api/' in current else '')+f'><summary>API reference</summary><div class="nav-branch">{api_contents}</div></details>'
-        return f'<aside class="docs-sidebar"><label for="doc-search">Search documentation</label><input id="doc-search" class="doc-search" type="search" placeholder="Guide, type or function" autocomplete="off"><div class="doc-results" aria-live="polite"></div><details class="guide-nav" data-nav-id="navigation" open><summary>Browse documentation</summary><nav aria-label="Documentation">{contents}</nav></details></aside>'
+        nodes.append(branch_node('tutorials','Example tutorials',links([tutorial_home]+nav['Example tutorials'])))
+        nodes.append(branch_node('api','API reference',api_nodes(reference_tree)))
+        return nodes
+    def sidebar(current):
+        return f'<aside class="docs-sidebar"><label for="doc-search">Search documentation</label><input id="doc-search" class="doc-search" type="search" placeholder="Guide, type or function" autocomplete="off"><div class="doc-results" aria-live="polite"></div><details class="guide-nav" data-nav-id="navigation" open><summary>Browse documentation</summary><nav aria-label="Documentation" data-nav-src="{navigation_url}" data-nav-current="{html.escape(current,quote=True)}">{render_nodes(navigation,current)}</nav></details></aside>'
     method_count=sum(len(p['methods']) for p in reference['pages'].values())
     lines=sum(item['lineCount'] for item in tutorials)
     introduction=render_markdown(INTRODUCTION)
@@ -159,6 +157,11 @@ def build_docs(source, output, write_page, api_dir=None):
     home+=f'<h2>Documentation reference</h2><p>Browse <a href="/ravet/docs/api/">the API reference</a> for types, function signatures and examples, or <a href="/ravet/docs/tutorials/">the tutorial index</a> for complete source walkthroughs.</p><p class="doc-meta">This snapshot contains {len(reference["pages"])} API pages, {method_count} indexed methods and {lines:,} tutorial source lines across {len(tutorials)} files. Repository access currently requires permission.</p>'
     add('docs/index.html','RAVET documentation',home,'home')
     counts=Counter(item['kind'] for item in records)
+    navigation=navigation_tree()
+    navigation_data=json.dumps({'schema':1,'nodes':navigation},ensure_ascii=False,separators=(',',':'))
+    # The content hash in the name lets the server cache the file indefinitely.
+    navigation_file=f'nav-{hashlib.sha256(navigation_data.encode()).hexdigest()[:12]}.json'
+    navigation_url='/ravet/docs/'+navigation_file
     expected=set()
     search=[]
     stamp=date.today().strftime('%-d %B %Y')
@@ -174,9 +177,14 @@ def build_docs(source, output, write_page, api_dir=None):
     for item in reference['pages'].values(): search.extend(item['methods'])
     docdir=output/'docs'
     (docdir/'LICENSE').write_text((source/'LICENSE').read_text())
+    for stale in docdir.glob('nav-*.json'):
+        if stale.name!=navigation_file: stale.unlink()
+    (docdir/navigation_file).write_text(navigation_data)
     (docdir/'search.json').write_text(json.dumps(search,ensure_ascii=False,separators=(',',':')))
-    manifest={'snapshot':date.today().isoformat(),'counts':dict(counts),'apiPages':len(reference['pages']),'methods':method_count,'tutorialLines':lines,'sourceHash':reference['sourceHash'],'toolchain':reference['toolchain'],'features':'all','packages':reference['packages'], 'tutorials':[{k:i[k] for k in ['file','url','lineCount','hash','finalNewline']} for i in tutorials]}
+    manifest={'snapshot':date.today().isoformat(),'counts':dict(counts),'apiPages':len(reference['pages']),'methods':method_count,'tutorialLines':lines,'sourceHash':reference['sourceHash'],'toolchain':reference['toolchain'],'features':'all','navigation':navigation_file,'packages':reference['packages'], 'tutorials':[{k:i[k] for k in ['file','url','lineCount','hash','finalNewline']} for i in tutorials]}
     (docdir/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+    # Deployment smoke checks compare the served commit with the published one.
+    write_version(docdir,manifest,source)
     for old in docdir.rglob('*.html'):
         if old.relative_to(docdir) not in expected: old.unlink()
     for directory in sorted(docdir.rglob('*'),reverse=True):

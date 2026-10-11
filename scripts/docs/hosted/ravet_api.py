@@ -16,9 +16,19 @@ def build_reference(source, api_dir=None):
         # The dedicated output is disposable; never clean the user's target directory.
         if (target / 'doc').exists():
             shutil.rmtree(target / 'doc')
-        subprocess.run(['cargo', 'doc', '--workspace', '--all-features', '--no-deps', '--locked',
-                        '--target-dir', str(target)], cwd=source,
-                       env=dict(os.environ, RUSTDOCFLAGS='-D warnings'), check=True)
+        command = ['cargo', 'doc', '--workspace', '--all-features', '--no-deps', '--locked',
+                   '--target-dir', str(target)]
+        environment = dict(os.environ, RUSTDOCFLAGS='-D warnings')
+        subprocess.run(command, cwd=source, env=environment, check=True)
+        # Rustdoc links to another workspace crate only if that crate's output
+        # directory exists when it renders, and Cargo empties a crate's directory
+        # while documenting it, so parallel order changes cross-crate links. Now
+        # that every directory exists, document again one crate at a time:
+        # removing each index.html makes Cargo rerun it while the directories
+        # stay, so every cross-crate link resolves and the output is reproducible.
+        for index in (target / 'doc').glob('*/index.html'):
+            index.unlink()
+        subprocess.run(command + ['--jobs', '1'], cwd=source, env=environment, check=True)
         api_dir = target / 'doc'
     metadata = json.loads(subprocess.check_output(
         ['cargo', 'metadata', '--no-deps', '--format-version', '1', '--locked'], cwd=source, text=True))
@@ -74,6 +84,14 @@ def build_reference(source, api_dir=None):
                 # Unbuilt dependencies/private source paths aren't dead local links.
                 # External dependency references already emitted by Rustdoc retain their URLs.
                 link.unwrap()
+        # Rustdoc's cross-crate linking can vary between parallel builds: the same
+        # name may arrive as an unresolved link, a link without a target or plain
+        # text. Reduce target-less links to text and merge adjacent text so the
+        # published snapshot is byte-reproducible.
+        for link in list(item['content'].find_all('a', href=False)):
+            if not link.get('id') and not link.get('name'):
+                link.unwrap()
+        item['content'].smooth()
         # Small compiler controls rely on Rustdoc JS; retain semantic content only.
         for node in item['content'].select('span.hidden, .tooltip, .sub-heading:empty'):
             node.decompose()

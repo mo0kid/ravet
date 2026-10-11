@@ -1,0 +1,185 @@
+name: Hosted documentation
+
+# Publishes the generated reference at https://djwaudio.co/ravet/docs/ when
+# documentation inputs change on main. Only the docs directory is replaced; the
+# website's pages and licensing backend are deployed separately by the website.
+# See scripts/docs/hosted/README.md for the server layout and credentials.
+
+on:
+  push:
+    branches: [main]
+    # Inputs read by scripts/docs/hosted and Rustdoc. Unpublished guides and
+    # integration tests are excluded so they do not trigger a full re-upload.
+    paths:
+      - 'docs/*.md'
+      - '!docs/WORK_STATUS.md'
+      - '!docs/publication.md'
+      - '!docs/documentation-site.md'
+      - '!docs/README.md'
+      - 'crates/**'
+      - '!crates/*/tests/**'
+      - 'examples/**'
+      - 'tools/**'
+      - 'scripts/docs/hosted/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'LICENSE'
+      - 'LICENSING.md'
+      - 'CONTRIBUTING.md'
+      - '.github/workflows/hosted-docs.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'publish builds and publishes this commit; rollback swaps the live and previous snapshots'
+        type: choice
+        options: [publish, rollback]
+        default: publish
+      website_ref:
+        description: 'Website branch whose page shell and tests build the snapshot'
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  DOCS_URL: https://djwaudio.co/ravet/docs
+
+jobs:
+  build:
+    name: Build and test snapshot
+    if: github.event_name == 'push' || inputs.action == 'publish'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    # A newer commit supersedes an older build; publishing is never cancelled.
+    concurrency:
+      group: hosted-docs-build
+      cancel-in-progress: true
+    steps:
+      - name: Check out RAVET
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: ravet
+          persist-credentials: false
+      - name: Check out website shell and tests (read-only deploy key)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: mo0kid/djwaudio.co
+          ref: ${{ inputs.website_ref || 'main' }}
+          ssh-key: ${{ secrets.WEBSITE_READ_KEY }}
+          path: website
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Build documentation snapshot
+        env:
+          RAVET_DOCS_COMMIT: ${{ github.sha }}
+        run: |
+          python3 -m pip install -r ravet/scripts/docs/hosted/requirements.txt
+          python3 website/scripts/build-ravet.py --source ravet
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+      - name: Test generated site
+        run: node --test website/tests/ravet.test.js
+      - name: Upload snapshot
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ravet-hosted-docs
+          path: website/ravet/docs/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: ${{ inputs.action == 'rollback' && 'Roll back' || 'Publish' }} live documentation
+    needs: build
+    # Runs after a successful build, or alone for a manual rollback.
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      (needs.build.result == 'success' ||
+       (github.event_name == 'workflow_dispatch' && inputs.action == 'rollback' && needs.build.result == 'skipped'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Credentials live in this environment; restrict it to main in repository settings.
+    environment: hosted-docs
+    # Queue rather than cancel: a cancelled swap could leave no live snapshot.
+    concurrency:
+      group: hosted-docs-publish
+      cancel-in-progress: false
+    env:
+      DOCS_REMOTE_URL: ftp://${{ secrets.DOCS_FTP_HOST }}
+      DOCS_FTP_USER: ${{ secrets.DOCS_FTP_USER }}
+      LFTP_PASSWORD: ${{ secrets.DOCS_FTP_PASSWORD }}
+    steps:
+      - name: Check out publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: scripts/docs/hosted
+          persist-credentials: false
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+      - name: Download snapshot
+        if: needs.build.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ravet-hosted-docs
+          path: snapshot
+      - name: Publish by directory swap
+        if: needs.build.result == 'success'
+        env:
+          DOCS_EXPECTED_COMMIT: ${{ github.sha }}
+        run: bash scripts/docs/hosted/publish-hosted-docs.sh publish snapshot
+      - name: Roll back to the previous snapshot
+        if: needs.build.result == 'skipped'
+        run: bash scripts/docs/hosted/publish-hosted-docs.sh rollback
+      - name: Check live documentation
+        id: smoke
+        env:
+          EXPECTED: ${{ needs.build.result == 'success' && github.sha || '' }}
+          RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          served=''
+          for attempt in 1 2 3 4 5 6; do
+            served=$(curl -fsS --retry 2 -H 'Cache-Control: no-cache' \
+              "$DOCS_URL/version.json?check=$RUN-$attempt" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])' || true)
+            if [ -n "$served" ] && { [ -z "$EXPECTED" ] || [ "$served" = "$EXPECTED" ]; }; then break; fi
+            sleep 10
+          done
+          echo "Live documentation commit: ${served:-unavailable}"
+          [ -n "$served" ]
+          [ -z "$EXPECTED" ] || [ "$served" = "$EXPECTED" ]
+          curl -fsS -o /dev/null "$DOCS_URL/?check=$RUN"
+          curl -fsS -o /dev/null "$DOCS_URL/getting-started/?check=$RUN"
+          curl -fsS "$DOCS_URL/api/ravet_foundation/trait.Processor.html?check=$RUN" | grep -q 'id="tymethod.process"'
+          # The shared navigation named by the manifest must be served.
+          nav=$(curl -fsS "$DOCS_URL/manifest.json?check=$RUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["navigation"])')
+          curl -fsS "$DOCS_URL/$nav" | python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == 1'
+          # The page shell's website-owned assets must still resolve beside the snapshot.
+          curl -fsS -o /dev/null "https://djwaudio.co/ravet/ravet.css?check=$RUN"
+          curl -fsS -o /dev/null "https://djwaudio.co/ravet/docs-search.js?check=$RUN"
+      - name: Check that scripts under the docs are refused
+        # A server setting, not the snapshot: failing here does not roll back.
+        env:
+          RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # The website's /ravet/.htaccess must refuse scripts under the docs link:
+          # 403 (rule active) or 404 are fine; 200 or a 5xx means a script handler ran.
+          for probe in x.php api/x.phtml; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$DOCS_URL/$probe?check=$RUN")
+            echo "Script probe /ravet/docs/$probe -> $code"
+            case $code in
+              403) ;;
+              404) echo "::warning::/ravet/docs/$probe returned 404, not 403; check that the website's ravet/.htaccess is deployed" ;;
+              *) echo "::error::/ravet/docs/$probe returned $code"; exit 1 ;;
+            esac
+          done
+      - name: Restore the previous snapshot after a failed check
+        if: failure() && steps.smoke.conclusion == 'failure' && needs.build.result == 'success'
+        run: |
+          bash scripts/docs/hosted/publish-hosted-docs.sh rollback
+          echo "::error::Live check failed; the previous snapshot was restored. The rejected snapshot is now in previous/."

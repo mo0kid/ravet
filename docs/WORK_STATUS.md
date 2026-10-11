@@ -6,6 +6,40 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+## Hosted documentation publishing prepared — 11 October 2026
+
+Prepared, not deployed: `.github/workflows/hosted-docs.yml` builds the hosted
+reference with the website's page shell and tests on documentation-input pushes
+to `main`, then publishes only `/ravet/docs/` through a docs-only FTPS account by
+uploading to a staging directory and swapping it with the live one. The build
+now writes `docs/version.json` with the source commit for live checks. See
+[hosted documentation](../scripts/docs/hosted/README.md#automatic-publication).
+
+The complete navigation tree is now one content-hashed `docs/nav-<hash>.json`
+rendered by the website script; each page embeds only a static fallback for the
+current path. Branch IDs, default and current-path opening, and current-page
+highlighting match the previous embedded sidebars for all 2,100 pages; the only
+change is that the two overview pages now highlight themselves. Rustdoc now runs twice, the second time one
+crate at a time, so cross-crate links no longer depend on parallel build order.
+
+Local evidence on macOS arm64 with Rust 1.99.0:
+
+- The website builder generated 2,100 pages, 2,105 files and about 90 MB from
+  this tree. Before the navigation change the build produced 1.8 GB, with a
+  median page of 856 KB; the median page is now 30 KB.
+- Two consecutive builds were byte-identical.
+- The website's `ravet.test.js` passed within a 512 MB V8 heap in 3 s. The
+  previous test ran out of memory at 2 GB.
+- A dry run against a local directory standing in for the server published,
+  swapped, refused unsafe or incomplete snapshots, left the live snapshot
+  untouched after an upload failure, rolled back twice, and changed nothing
+  outside the release root.
+- Headless Chrome confirmed rendering, keyboard expansion, current-page
+  highlighting, remembered state and the no-JavaScript fallback.
+
+No FTPS host, GitHub runner, LiteSpeed server or live publication has been
+exercised.
+
 ## 0.0.1 source preview preparation — 10 October 2026
 
 Aligned all 35 workspace package versions and lock entries, public VST3/AUv2
