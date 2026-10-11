@@ -106,10 +106,28 @@ def line_note(line, chapter):
     return statement_note(line, chapter)
 
 
+# Workspace examples without reviewed walkthroughs. Remove an entry once its
+# chapters and line notes exist in TUTORIALS.
+UNPUBLISHED_WORKSPACES = {
+    'color_workspace', 'font_fallback', 'layout_workspace', 'native_semantics',
+    'paragraph_workspace', 'postscript_fonts', 'svg_workspace', 'system_fonts',
+}
+UNPUBLISHED_FILES = {'tests/content_constraints.rs'}
+
+
+def unpublished(relative):
+    parts = relative.parts
+    if str(relative) in UNPUBLISHED_FILES:
+        return True
+    if parts[:1] == ('src',) and len(parts) > 2 and parts[1] in UNPUBLISHED_WORKSPACES:
+        return True
+    return parts[:2] == ('src', 'bin') and relative.stem in UNPUBLISHED_WORKSPACES
+
+
 def load_tutorials(source):
     root = source/'examples/tutorials'
     pages=[]
-    expected = {str(p.relative_to(root)) for p in root.rglob('*.rs')} | {'editor/index.html'}
+    expected = {str(p.relative_to(root)) for p in root.rglob('*.rs') if not unpublished(p.relative_to(root))} | {'editor/index.html'}
     defined={entry[0] for entry in TUTORIALS}
     if expected != defined:
         raise ValueError(f'Tutorial coverage changed: missing={expected-defined}, unexpected={defined-expected}')
