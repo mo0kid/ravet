@@ -5,6 +5,7 @@
 #include "RavetVst3Parameters.h"
 #include "RavetVst3Editor.h"
 #include "RavetVst3EditorOwner.hpp"
+#include "RavetVst3EditGestures.h"
 #include "ProcessingPoolKeepers.hpp"
 #include "public.sdk/source/vst/hosting/module.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
@@ -1077,11 +1078,54 @@ int32_t destroyEditor(RavetVst3Editor* editor,RavetVst3EditorReport* report)noex
         const auto outcome=editor->owner->retire();
         editorReport(*report,outcome);
         child->editor=nullptr;editor->owner.reset();delete editor;
+        // The view is gone: close any gesture the plug-in left open (0276 N3).
+        (void)child->owner->closeOpenGestures();
         return outcome.ok()?RAVET_VST3_OK:RAVET_VST3_RETIRED_NATIVE;
     }
 }
 const RavetVst3EditorProviderV1 editorProvider{sizeof(RavetVst3EditorProviderV1),1,&providerV2,
     createEditor,attachEditor,editorGetSize,resizeEditor,scaleEditor,detachEditor,editorState,takeEditorRequest,destroyEditor};
+
+// Edit-gesture companion (decision 0276). enable is CONTROL (no live AUDIO of
+// the module). drain/state run on MAIN under the module busy flag only, like
+// editor entries, so they stay usable while Graph-bank AUDIO leases are live.
+int32_t enableGestures(RavetVst3Instance* child)noexcept {
+    if(!child||!child->parent||!child->owner)return RAVET_VST3_INVALID;
+    if(!control(child->parent))return RAVET_VST3_THREAD;
+    ControlScope scope(*child->parent);if(!scope.acquired)return RAVET_VST3_LIFECYCLE;
+    int32_t native=0;
+    return invoke(&native,[&]{child->owner->enableGestures();});
+}
+struct GestureScope {
+    RavetVst3Module* parent=nullptr;int32_t status=RAVET_VST3_OK;bool held=false;
+    explicit GestureScope(const RavetVst3Instance& child)noexcept:parent(child.parent) {
+        if(!control(parent)){status=RAVET_VST3_THREAD;return;}
+        if(parent->controlBusy){status=RAVET_VST3_LIFECYCLE;return;}
+        parent->controlBusy=true;held=true;
+    }
+    ~GestureScope(){if(held)parent->controlBusy=false;}
+    GestureScope(const GestureScope&)=delete;GestureScope& operator=(const GestureScope&)=delete;
+};
+int32_t drainGestures(RavetVst3Instance* child,RavetVst3EditGesture* output,uint32_t capacity,uint32_t* count)noexcept {
+    if(!child||!child->parent||!child->owner||!output||!count||!capacity||capacity>RAVET_VST3_EDIT_GESTURE_CAPACITY)return RAVET_VST3_INVALID;
+    GestureScope scope(*child);if(scope.status)return scope.status;
+    if(!editorRecords(*child,nullptr,{{output,size_t(capacity)*sizeof(RavetVst3EditGesture),alignof(RavetVst3EditGesture)},
+        {count,sizeof(*count),alignof(uint32_t)}})||
+       !child->owner->gestureExternal(output,size_t(capacity)*sizeof(RavetVst3EditGesture),alignof(RavetVst3EditGesture))||
+       !child->owner->gestureExternal(count,sizeof(*count),alignof(uint32_t)))return RAVET_VST3_INVALID;
+    if(!child->owner->gesturesEnabled())return RAVET_VST3_LIFECYCLE;
+    *count=child->owner->drainGestures(output,capacity);
+    return RAVET_VST3_OK;
+}
+int32_t gestureState(const RavetVst3Instance* child,RavetVst3EditGestureState* output)noexcept {
+    if(!child||!child->parent||!child->owner||!output)return RAVET_VST3_INVALID;
+    if(!control(child->parent))return RAVET_VST3_THREAD;
+    if(!editorRecords(*child,nullptr,{{output,sizeof(*output),alignof(RavetVst3EditGestureState)}})||
+       !child->owner->gestureExternal(output,sizeof(*output),alignof(RavetVst3EditGestureState))||output->struct_size!=sizeof(*output))return RAVET_VST3_INVALID;
+    *output=child->owner->gestureState();return RAVET_VST3_OK;
+}
+const RavetVst3EditGestureProviderV1 editGestureProvider{sizeof(RavetVst3EditGestureProviderV1),1,&providerV2,
+    enableGestures,drainGestures,gestureState};
 
 }
 extern "C" const RavetVst3Provider* ravet_vst3_provider_v1() { return &provider; }
@@ -1095,3 +1139,5 @@ extern "C" const RavetVst3ProcessingProviderV1* ravet_vst3_processing_provider_v
 extern "C" const RavetVst3HostedAudioProviderV1* ravet_vst3_hosted_audio_provider_v1() {return &hostedAudioProvider;}
 
 extern "C" const RavetVst3EditorProviderV1* ravet_vst3_editor_provider_v1() {return &editorProvider;}
+
+extern "C" const RavetVst3EditGestureProviderV1* ravet_vst3_edit_gesture_provider_v1() {return &editGestureProvider;}

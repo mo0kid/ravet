@@ -50,6 +50,19 @@
 //! third-party plug-in, foreign-heap or real-time deadline claim follows from
 //! these checks.
 //!
+//! Controller edit gestures (decision 0276) are opt-in per child with
+//! [`Vst3GraphBankBuilder::edit_gestures`]. The child's component handler then
+//! accepts `beginEdit`, `performEdit` and `endEdit` on MAIN into a bounded
+//! native ring. [`Vst3GraphBankControl::pump_edits`] moves them on, never
+//! dropping one. Each value reaches the processor at sample offset 0 of the
+//! next dispatched block, in the node's prepared parameter queue. Every
+//! gesture, and the explicit `restartComponent` flag policy, is published for
+//! the host through [`Vst3GraphBankControl::drain_edits`]. See [`edits`]. With
+//! the `vst3-editor` feature, `Vst3GraphBankControl::open_editor` creates a
+//! MAIN-thread `NSView` editor for a child while the bank's AUDIO leases stay
+//! live (see the `editor` module). Reclamation of a bank is deferred while
+//! one of its editors is open.
+//!
 //! Nodes are `Send` but not `Sync`, and the control cannot leave MAIN:
 //!
 //! ```compile_fail,E0277
@@ -72,6 +85,7 @@ use super::{
     MAXIMUM_CHANNELS, OutChannel, Precision, Provider as HostedProvider, Timing, dispatch,
 };
 use crate::vst3::instances::{Error as InstanceError, Instance, Library, parameters, processing};
+use edits::{EditAudio, EditCounters, EditEvent, EditMain, EditOptions, EditState};
 use framework::{FrameworkTranslation, Refusal, Source, TranslationError, Translator};
 use processing::{Context, EventBuses, Input, InputEvents, InputPoints, Output, OutputStorage};
 use ravet_foundation::{
@@ -172,6 +186,25 @@ pub enum BankError {
         child: usize,
         error: TranslationError,
     },
+    /// Edit-gesture declaration, enable, pump or state refused for a child.
+    Edit {
+        child: usize,
+        error: edits::Error,
+    },
+    /// The child has no edit-gesture path.
+    NoEdits {
+        child: usize,
+    },
+    /// The child already has a live `Vst3GraphEditor`.
+    EditorOpen {
+        child: usize,
+    },
+    /// Editor creation or the bank editor's native table refused.
+    #[cfg(feature = "vst3-editor")]
+    Editor {
+        child: usize,
+        error: crate::vst3::instances::editor::Error,
+    },
 }
 impl std::fmt::Display for BankError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -263,10 +296,19 @@ type Setup = dyn FnOnce(&mut Instance<'static, 'static>) -> Result<(), BankError
 
 pub mod framework;
 
+pub mod edits;
+
+/// MAIN-thread editors for Graph-bank children (`vst3-editor` feature).
+#[cfg(feature = "vst3-editor")]
+pub mod editor;
+#[cfg(feature = "vst3-editor")]
+pub use editor::{Vst3GraphEditor, Vst3GraphEditorCloseFailure};
+
 struct ChildSpec {
     options: Vst3GraphNodeOptions,
     setup: Option<Box<Setup>>,
     translation: Option<FrameworkTranslation>,
+    edits: Option<(edits::Provider<'static>, EditOptions)>,
 }
 
 struct Shared {
@@ -275,6 +317,8 @@ struct Shared {
     ignored: AtomicU64,
     /// Blocks refused by framework translation or mixing.
     refused: AtomicU64,
+    /// Controller edit values applied, coalesced, superseded or deferred.
+    edits: EditCounters,
 }
 impl Shared {
     fn mark(&self, bits: u32) {
@@ -331,6 +375,7 @@ struct Bundle<S> {
     discard: OutputStorage,
     lanes: Option<LaneAudio>,
     framework: Option<Translator>,
+    edits: Option<EditAudio>,
 }
 // SAFETY: the handle is the sole exclusive native AUDIO capability and the
 // tables are immutable process-static code/data whose AUDIO entries support a
@@ -349,6 +394,11 @@ struct ChildSlot {
     lanes: Option<LaneMain>,
     /// MAIN end of the translator's bounded refusal ring.
     refusals: Option<rtrb::Consumer<Refusal>>,
+    /// MAIN end of the controller edit-gesture path.
+    edits: Option<EditMain>,
+    /// Set while a `Vst3GraphEditor` owns a native view of this child.
+    /// Reclamation is deferred while any child of the bank has one.
+    editor: Rc<Cell<bool>>,
     profile: HostedAudioProfile,
     timing: Timing,
 }
@@ -475,6 +525,8 @@ struct PreparedChild<S> {
     lane_main: Option<LaneMain>,
     framework: Option<Translator>,
     refusals: Option<rtrb::Consumer<Refusal>>,
+    edit_main: Option<EditMain>,
+    edit_audio: Option<EditAudio>,
 }
 
 /// MAIN construction of one owned bank from one static Library.
@@ -563,6 +615,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
             options,
             setup,
             translation: None,
+            edits: None,
         });
         Ok(self.children.len() - 1)
     }
@@ -582,6 +635,30 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
         spec.translation = Some(translation);
         Ok(())
     }
+    /// Opt an added child in to controller edit gestures ([`edits`],
+    /// decision 0276), replacing an earlier declaration. The provider must be
+    /// the exact companion of the Library's instance table and the capacities
+    /// must be `1..=4096`. `build` enables native capture after the child is
+    /// prepared and before any lease begins.
+    pub fn edit_gestures(
+        &mut self,
+        child: usize,
+        provider: edits::Provider<'static>,
+        options: EditOptions,
+    ) -> Result<(), BankError> {
+        let spec = self.children.get_mut(child).ok_or(BankError::Shape)?;
+        if !std::ptr::eq(provider.raw.instance_origin, self.library.provider.raw) {
+            return Err(BankError::Edit {
+                child,
+                error: edits::Error::Abi,
+            });
+        }
+        options
+            .check()
+            .map_err(|error| BankError::Edit { child, error })?;
+        spec.edits = Some((provider, options));
+        Ok(())
+    }
     /// Create, set up, refresh and prepare every child, then start all and
     /// begin all leases. On failure no node escapes; native owners are released
     /// in reverse unless a failed lease end requires orphaned retention.
@@ -595,7 +672,10 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 .translation
                 .as_ref()
                 .map_or(Some(0), |t| t.bytes(c.options.lanes))?;
-            sum.checked_add(lanes)?.checked_add(translation)
+            let edits = c.edits.map_or(0, |(_, options)| options.bytes());
+            sum.checked_add(lanes)?
+                .checked_add(translation)?
+                .checked_add(edits)
         });
         if lane_bytes.is_none_or(|b| b > MAXIMUM_LANE_BYTES) {
             return Err(BankError::Capacity);
@@ -671,6 +751,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 diagnostic: AtomicU32::new(0),
                 ignored: AtomicU64::new(0),
                 refused: AtomicU64::new(0),
+                edits: EditCounters::default(),
             });
             // Every fallible node part is built before any lease begins, so
             // no lease can be stranded by a late construction error.
@@ -688,6 +769,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 discard: item.discard,
                 lanes: item.lane_audio,
                 framework: item.framework,
+                edits: item.edit_audio,
                 layout: AudioLayout::new(
                     item.state.input_channels as usize,
                     item.state.output_channels as usize,
@@ -704,6 +786,8 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 shared,
                 lanes: item.lane_main,
                 refusals: item.refusals,
+                edits: item.edit_main,
+                editor: Rc::new(Cell::new(false)),
                 profile: item.profile,
                 timing: item.timing,
             });
@@ -745,6 +829,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                     discard: pending.discard,
                     lanes: pending.lanes,
                     framework: pending.framework,
+                    edits: pending.edits,
                 })),
                 returns: pending.returns,
                 shared: pending.shared,
@@ -771,6 +856,7 @@ struct Pending<S> {
     discard: OutputStorage,
     lanes: Option<LaneAudio>,
     framework: Option<Translator>,
+    edits: Option<EditAudio>,
     layout: AudioLayout,
     timing: Timing,
 }
@@ -790,6 +876,7 @@ fn prepare_child<S: HostedSample>(
         options,
         setup,
         translation,
+        edits,
     } = spec;
     let mut instance = library
         .create_retained(options.class_index)
@@ -844,6 +931,25 @@ fn prepare_child<S: HostedSample>(
         .try_reserve_exact(length)
         .map_err(|_| BankError::Allocation)?;
     scratch.resize(length, S::default());
+    // Native capture is enabled on the prepared, stopped child; the framework
+    // routes (if any) give published edits their framework identity.
+    let (edit_main, edit_audio) = match edits {
+        None => (None, None),
+        Some((provider, edit_options)) => {
+            let child_handle = instance.handle.ok_or(BankError::Edit {
+                child,
+                error: edits::Error::Abi,
+            })?;
+            let (main, audio) = edits::prepare(
+                provider,
+                child_handle.as_ptr(),
+                edit_options,
+                translation.as_ref(),
+            )
+            .map_err(|error| BankError::Edit { child, error })?;
+            (Some(main), Some(audio))
+        }
+    };
     let (framework, refusals) = match translation
         .map(|t| {
             Translator::prepare(
@@ -919,6 +1025,8 @@ fn prepare_child<S: HostedSample>(
         lane_main,
         framework,
         refusals,
+        edit_main,
+        edit_audio,
     })
 }
 /// Start all children on MAIN, then begin all native leases. Unwinds admitted
@@ -1034,6 +1142,11 @@ pub struct ReclaimReport {
     pub returned: u32,
     /// Children whose node refused its return slot; retained permanently.
     pub stranded: u32,
+    /// Orphaned, fully returned banks whose release was deferred because a
+    /// `Vst3GraphEditor` of one of their children is still open (counted only
+    /// once every node has returned; before that the bank is outstanding). Close or
+    /// drop the editor on MAIN, then reclaim again.
+    pub editors: u32,
     /// First cleanup failure observed by this call.
     pub failure: Option<(BankId, BankError)>,
 }
@@ -1042,6 +1155,11 @@ pub struct ReclaimReport {
 /// spinning. `Some(id)` restricts work to one bank. Gathers returned nodes
 /// without native calls; for orphaned fully returned banks ends ALL leases,
 /// then stops and retires children and finally the Library (module exit).
+///
+/// Editor policy (decision 0276): a bank with an open `Vst3GraphEditor` is
+/// never released. Its release is deferred and counted in
+/// [`ReclaimReport::editors`]; no lease is ended and no child is stopped while
+/// the view lives. Reclamation never closes a caller's editor itself.
 pub fn reclaim_vst3_graph_banks(bank: Option<BankId>) -> Result<ReclaimReport, BankError> {
     with_registry(|r| {
         let mut report = ReclaimReport::default();
@@ -1081,6 +1199,11 @@ pub fn reclaim_vst3_graph_banks(bank: Option<BankId>) -> Result<ReclaimReport, B
                 report.retained += 1;
                 continue;
             }
+            if slot.children.iter().any(|c| c.editor.get()) {
+                report.retained += 1;
+                report.editors += 1;
+                continue;
+            }
             match release(slot) {
                 Ok(()) => {
                     r.banks[index] = None;
@@ -1096,6 +1219,10 @@ pub fn reclaim_vst3_graph_banks(bank: Option<BankId>) -> Result<ReclaimReport, B
     })
 }
 fn release(slot: &mut BankSlot) -> Result<(), BankError> {
+    // The view must be released before any lease ends or child retires.
+    if let Some(child) = slot.children.iter().position(|c| c.editor.get()) {
+        return Err(BankError::EditorOpen { child });
+    }
     end_leases(slot)?;
     let mut first = None;
     for (child, c) in slot.children.iter_mut().enumerate().rev() {
@@ -1261,6 +1388,78 @@ impl Vst3GraphBankControl {
         // Call outside the registry borrow, so `f` may use the control.
         drained.iter().copied().for_each(&mut f);
         Ok(drained.len())
+    }
+    /// Move captured controller edits of a gesture-enabled child from the
+    /// native ring into the AUDIO value ring and the host event queue, while
+    /// both have room ([`edits`]). Returns the number of records moved. No
+    /// plug-in call is made (only RAVET's native drain entry). Call it
+    /// regularly on MAIN; values reach AUDIO only through it. Refuses with
+    /// [`edits::Error::Abandoned`] once the child's node has returned to MAIN.
+    pub fn pump_edits(&self, child: usize) -> Result<u32, BankError> {
+        self.with_slot(|s| {
+            let slot = s.children.get_mut(child).ok_or(BankError::Shape)?;
+            let handle = slot
+                .instance
+                .as_ref()
+                .and_then(|i| i.handle)
+                .ok_or(BankError::Stale)?;
+            let main = slot.edits.as_mut().ok_or(BankError::NoEdits { child })?;
+            // A returned (or gathered) node can no longer apply values.
+            if slot.returned || !slot.returns.is_empty() {
+                return Err(BankError::Edit {
+                    child,
+                    error: edits::Error::Abandoned,
+                });
+            }
+            main.pump(handle.as_ptr())
+                .map_err(|error| BankError::Edit { child, error })
+        })
+    }
+    /// Pass each published [`EditEvent`] of a gesture-enabled child to `f`,
+    /// oldest first, and return how many were drained. Events already pumped
+    /// were also delivered (or are pending) to AUDIO. `f` runs outside the
+    /// registry borrow, so it may use the control.
+    pub fn drain_edits(
+        &self,
+        child: usize,
+        mut f: impl FnMut(EditEvent),
+    ) -> Result<usize, BankError> {
+        let queued = self.with_slot(|s| {
+            let slot = s.children.get(child).ok_or(BankError::Shape)?;
+            Ok(slot
+                .edits
+                .as_ref()
+                .ok_or(BankError::NoEdits { child })?
+                .queued())
+        })?;
+        let mut drained = Vec::new();
+        drained
+            .try_reserve_exact(queued)
+            .map_err(|_| BankError::Allocation)?;
+        self.with_slot(|s| {
+            let slot = s.children.get_mut(child).ok_or(BankError::Shape)?;
+            if let Some(main) = slot.edits.as_mut() {
+                main.take(queued, &mut drained);
+            }
+            Ok(())
+        })?;
+        drained.iter().copied().for_each(&mut f);
+        Ok(drained.len())
+    }
+    /// Copied native capture counters and node delivery counters of a
+    /// gesture-enabled child. No plug-in call is made.
+    pub fn edit_state(&self, child: usize) -> Result<EditState, BankError> {
+        self.with_slot(|s| {
+            let slot = s.children.get(child).ok_or(BankError::Shape)?;
+            let handle = slot
+                .instance
+                .as_ref()
+                .and_then(|i| i.handle)
+                .ok_or(BankError::Stale)?;
+            let main = slot.edits.as_ref().ok_or(BankError::NoEdits { child })?;
+            main.state(handle.as_ptr(), &slot.shared.edits)
+                .map_err(|error| BankError::Edit { child, error })
+        })
     }
     /// First recorded bank failure, if any.
     pub fn failure(&self) -> Result<Option<BankError>, BankError> {
@@ -1560,6 +1759,11 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                 }
             }
         }
+        // Controller edit values pumped on MAIN join the pending set; they are
+        // placed at offset 0 of the next block that reaches the plug-in.
+        if let Some(edits) = bundle.edits.as_mut() {
+            edits.take(&self.shared.edits);
+        }
         let stride = bundle.stride;
         for ch in 0..inputs {
             let source = block.audio.input(ch).expect("checked input channel");
@@ -1601,6 +1805,13 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                         context: None,
                     },
                 };
+                let input = match bundle.edits.as_mut() {
+                    Some(edits) => Input {
+                        points: edits.merge(input.points),
+                        ..input
+                    },
+                    None => input,
+                };
                 let (result, retire) = dispatch(
                     &bundle.state,
                     handle,
@@ -1611,6 +1822,12 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                     &input,
                     &mut bundle.discard,
                 );
+                // Placed edit values leave the pending set only on success.
+                if result.is_ok()
+                    && let Some(edits) = bundle.edits.as_mut()
+                {
+                    edits.commit(&self.shared.edits);
+                }
                 (result.is_err(), retire)
             }
             Some(lanes) => {
@@ -1644,6 +1861,10 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                         (Some((_, context)), _) => (b.points.points(), &b.events, context),
                         (None, _) => (b.points.points(), &b.events, b.context),
                     };
+                    let points = match bundle.edits.as_mut() {
+                        Some(edits) => edits.merge(points),
+                        None => points,
+                    };
                     let (result, retire) = dispatch(
                         &bundle.state,
                         handle,
@@ -1665,6 +1886,9 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                     (outcome, retire)
                 };
                 let failed = !matches!(outcome, Outcome::Published(_));
+                if !failed && let Some(edits) = bundle.edits.as_mut() {
+                    edits.commit(&self.shared.edits);
+                }
                 batch.outcome = outcome;
                 lanes.next += 1;
                 if let Err(rtrb::PushError::Full(batch)) = lanes.done.push(batch) {
@@ -1722,6 +1946,8 @@ impl<S: HostedSample> Drop for Vst3GraphNode<S> {
     }
 }
 
+#[cfg(test)]
+mod edit_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

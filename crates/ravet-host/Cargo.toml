@@ -58,3 +58,8 @@ crate-type = ["cdylib"]
 name = "vst3-reference-bank"
 crate-type = ["staticlib"]
 required-features = ["vst3-hosted-audio"]
+
+[[example]]
+name = "vst3-editor-bank"
+crate-type = ["staticlib"]
+required-features = ["vst3-hosted-audio", "vst3-editor"]

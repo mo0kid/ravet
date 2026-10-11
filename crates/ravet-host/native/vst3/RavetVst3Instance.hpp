@@ -963,6 +963,29 @@ public:
     float* input(uint32_t index) {main();if(hostedMode_||attached_||index>=profile_.inputs)throw InstanceFailure{Stage::Profile,Steinberg::kInvalidArgument};return inputPointers_[index];}
     const float* output(uint32_t index) {main();if(hostedMode_||attached_||index>=profile_.outputs)throw InstanceFailure{Stage::Profile,Steinberg::kInvalidArgument};return outputPointers_[index];}
     uint32_t restartRequests()const{main();return handler_->requests();}
+    // Edit-gesture companion (decision 0276). CONTROL on MAIN: needs a live
+    // controller, a refreshed catalogue and no AUDIO lease of this child.
+    // Snapshots the writable ids exactly as processHostedBlock admits points.
+    void enableGestures() {
+        main();
+        if(!controller_||!parametersCompatible_||attached_||fault_||!(controllerInitialized_||componentInitialized_))
+            throw InstanceFailure{Stage::Lifecycle,Steinberg::kInvalidArgument};
+        std::array<uint32_t,parameters_draft::ParameterCatalogue::MaximumParameters> ids{};size_t used=0;
+        for(const auto& parameter:parameterCatalogue_.parameters())if(parameter.writable())ids[used++]=parameter.id;
+        struct View{const uint32_t* first;size_t count;const uint32_t* begin()const{return first;}const uint32_t* end()const{return first+count;}size_t size()const{return count;}};
+        if(!handler_->enableGestures(View{ids.data(),used}))throw InstanceFailure{Stage::Lifecycle,Steinberg::kInvalidArgument};
+    }
+    bool gesturesEnabled()const noexcept{return handler_->gestures();}
+    uint32_t closeOpenGestures()noexcept{return handler_->closeOpenGestures();}
+    // Caller gesture outputs exclude the handler ring and every owned extent.
+    bool gestureExternal(const void* pointer,size_t bytes,size_t alignment)const noexcept {
+        Range requested{},handler{};
+        if(!range(pointer,bytes,1,alignment,requested)||!range(handler_,1,sizeof(ControllerHandler),alignof(ControllerHandler),handler)||
+           overlaps(requested,handler))return false;
+        return stateExternal(pointer,bytes,alignment);
+    }
+    uint32_t drainGestures(RavetVst3EditGesture* output,uint32_t capacity){main();return handler_->drainGestures(output,capacity);}
+    RavetVst3EditGestureState gestureState()const{main();return handler_->gestureState();}
     InstanceFailure stop() {
         main();if(attached_)throw InstanceFailure{Stage::Lifecycle,Steinberg::kInvalidArgument};
         InstanceFailure first{Stage::Stop,Steinberg::kResultOk};

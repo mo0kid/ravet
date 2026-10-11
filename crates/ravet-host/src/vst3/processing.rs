@@ -784,6 +784,8 @@ impl InputEvents {
     /// Copy one already admitted record and its payload from `source` into this
     /// prepared storage, with the same order, wire and native budget checks as
     /// [`Self::push`]. No heap work; a refusal leaves this storage unchanged.
+    // Used only by the hosted Graph-bank translator (vst3-hosted-audio).
+    #[cfg(feature = "vst3-hosted-audio")]
     pub(super) fn push_copy(&mut self, source: &InputEvents, index: usize) -> Result<(), Error> {
         let mut r = *source.records[..source.count]
             .get(index)
@@ -1158,6 +1160,8 @@ impl InputPoints {
     }
     /// Replace the value of admitted point `index` (a last-wins coalesce of a
     /// same-ID, same-offset value). The value must be normalized.
+    // Used only by the hosted Graph-bank translator (vst3-hosted-audio).
+    #[cfg(feature = "vst3-hosted-audio")]
     pub(crate) fn replace_value(&mut self, index: usize, value: f64) -> Result<(), Error> {
         if index >= self.count || !unit(value) {
             return Err(Error::Shape);

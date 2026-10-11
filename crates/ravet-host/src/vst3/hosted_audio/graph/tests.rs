@@ -98,7 +98,11 @@ fn graph_bank_ownership_scenarios_on_one_main_thread() {
     rich_lanes_round_trip_and_refuse_before_native_mutation();
     lanes_and_audio_ten_thousand_cycles_allocate_nothing();
     super::translation_tests::scenarios();
+    super::edit_tests::scenarios();
     forgotten_node_and_refused_return_retain_bank();
+    // Leaks one bank deliberately; after the absolute bank-count assertions.
+    #[cfg(feature = "vst3-editor")]
+    super::edit_tests::refused_editor_drop_keeps_bank_retained();
     child_and_bank_capacity_and_generation_exhaustion();
 }
 

@@ -103,3 +103,11 @@ Keyboard, focus and wheel forwarding, accessibility and edit-gesture adoption
 are not provided: the existing handler still returns `kNotImplemented` for edit
 gestures. Graph-bank child editors are separate work. Evidence is in-process and
 local to macOS arm64.
+
+## Follow-up
+
+[Decision 0276](0276-graph-bank-editors-and-edit-gestures.md) addresses both
+open items for Graph-bank children: a MAIN-thread editor that stays open while
+the bank processes AUDIO (bank reclamation is deferred while it is open), and
+opt-in edit-gesture capture with an explicit `restartComponent` policy. Scoped
+instances keep the exclusive editor and the `kNotImplemented` handler above.

@@ -16,13 +16,14 @@
 //!   editor lives. A view released through [`Editor::close`] or drop is
 //!   therefore released before the component/controller retire and before the
 //!   module closes.
-//! - **Accepted limitation.** Because the guard holds `&mut Instance`, the
-//!   scoped Rust calls that also need `&mut Instance` (`with_audio`, `prepare`,
-//!   `start`, `stop` and state/parameter refresh) require the editor to be closed
-//!   first. An editor and running audio on the same instance are shown only
-//!   through the raw native tables (the native editor entries do not take the
-//!   live-core CONTROL admission). A shared-borrow guard for Graph-bank or
-//!   long-running children is future work (decision 0271).
+//! - **Accepted limitation for scoped instances.** Because the guard holds
+//!   `&mut Instance`, the scoped Rust calls that also need `&mut Instance`
+//!   (`with_audio`, `prepare`, `start`, `stop` and state/parameter refresh)
+//!   require the editor to be closed first (decision 0271). For an editor that
+//!   stays open while AUDIO runs, use a Graph-bank child:
+//!   `Vst3GraphBankControl::open_editor` (with `vst3-hosted-audio`, decision
+//!   0276) relies on the native `LIFECYCLE` refusal and on reclamation that is
+//!   deferred while the editor is open, instead of on the borrow checker.
 //! - Leak behaviour: [`std::mem::forget`] on the guard ends the borrow without
 //!   destroying the native editor. The native child then refuses destruction,
 //!   so dropping the `Instance` leaks the native child (its drop ignores the
@@ -63,8 +64,10 @@
 //!
 //! Window creation, event-loop pumping, keyboard and focus forwarding, and
 //! accessibility are consumer responsibilities and are not provided here.
-//! Editor edit gestures reach the existing component handler, which does not
-//! adopt them. Evidence is local macOS arm64 only.
+//! Editor edit gestures are adopted only for Graph-bank children that enabled
+//! them (decision 0276); every other child's component handler still returns
+//! `kNotImplemented` for `beginEdit`, `performEdit` and `endEdit`. Evidence is
+//! local macOS arm64 only.
 //!
 //! `Provider` and `Editor` are not `Send`. The first snippet fails only on the
 //! `Send` bound; the control below compiles the same harness with a `Send`
@@ -232,7 +235,7 @@ pub struct RawProvider {
 /// Verified editor companion table, restricted to the main thread.
 #[derive(Clone, Copy)]
 pub struct Provider<'a> {
-    raw: &'a RawProvider,
+    pub(crate) raw: &'a RawProvider,
     no_send_sync: PhantomData<Rc<()>>,
 }
 impl<'a> Provider<'a> {
@@ -506,13 +509,211 @@ pub struct CloseFailure<'i, 'm, 'a> {
     pub owner: Editor<'i, 'm, 'a>,
     pub error: Error,
 }
-/// Main-thread guard owning one hosted VST3 editor view.
-pub struct Editor<'i, 'm, 'a> {
-    instance: &'i mut Instance<'m, 'a>,
+/// Native view handle and the guard-side tracked state, shared by [`Editor`]
+/// and the Graph-bank child editor. It has no `Drop`: each guard decides how a
+/// drop-time refusal is recorded.
+pub(crate) struct View<'a> {
     raw: &'a RawProvider,
     handle: Option<NonNull<c_void>>,
     attached: bool,
     size: Size,
+}
+impl<'a> View<'a> {
+    /// Create the controller's editor for the raw native child on MAIN. A
+    /// handle published with a failure status, or with a malformed initial
+    /// size, is destroyed before returning the error.
+    pub(crate) fn create(
+        raw: &'a RawProvider,
+        child: *mut c_void,
+        platform: Platform,
+    ) -> Result<Self, Error> {
+        let mut handle = std::ptr::null_mut();
+        let mut initial = RawSize::initial();
+        let mut report = RawReport::initial();
+        // SAFETY: verified exact-origin table, live main-thread child, null
+        // output handle and distinct initialized output records.
+        let status = unsafe {
+            raw.create.unwrap()(
+                child,
+                platform.raw(),
+                &mut handle,
+                &mut initial,
+                &mut report,
+            )
+        };
+        let checked = classify(status, Some(report));
+        let handle = match (checked, NonNull::new(handle)) {
+            (Ok(()), Some(handle)) => handle,
+            (Ok(()), None) => return Err(Error::Abi),
+            (Err(error), None) => return Err(error),
+            (Err(error), Some(handle)) => {
+                // A handle published with a failure status is still destroyed.
+                destroy(raw, handle);
+                return Err(error);
+            }
+        };
+        let size = match Size::admit(initial) {
+            Ok(size) => size,
+            Err(error) => {
+                destroy(raw, handle);
+                return Err(error);
+            }
+        };
+        Ok(Self {
+            raw,
+            handle: Some(handle),
+            attached: false,
+            size,
+        })
+    }
+    fn handle(&self) -> *mut c_void {
+        self.handle.expect("live editor handle").as_ptr()
+    }
+    pub(crate) fn attached(&self) -> bool {
+        self.attached
+    }
+    pub(crate) fn last_size(&self) -> Size {
+        self.size
+    }
+    fn track(&mut self, report: &RawReport) {
+        if let Ok(Some(attached)) = Report::admit(*report).map(|report| report.attached()) {
+            self.attached = attached;
+        }
+    }
+    /// # Safety
+    /// As [`Editor::attach`].
+    pub(crate) unsafe fn attach(&mut self, parent: NonNull<c_void>) -> Result<Size, Error> {
+        let mut applied = RawSize::initial();
+        let mut report = RawReport::initial();
+        // SAFETY: exact live editor; caller's parent obligation forwarded.
+        let status = unsafe {
+            self.raw.attach.unwrap()(self.handle(), parent.as_ptr(), &mut applied, &mut report)
+        };
+        self.track(&report);
+        classify(status, Some(report))?;
+        self.size = Size::admit(applied)?;
+        Ok(self.size)
+    }
+    pub(crate) fn detach(&mut self) -> Result<(), Error> {
+        let mut report = RawReport::initial();
+        // SAFETY: exact live editor on the main thread, initialized report.
+        let status = unsafe { self.raw.detach.unwrap()(self.handle(), &mut report) };
+        self.track(&report);
+        classify(status, Some(report))
+    }
+    pub(crate) fn size(&mut self) -> Result<Size, Error> {
+        let mut output = RawSize::initial();
+        let mut report = RawReport::initial();
+        // SAFETY: exact live editor, distinct initialized records.
+        let status = unsafe { self.raw.size.unwrap()(self.handle(), &mut output, &mut report) };
+        self.track(&report);
+        classify(status, Some(report))?;
+        self.size = Size::admit(output)?;
+        Ok(self.size)
+    }
+    pub(crate) fn resize(&mut self, proposed: Size) -> Result<Size, Error> {
+        let input = RawSize::of(proposed);
+        let mut applied = RawSize::initial();
+        let mut report = RawReport::initial();
+        // SAFETY: exact live editor, distinct initialized records.
+        let status =
+            unsafe { self.raw.resize.unwrap()(self.handle(), &input, &mut applied, &mut report) };
+        self.track(&report);
+        classify(status, Some(report))?;
+        self.size = Size::admit(applied)?;
+        Ok(self.size)
+    }
+    pub(crate) fn set_content_scale(&mut self, factor: f32) -> Result<Size, Error> {
+        if !factor.is_finite() || !(0.25..=8.0).contains(&factor) {
+            return Err(Error::Size);
+        }
+        let mut applied = RawSize::initial();
+        let mut report = RawReport::initial();
+        // SAFETY: exact live editor, bounded factor, distinct records.
+        let status = unsafe {
+            self.raw.set_scale.unwrap()(self.handle(), factor, &mut applied, &mut report)
+        };
+        self.track(&report);
+        classify(status, Some(report))?;
+        self.size = Size::admit(applied)?;
+        Ok(self.size)
+    }
+    pub(crate) fn take_resize_request(&mut self) -> Result<Option<Size>, Error> {
+        let mut output = RawSize::initial();
+        // SAFETY: exact live editor, initialized output record.
+        match unsafe { self.raw.take_request.unwrap()(self.handle(), &mut output) } {
+            STATUS_EMPTY => Ok(None),
+            STATUS_OK => {
+                let size = Size::admit(output)?;
+                self.size = size;
+                Ok(Some(size))
+            }
+            status => {
+                classify(status, None)?;
+                Err(Error::Abi)
+            }
+        }
+    }
+    pub(crate) fn state(&self) -> Result<State, Error> {
+        let mut raw = RawState {
+            struct_size: size_of::<RawState>() as u32,
+            ..RawState::default()
+        };
+        // SAFETY: exact live editor, initialized output record.
+        let status = unsafe { self.raw.state.unwrap()(self.handle(), &mut raw) };
+        classify(status, None)?;
+        if raw.struct_size as usize != size_of::<RawState>() || raw.flags & !63 != 0 {
+            return Err(Error::Abi);
+        }
+        Ok(State { raw })
+    }
+    /// Ordered consuming teardown. `Err` means the native editor was refused
+    /// before teardown started and the handle is kept for retry.
+    pub(crate) fn close(&mut self) -> Result<Closed, Error> {
+        let handle = self.handle.take().expect("live editor handle");
+        let mut report = RawReport::initial();
+        // SAFETY: exact live editor on the main thread, initialized report.
+        let status = unsafe { self.raw.destroy.unwrap()(handle.as_ptr(), &mut report) };
+        match status {
+            STATUS_OK => Ok(match Report::admit(report) {
+                Ok(report) if report.failure == Failure::None => Closed::Complete,
+                _ => Closed::Unverified,
+            }),
+            STATUS_RETIRED_NATIVE => Ok(match Report::admit(report) {
+                Ok(report) if matches!(report.failure, Failure::Returned | Failure::Thrown) => {
+                    Closed::FailedNative(report)
+                }
+                _ => Closed::Unverified,
+            }),
+            status => {
+                self.handle = Some(handle);
+                Err(classify(status, Some(report)).err().unwrap_or(Error::Abi))
+            }
+        }
+    }
+    /// Drop-time destroy. Returns `true` when the native editor was consumed
+    /// (OK or RETIRED_NATIVE) or was already gone. A refusal before teardown
+    /// starts keeps it alive, increments [`refused_drops`] and returns `false`.
+    pub(crate) fn drop_destroy(&mut self) -> bool {
+        let Some(handle) = self.handle.take() else {
+            return true;
+        };
+        // OK and RETIRED_NATIVE consume. Any other status means the native
+        // editor was refused before teardown started: it is kept alive (the
+        // child and module then also refuse retirement) and recorded rather
+        // than released out of order. Consuming statuses are never retried.
+        let status = destroy(self.raw, handle);
+        if status != STATUS_OK && status != STATUS_RETIRED_NATIVE {
+            REFUSED_DROPS.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+}
+/// Main-thread guard owning one hosted VST3 editor view.
+pub struct Editor<'i, 'm, 'a> {
+    instance: &'i mut Instance<'m, 'a>,
+    view: View<'a>,
     no_send_sync: PhantomData<Rc<()>>,
 }
 impl<'m, 'a> Instance<'m, 'a> {
@@ -535,44 +736,10 @@ impl<'m, 'a> Instance<'m, 'a> {
             return Err(Error::Poisoned);
         }
         let child = self.handle.ok_or(Error::Abi)?.as_ptr();
-        let mut handle = std::ptr::null_mut();
-        let mut initial = RawSize::initial();
-        let mut report = RawReport::initial();
-        // SAFETY: verified exact-origin table, live main-thread child, null
-        // output handle and distinct initialized output records.
-        let status = unsafe {
-            provider.raw.create.unwrap()(
-                child,
-                platform.raw(),
-                &mut handle,
-                &mut initial,
-                &mut report,
-            )
-        };
-        let checked = classify(status, Some(report));
-        let handle = match (checked, NonNull::new(handle)) {
-            (Ok(()), Some(handle)) => handle,
-            (Ok(()), None) => return Err(Error::Abi),
-            (Err(error), None) => return Err(error),
-            (Err(error), Some(handle)) => {
-                // A handle published with a failure status is still destroyed.
-                destroy(provider.raw, handle);
-                return Err(error);
-            }
-        };
-        let size = match Size::admit(initial) {
-            Ok(size) => size,
-            Err(error) => {
-                destroy(provider.raw, handle);
-                return Err(error);
-            }
-        };
+        let view = View::create(provider.raw, child, platform)?;
         Ok(Editor {
             instance: self,
-            raw: provider.raw,
-            handle: Some(handle),
-            attached: false,
-            size,
+            view,
             no_send_sync: PhantomData,
         })
     }
@@ -583,9 +750,6 @@ fn destroy(raw: &RawProvider, handle: NonNull<c_void>) -> i32 {
     unsafe { raw.destroy.unwrap()(handle.as_ptr(), &mut report) }
 }
 impl<'i, 'm, 'a> Editor<'i, 'm, 'a> {
-    fn handle(&self) -> *mut c_void {
-        self.handle.expect("live editor handle").as_ptr()
-    }
     /// Shared access to the guarded instance (no replacement or retirement).
     pub fn instance(&self) -> &Instance<'m, 'a> {
         self.instance
@@ -594,16 +758,11 @@ impl<'i, 'm, 'a> Editor<'i, 'm, 'a> {
     /// (a second attach, operations after a fault, reentry) report the true
     /// state and never clear it; replies without owner state leave it unchanged.
     pub fn attached(&self) -> bool {
-        self.attached
+        self.view.attached()
     }
     /// Last size admitted by this guard.
     pub fn last_size(&self) -> Size {
-        self.size
-    }
-    fn track(&mut self, report: &RawReport) {
-        if let Ok(Some(attached)) = Report::admit(*report).map(|report| report.attached()) {
-            self.attached = attached;
-        }
+        self.view.last_size()
     }
     /// Attach the view to a caller-owned `NSView` and return the size afterwards
     /// (including a plug-in resize deferred during `attached`).
@@ -614,138 +773,49 @@ impl<'i, 'm, 'a> Editor<'i, 'm, 'a> {
     /// this guard is closed or dropped. The plug-in may add subviews to it.
     /// A Rust pointer alone does not prove the native object's lifetime.
     pub unsafe fn attach(&mut self, parent: NonNull<c_void>) -> Result<Size, Error> {
-        let mut applied = RawSize::initial();
-        let mut report = RawReport::initial();
-        // SAFETY: exact live editor; caller's parent obligation forwarded.
-        let status = unsafe {
-            self.raw.attach.unwrap()(self.handle(), parent.as_ptr(), &mut applied, &mut report)
-        };
-        self.track(&report);
-        classify(status, Some(report))?;
-        self.size = Size::admit(applied)?;
-        Ok(self.size)
+        // SAFETY: the caller's parent obligation is forwarded unchanged.
+        unsafe { self.view.attach(parent) }
     }
     /// Call `removed`. A returned refusal keeps the view attached and retryable.
     pub fn detach(&mut self) -> Result<(), Error> {
-        let mut report = RawReport::initial();
-        // SAFETY: exact live editor on the main thread, initialized report.
-        let status = unsafe { self.raw.detach.unwrap()(self.handle(), &mut report) };
-        self.track(&report);
-        classify(status, Some(report))
+        self.view.detach()
     }
     /// Query `getSize`.
     pub fn size(&mut self) -> Result<Size, Error> {
-        let mut output = RawSize::initial();
-        let mut report = RawReport::initial();
-        // SAFETY: exact live editor, distinct initialized records.
-        let status = unsafe { self.raw.size.unwrap()(self.handle(), &mut output, &mut report) };
-        self.track(&report);
-        classify(status, Some(report))?;
-        self.size = Size::admit(output)?;
-        Ok(self.size)
+        self.view.size()
     }
     /// Host-initiated resize: `canResize`, `checkSizeConstraint`, then `onSize`
     /// with the bounded adjusted size, which is returned.
     pub fn resize(&mut self, proposed: Size) -> Result<Size, Error> {
-        let input = RawSize::of(proposed);
-        let mut applied = RawSize::initial();
-        let mut report = RawReport::initial();
-        // SAFETY: exact live editor, distinct initialized records.
-        let status =
-            unsafe { self.raw.resize.unwrap()(self.handle(), &input, &mut applied, &mut report) };
-        self.track(&report);
-        classify(status, Some(report))?;
-        self.size = Size::admit(applied)?;
-        Ok(self.size)
+        self.view.resize(proposed)
     }
     /// Set a content scale factor in 0.25..=8.0 through the optional
     /// `IPlugViewContentScaleSupport`. Returns the size afterwards. macOS views
     /// normally report [`Error::Unsupported`]: Cocoa supplies backing scale.
     pub fn set_content_scale(&mut self, factor: f32) -> Result<Size, Error> {
-        if !factor.is_finite() || !(0.25..=8.0).contains(&factor) {
-            return Err(Error::Size);
-        }
-        let mut applied = RawSize::initial();
-        let mut report = RawReport::initial();
-        // SAFETY: exact live editor, bounded factor, distinct records.
-        let status = unsafe {
-            self.raw.set_scale.unwrap()(self.handle(), factor, &mut applied, &mut report)
-        };
-        self.track(&report);
-        classify(status, Some(report))?;
-        self.size = Size::admit(applied)?;
-        Ok(self.size)
+        self.view.set_content_scale(factor)
     }
     /// Consume the latest size applied for a plug-in `resizeView` request, if
     /// any. The consumer resizes its own container to it.
     pub fn take_resize_request(&mut self) -> Result<Option<Size>, Error> {
-        let mut output = RawSize::initial();
-        // SAFETY: exact live editor, initialized output record.
-        match unsafe { self.raw.take_request.unwrap()(self.handle(), &mut output) } {
-            STATUS_EMPTY => Ok(None),
-            STATUS_OK => {
-                let size = Size::admit(output)?;
-                self.size = size;
-                Ok(Some(size))
-            }
-            status => {
-                classify(status, None)?;
-                Err(Error::Abi)
-            }
-        }
+        self.view.take_resize_request()
     }
     /// Copied flags and frame counters; no foreign call.
     pub fn state(&self) -> Result<State, Error> {
-        let mut raw = RawState {
-            struct_size: size_of::<RawState>() as u32,
-            ..RawState::default()
-        };
-        // SAFETY: exact live editor, initialized output record.
-        let status = unsafe { self.raw.state.unwrap()(self.handle(), &mut raw) };
-        classify(status, None)?;
-        if raw.struct_size as usize != size_of::<RawState>() || raw.flags & !63 != 0 {
-            return Err(Error::Abi);
-        }
-        Ok(State { raw })
+        self.view.state()
     }
     /// Ordered consuming teardown: `removed` if attached, `setFrame(nullptr)`,
     /// then release. A thread or reentry refusal returns the guard for retry.
     pub fn close(mut self) -> Result<Closed, Box<CloseFailure<'i, 'm, 'a>>> {
-        let handle = self.handle.take().expect("live editor handle");
-        let mut report = RawReport::initial();
-        // SAFETY: exact live editor on the main thread, initialized report.
-        let status = unsafe { self.raw.destroy.unwrap()(handle.as_ptr(), &mut report) };
-        match status {
-            STATUS_OK => Ok(match Report::admit(report) {
-                Ok(report) if report.failure == Failure::None => Closed::Complete,
-                _ => Closed::Unverified,
-            }),
-            STATUS_RETIRED_NATIVE => Ok(match Report::admit(report) {
-                Ok(report) if matches!(report.failure, Failure::Returned | Failure::Thrown) => {
-                    Closed::FailedNative(report)
-                }
-                _ => Closed::Unverified,
-            }),
-            status => {
-                self.handle = Some(handle);
-                let error = classify(status, Some(report)).err().unwrap_or(Error::Abi);
-                Err(Box::new(CloseFailure { owner: self, error }))
-            }
+        match self.view.close() {
+            Ok(closed) => Ok(closed),
+            Err(error) => Err(Box::new(CloseFailure { owner: self, error })),
         }
     }
 }
 impl Drop for Editor<'_, '_, '_> {
     fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            // OK and RETIRED_NATIVE consume. Any other status means the native
-            // editor was refused before teardown started: it is kept alive (the
-            // child and module then also refuse retirement) and recorded rather
-            // than released out of order. Consuming statuses are never retried.
-            let status = destroy(self.raw, handle);
-            if status != STATUS_OK && status != STATUS_RETIRED_NATIVE {
-                REFUSED_DROPS.fetch_add(1, Ordering::Relaxed);
-            }
-        }
+        let _ = self.view.drop_destroy();
     }
 }
 

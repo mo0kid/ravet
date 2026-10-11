@@ -12,7 +12,13 @@
 //! 1 (2 channels); [`CAPTURE`] copies every processed input (frames, events,
 //! payload, points, context) into [`Probe::captures`] (allocates; never used
 //! under an allocation counter).
+//! The edit-gesture mock (decision 0276) keeps a 256-record ring per child fed
+//! by [`inject`]; [`FAIL_ENABLE`] refuses enable. The editor mock (with
+//! `vst3-editor`) records `editor create/destroy` entries, marks the child so
+//! its destroy refuses while a view lives, and [`REFUSE_EDITOR_DESTROY`]
+//! refuses the next destroy before teardown (thread status).
 #![allow(clippy::missing_safety_doc, clippy::needless_range_loop)]
+use super::graph::edits::{self, RawGesture};
 use super::{Block64, RawBus, RawInfo, RawProfile, RawProvider, RawReport, RawTiming};
 use crate::vst3::instances::{
     self, Block,
@@ -41,6 +47,9 @@ pub const MALFORMED_BUS: u32 = 128;
 pub const PARAMETERS: u32 = 256;
 pub const EVENT_BUSES: u32 = 512;
 pub const CAPTURE: u32 = 1024;
+pub const FAIL_ENABLE: u32 = 2048;
+#[cfg(feature = "vst3-editor")]
+pub const REFUSE_EDITOR_DESTROY: u32 = 4096;
 
 /// One processed native input as received by the mock.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -70,6 +79,8 @@ pub struct Probe {
     pub control_during_audio: AtomicUsize,
     pub log: Mutex<Vec<String>>,
     pub captures: Mutex<Vec<Capture>>,
+    /// Live child addresses by creation ordinal (0 once destroyed).
+    pub children: Mutex<Vec<usize>>,
 }
 impl Probe {
     pub fn leak() -> &'static Probe {
@@ -148,6 +159,17 @@ struct Child {
     output_active: AtomicU32,
     running: AtomicBool,
     prepared: AtomicBool,
+    editor: AtomicBool,
+    gestures: Mutex<Gestures>,
+}
+#[derive(Default)]
+struct Gestures {
+    enabled: bool,
+    ring: std::collections::VecDeque<RawGesture>,
+    sequence: u64,
+    accepted: u64,
+    drained: u64,
+    overflowed: u64,
 }
 struct Token {
     child: *const Child,
@@ -223,9 +245,15 @@ unsafe extern "C" fn create(
             output_active: AtomicU32::new(0),
             running: AtomicBool::new(false),
             prepared: AtomicBool::new(false),
+            editor: AtomicBool::new(false),
+            gestures: Mutex::new(Gestures::default()),
         }))
         .cast();
         *result = 0;
+        let mut children = module.probe.children.lock().unwrap();
+        let length = children.len().max(ordinal as usize + 1);
+        children.resize(length, 0);
+        children[ordinal as usize] = *out as usize;
     }
     0
 }
@@ -327,6 +355,13 @@ unsafe extern "C" fn destroy(handle: *mut c_void, result: *mut i32) -> i32 {
     if c.probe.mode.load(Ordering::SeqCst) & FAIL_DESTROY != 0 {
         return 10;
     }
+    // Native rule: the child cannot retire while its editor view lives.
+    if c.editor.load(Ordering::SeqCst) {
+        c.probe
+            .note(format!("destroy refused editor {}", c.ordinal));
+        return 10;
+    }
+    c.probe.children.lock().unwrap()[c.ordinal as usize] = 0;
     let c = unsafe { Box::from_raw(handle.cast::<Child>()) };
     c.probe.destroys.fetch_add(1, Ordering::SeqCst);
     c.probe.note(format!("destroy {}", c.ordinal));
@@ -847,12 +882,259 @@ unsafe extern "C" fn process64(
         report,
     )
 }
+/// Inject one controller gesture into a gesture-enabled child's native ring,
+/// as the plug-in would through `IComponentHandler`. Returns false (and counts
+/// an overflow) when the 256-record ring is full, or when the child is not
+/// enabled.
+pub fn inject(probe: &Probe, ordinal: u32, kind: u32, id: u32, flags: u32, value: f64) -> bool {
+    let address = probe.children.lock().unwrap()[ordinal as usize];
+    assert_ne!(address, 0, "live mock child");
+    let c = child(address as *const c_void);
+    let mut g = c.gestures.lock().unwrap();
+    if !g.enabled {
+        return false;
+    }
+    if g.ring.len() == edits::NATIVE_CAPACITY {
+        g.overflowed += 1;
+        return false;
+    }
+    let sequence = g.sequence;
+    g.ring.push_back(RawGesture {
+        struct_size: size_of::<RawGesture>() as u32,
+        kind,
+        id,
+        flags,
+        value,
+        sequence,
+    });
+    g.sequence += 1;
+    g.accepted += 1;
+    true
+}
+/// Push a raw (possibly malformed) record without validation.
+pub fn inject_raw(probe: &Probe, ordinal: u32, raw: RawGesture) {
+    let address = probe.children.lock().unwrap()[ordinal as usize];
+    child(address as *const c_void)
+        .gestures
+        .lock()
+        .unwrap()
+        .ring
+        .push_back(raw);
+}
+unsafe extern "C" fn g_enable(handle: *mut c_void) -> i32 {
+    let c = child(handle);
+    if c.live() != 0 || c.probe.mode.load(Ordering::SeqCst) & FAIL_ENABLE != 0 {
+        return 10;
+    }
+    c.gestures.lock().unwrap().enabled = true;
+    c.probe.note(format!("edits enable {}", c.ordinal));
+    0
+}
+unsafe extern "C" fn g_drain(
+    handle: *mut c_void,
+    out: *mut RawGesture,
+    capacity: u32,
+    count: *mut u32,
+) -> i32 {
+    let c = child(handle);
+    let mut g = c.gestures.lock().unwrap();
+    if !g.enabled {
+        return 10;
+    }
+    let mut n = 0;
+    while n < capacity
+        && let Some(record) = g.ring.pop_front()
+    {
+        unsafe { out.add(n as usize).write(record) };
+        n += 1;
+    }
+    g.drained += u64::from(n);
+    unsafe { *count = n };
+    0
+}
+unsafe extern "C" fn g_state(handle: *const c_void, out: *mut edits::RawState) -> i32 {
+    let c = child(handle);
+    let g = c.gestures.lock().unwrap();
+    unsafe {
+        *out = edits::RawState {
+            struct_size: size_of::<edits::RawState>() as u32,
+            flags: u32::from(g.enabled),
+            capacity: edits::NATIVE_CAPACITY as u32,
+            pending: g.ring.len() as u32,
+            accepted: g.accepted,
+            drained: g.drained,
+            overflowed: g.overflowed,
+            ..edits::RawState::default()
+        }
+    };
+    0
+}
+#[cfg(feature = "vst3-editor")]
+mod view {
+    use super::*;
+    use crate::vst3::instances::editor::{RawReport, RawSize, RawState};
+    pub(super) struct MockView {
+        child: *const Child,
+        attached: bool,
+        width: u32,
+        height: u32,
+    }
+    unsafe fn report(out: *mut RawReport, stage: u32, failure: u32, flags: u32) {
+        unsafe {
+            *out = RawReport {
+                struct_size: size_of::<RawReport>() as u32,
+                stage,
+                failure,
+                flags,
+                native_result: 0,
+                reserved: 0,
+            }
+        };
+    }
+    unsafe fn size(out: *mut RawSize, view: &MockView) {
+        unsafe {
+            *out = RawSize {
+                struct_size: size_of::<RawSize>() as u32,
+                width: view.width,
+                height: view.height,
+                reserved: 0,
+            }
+        };
+    }
+    fn state_flags(view: &MockView) -> u32 {
+        16 | if view.attached { 4 } else { 0 }
+    }
+    pub(super) unsafe extern "C" fn create(
+        handle: *mut c_void,
+        _: u32,
+        out: *mut *mut c_void,
+        initial: *mut RawSize,
+        r: *mut RawReport,
+    ) -> i32 {
+        let c = child(handle);
+        if c.editor.swap(true, Ordering::SeqCst) {
+            unsafe { report(r, 200, 9, 0) };
+            return 10;
+        }
+        c.probe.note(format!("editor create {}", c.ordinal));
+        let view = Box::new(MockView {
+            child: c,
+            attached: false,
+            width: 400,
+            height: 300,
+        });
+        unsafe {
+            size(initial, &view);
+            report(r, 204, 0, 0);
+            *out = Box::into_raw(view).cast();
+        }
+        0
+    }
+    fn view<'a>(handle: *mut c_void) -> &'a mut MockView {
+        unsafe { &mut *handle.cast::<MockView>() }
+    }
+    pub(super) unsafe extern "C" fn attach(
+        handle: *mut c_void,
+        _: *mut c_void,
+        applied: *mut RawSize,
+        r: *mut RawReport,
+    ) -> i32 {
+        let v = view(handle);
+        v.attached = true;
+        unsafe {
+            size(applied, v);
+            report(r, 205, 0, state_flags(v));
+        }
+        0
+    }
+    pub(super) unsafe extern "C" fn get_size(
+        handle: *mut c_void,
+        out: *mut RawSize,
+        r: *mut RawReport,
+    ) -> i32 {
+        let v = view(handle);
+        unsafe {
+            size(out, v);
+            report(r, 204, 0, state_flags(v));
+        }
+        0
+    }
+    pub(super) unsafe extern "C" fn resize(
+        handle: *mut c_void,
+        proposed: *const RawSize,
+        applied: *mut RawSize,
+        r: *mut RawReport,
+    ) -> i32 {
+        let v = view(handle);
+        unsafe {
+            v.width = (*proposed).width;
+            v.height = (*proposed).height;
+            size(applied, v);
+            report(r, 208, 0, state_flags(v));
+        }
+        0
+    }
+    pub(super) unsafe extern "C" fn scale(
+        handle: *mut c_void,
+        _: f32,
+        _: *mut RawSize,
+        r: *mut RawReport,
+    ) -> i32 {
+        let v = view(handle);
+        unsafe { report(r, 209, 8, state_flags(v)) };
+        17
+    }
+    pub(super) unsafe extern "C" fn detach(handle: *mut c_void, r: *mut RawReport) -> i32 {
+        let v = view(handle);
+        v.attached = false;
+        unsafe { report(r, 210, 0, state_flags(v)) };
+        0
+    }
+    pub(super) unsafe extern "C" fn state(handle: *const c_void, out: *mut RawState) -> i32 {
+        let v = view(handle.cast_mut());
+        unsafe {
+            *out = RawState {
+                struct_size: size_of::<RawState>() as u32,
+                flags: u32::from(v.attached),
+                width: v.width,
+                height: v.height,
+                ..RawState::default()
+            }
+        };
+        0
+    }
+    pub(super) unsafe extern "C" fn take_request(_: *mut c_void, _: *mut RawSize) -> i32 {
+        19
+    }
+    pub(super) unsafe extern "C" fn destroy(handle: *mut c_void, r: *mut RawReport) -> i32 {
+        let c = child(view(handle).child.cast());
+        let mode = c.probe.mode.load(Ordering::SeqCst);
+        if mode & REFUSE_EDITOR_DESTROY != 0 {
+            // Refused before teardown starts; the next destroy proceeds.
+            c.probe
+                .mode
+                .store(mode & !REFUSE_EDITOR_DESTROY, Ordering::SeqCst);
+            return 5;
+        }
+        let v = unsafe { Box::from_raw(handle.cast::<MockView>()) };
+        if v.attached {
+            c.probe.note(format!("editor removed {}", c.ordinal));
+        }
+        c.probe.note(format!("editor destroy {}", c.ordinal));
+        c.editor.store(false, Ordering::SeqCst);
+        unsafe { report(r, 212, 0, 0) };
+        0
+    }
+}
 /// Leaked exact-paired tables for one test.
 pub struct Tables {
     pub instance: &'static instances::RawProvider,
     pub parameters: &'static parameters::RawProvider,
     pub processing: &'static processing::RawProvider,
     pub hosted: &'static RawProvider,
+    pub edits: &'static edits::RawProvider,
+    #[cfg(feature = "vst3-editor")]
+    pub editor: &'static crate::vst3::instances::editor::RawProvider,
 }
 pub fn tables() -> Tables {
     let instance: &'static instances::RawProvider = Box::leak(Box::new(instances::RawProvider {
@@ -908,11 +1190,41 @@ pub fn tables() -> Tables {
         process32: Some(process32),
         process64: Some(process64),
     }));
+    let edits: &'static edits::RawProvider = Box::leak(Box::new(edits::RawProvider {
+        struct_size: size_of::<edits::RawProvider>() as u32,
+        version: 1,
+        instance_origin: instance,
+        enable: Some(g_enable),
+        drain: Some(g_drain),
+        state: Some(g_state),
+    }));
+    #[cfg(feature = "vst3-editor")]
+    let editor = {
+        use crate::vst3::instances::editor::RawProvider as EditorTable;
+        let table: &'static EditorTable = Box::leak(Box::new(EditorTable {
+            struct_size: size_of::<EditorTable>() as u32,
+            version: 1,
+            instance_origin: instance,
+            create: Some(view::create),
+            attach: Some(view::attach),
+            size: Some(view::get_size),
+            resize: Some(view::resize),
+            set_scale: Some(view::scale),
+            detach: Some(view::detach),
+            state: Some(view::state),
+            take_request: Some(view::take_request),
+            destroy: Some(view::destroy),
+        }));
+        table
+    };
     Tables {
         instance,
         parameters,
         processing,
         hosted,
+        edits,
+        #[cfg(feature = "vst3-editor")]
+        editor,
     }
 }
 /// Load a mock Library bound to `probe`.

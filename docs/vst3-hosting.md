@@ -9,7 +9,7 @@ audio are supplied by the separate [scoped instance API](vst3-instances.md).
 Stopped component/controller bytes use the separate [state companion](vst3-state.md).
 Owned controller parameters and prepared timed input use the separate
 [parameter companion](vst3-parameters.md).
-Main-thread NSView editors use the separate [editor companion](#hosted-editors-macos-nsview); parameter/event adoption and graph integration remain subsequent work.
+Main-thread NSView editors use the separate [editor companion](#hosted-editors-macos-nsview). Editors for Graph-bank children and controller edit gestures are described in [Graph-bank child editors and edit gestures](#graph-bank-child-editors-and-edit-gestures).
 
 `Provider::from_raw` is unsafe: the supplied table and executable implementation
 must remain loaded and implement the documented pointer, ownership and thread
@@ -321,8 +321,8 @@ authored Gain/Performance references and authored native fixtures; no DAW,
 third-party plug-in or other-platform support follows. Auxiliary buses and all nine rich input
 event kinds also have actual-module evidence against the RAVET reference VST3
 modules; see [vst3-reference-modules.md](vst3-reference-modules.md). Framework event translation
-is described above. Editors for scoped instances are described below; editors for Graph-bank
-children are not yet provided.
+is described above. Editors for scoped instances and for Graph-bank children,
+and controller edit gestures, are described below.
 
 ## Hosted editors (macOS NSView)
 
@@ -356,8 +356,9 @@ Because the guard holds `&mut Instance`, the scoped Rust calls that also need it
 (`with_audio`, `prepare`, `start`, `stop`, state and parameter refresh) require
 the editor to be closed first. An open editor with running audio on the same
 instance is demonstrated only through the raw native tables. This is an
-accepted limitation (decision 0271); a shared-borrow editor for Graph-bank
-children is future work.
+accepted limitation (decision 0271). For an editor that stays open while
+audio runs, use a Graph-bank child editor; see
+[Graph-bank child editors and edit gestures](#graph-bank-child-editors-and-edit-gestures).
 
 `mem::forget` on the guard leaves the native editor alive. Dropping the
 `Instance` then leaks the native child, because the refused destroy is ignored,
@@ -446,6 +447,250 @@ Only macOS `NSView` is supported, with local arm64 evidence. That evidence is
 authored fixtures plus the RAVET Gain editor built with `RAVET_GAIN_EDITOR=ON`;
 Performance and default Gain have no editor and report unavailable. There is no
 DAW, third-party editor, visual-rendering or accessibility claim. Keyboard,
-wheel and focus forwarding, edit-gesture adoption (the handler still returns
-`kNotImplemented`) and editors for Graph-bank children are not provided. See
+wheel and focus forwarding are not provided. Edit gestures are adopted only
+for Graph-bank children that enable them; every other child's handler still
+returns `kNotImplemented`. See
 [decision 0271](decisions/0271-hosted-vst3-editor-ownership.md).
+
+## Graph-bank child editors and edit gestures
+
+Two additions let a Graph-bank child keep processing on its AUDIO worker while
+its editor is open on MAIN, and deliver the editor's parameter edits to the
+processor and the host ([decision 0276](decisions/0276-graph-bank-editors-and-edit-gestures.md)).
+Both are macOS-only prototypes with local arm64 evidence.
+
+### Edit gestures
+
+The caller-linked native archive exports `ravet_vst3_edit_gesture_provider_v1`,
+an additive 40-byte table whose origin is the exact instance ABI-v2 table.
+`edits::Provider::from_raw` checks its size, version, entries and origin.
+`Vst3GraphBankBuilder::edit_gestures(child, provider, EditOptions)` checks
+pointer identity with the bank's Library, an event-queue capacity of `1..=4096`
+and a value capacity of `1..=256`. Existing tables, layouts and result domains
+are unchanged. A child that does not opt in keeps the original component
+handler: `beginEdit`, `performEdit` and `endEdit` return `kNotImplemented`, and
+`restartComponent` coalesces flags as before.
+
+`build` enables capture after the child is prepared and before any child starts
+or any lease begins. Enabling snapshots the writable parameter ids (not
+read-only, not hidden) of the catalogue refreshed at `build`. An enable
+refusal is `BankError::Edit` and unwinds like any build failure. From then on:
+
+- **Capture.** On the platform main thread the handler appends `beginEdit`,
+  `performEdit` and `endEdit` calls to a fixed ring of 256 records with a
+  gap-free sequence.
+  - An id outside the snapshot, or a value that is not finite or outside
+    `0..=1`, returns `kInvalidArgument`.
+  - A full ring returns `kResultFalse`; nothing accepted is overwritten.
+  - Off-main calls and calls after the child retires return `kResultFalse`.
+  - Every refusal is counted.
+  - The handler calls no foreign or Rust code, so edits issued from inside
+    view, parameter or teardown callbacks are safe.
+- **Gesture pairing.** At most 64 ids may be open (begun, not ended) at once,
+  and each open gesture reserves one ring slot.
+  - The `endEdit` of an accepted `beginEdit` is never refused for capacity,
+    even when the ring fills mid-gesture.
+  - A `beginEdit` needs two free slots (itself and its end).
+  - A second `beginEdit` of an open id, and an `endEdit` without an open
+    `beginEdit`, return `kResultFalse` and are counted as `unpaired`. They are
+    never recorded.
+  - Published begins and ends are balanced per id, except in these cases:
+    - Closing or dropping the editor with gestures open records a synthesised
+      `End` for each (`EditEvent::synthesized`); a later `endEdit` for that id
+      is refused as unpaired.
+    - Gestures still open when the child retires are not closed.
+    - A panic in a `drain_edits` callback, or a pump `Abi` error, can drop a
+      begin or an end from the published stream.
+  - While a gesture stays open, the plug-in's next `endEdit` for that id
+    closes it. At most 64 can be open, so the cost is bounded at 64 reserved
+    slots.
+  - Id `0xFFFFFFFF` (`kNoParamId`) is refused as unknown and never queued.
+- **`restartComponent`.** Only `kParamValuesChanged`, `kLatencyChanged` and
+  `kParamTitlesChanged` are accepted, in any combination. A call carrying any
+  other defined flag is refused whole with `kResultFalse`; zero or undefined
+  bits return `kInvalidArgument`. Accepted and refused restarts are both
+  recorded.
+  - `kResultOk` means "recorded for the host", not "applied": the bank does not
+    reconfigure a running child.
+  - An accepted latency change is published with `rebuild_required`, and the
+    node keeps the latency cached at `build` (and reported for delay
+    compensation) until the bank is rebuilt.
+  - Value and title changes are published only. Translation routes and the
+    writable-id snapshot are not refreshed, so ids the plug-in adds later stay
+    `kInvalidArgument` until a rebuild.
+- **Pump.** `control.pump_edits(child)` on MAIN moves records out of the
+  native ring only while both the AUDIO value ring (`EditOptions::values`) and
+  the host event queue (`EditOptions::events`) have room.
+  - No record is taken from the native ring unless it can be both applied
+    and published.
+  - When the host stops draining, records wait natively, and once the native
+    ring is full the plug-in's next edit is refused and counted.
+  - Call `pump_edits` regularly; values reach AUDIO only through it. It makes
+    no plug-in call (only RAVET's native drain entry).
+  - Once the child's node has returned to MAIN, `pump_edits` refuses with
+    `edits::Error::Abandoned` and moves nothing.
+  - An `Abi` error (a malformed record from the trusted provider) has already
+    consumed that native batch; treat it as fatal for the child's edits.
+- **AUDIO delivery.** Each `performEdit` value becomes one parameter point at
+  sample offset 0 of the next block that the node successfully dispatches to
+  the plug-in. It goes into the node's existing prepared parameter queue, ahead
+  of that block's framework or lane points.
+  - Values for the same id that arrive before that block coalesce; the last
+    one wins and the rest are counted as `coalesced`. They would all land on
+    the same sample.
+  - **The edit wins at offset 0.** If the block itself carries a point for the
+    same id at offset 0, the edit value replaces it, and the replaced block
+    point is counted as `overridden`. The block's later points for that id
+    still apply. With automation that writes the same id at offset 0 in every
+    block, every edit is still delivered, and the automation resumes from the
+    next block. This intentionally differs from the framework
+    `SameOffsetPolicy` and `MergePolicy`: edits are merged after them and
+    independently of their settings.
+  - Values beyond the native 64-distinct-id or 2048-point limit are deferred
+    to the next block (`deferred_blocks`).
+  - Values leave the pending set only when the native dispatch succeeds. A
+    refused (silent) block or a failed dispatch keeps them pending; a failed
+    dispatch also faults the node, which then needs a rebuild.
+  - The pending set holds at most 256 distinct ids. Coalescing is a linear
+    scan, so the worst case is `values x values` id comparisons per block
+    (65,536 at the maximum).
+  - Nothing is allocated, locked or freed on AUDIO.
+- **Publication.** `control.drain_edits(child, f)` passes each pumped
+  `EditEvent` (sequence, `EditKind::{Begin, Perform, End, Restart}`) to `f` in
+  capture order.
+  - When the child also has a framework translation, an edit of a routed id
+    carries the matching framework event: `ParameterGesture` begin or end, or a
+    physical `ParameterValue` through the route's declared scale.
+  - That event is for the host's own model (automation recording, UI mirrors).
+    Do not feed it back into the same node: the value was already applied on
+    AUDIO.
+  - Events leave the queue before `f` runs; a panic in `f` loses the rest of
+    that batch.
+- **State.** `control.edit_state(child)` copies the native counters (pending,
+  open, accepted, overflowed, invalid, unknown, unpaired, off-thread, retired,
+  restarts) and the node counters (pumped, applied, values pending, coalesced,
+  overridden, deferred blocks).
+
+### Graph-bank child editors
+
+With `vst3-editor` and `vst3-hosted-audio`,
+`control.open_editor(child, editor::Provider, Platform::NsView)` returns a
+`Vst3GraphEditor`. It uses the same native editor companion as scoped
+editors. Those entries take the module busy flag but not the live-core CONTROL
+admission, so the bank's AUDIO leases stay live. The guard borrows neither the
+control nor an `Instance`, and is neither `Send` nor `Sync`. It offers the
+scoped editor's operations: unsafe `attach`, `detach`, `size`, `resize`,
+`set_content_scale`, `take_resize_request`, `state` and `close`.
+
+**Thread safety is the plug-in's responsibility.** With an open editor, MAIN
+calls into the controller and view (`createView`, `attached`, `onSize`, edit
+callbacks) while AUDIO calls `process()` on the same child. VST3 permits this
+and requires the plug-in to make it safe. This matters most for a
+single-component plug-in, whose controller and processor are one object.
+RAVET's ordering rules prevent lifecycle races (no retirement while the view
+lives), but they cannot make a plug-in's own state thread-safe. Only RAVET's
+Gain, a split component/controller plug-in, has been exercised. No
+single-component or third-party plug-in has been tested.
+
+Ordering is enforced by state, not by a borrow:
+
+- Each child has at most one editor (`BankError::EditorOpen`).
+- Native child destruction returns `LIFECYCLE` while the view lives.
+- **Reclamation policy: defer.** While any editor of a bank is open,
+  `reclaim_vst3_graph_banks` and `control.retire()` do not release that bank.
+  - They end no lease, stop or retire no child, and count the bank in
+    `ReclaimReport::editors`. The count is made only once every node has
+    returned; until then the bank is retained as outstanding.
+  - Reclamation never closes a caller's editor itself. Close or drop the guard
+    on MAIN, then reclaim again.
+  - The view is therefore always released before the child's controller,
+    component and module retire.
+- A drop-time destroy refused before teardown starts keeps the native editor
+  and the bank retained, and increments `editor::refused_drops()`.
+  `mem::forget` on the guard keeps the bank retained for the process lifetime.
+  Both are memory-safe leaks of bounded registry capacity.
+
+`attach` keeps the scoped editor's unsafe obligation: the caller's `NSView`
+must stay alive until a successful `detach` or until the guard is closed or
+dropped. No callback enters Rust, and no view, frame or controller pointer
+escapes.
+
+### Validation
+
+- `ravet-vst3-edit-gesture-abi-tests` (C11 layout).
+- `ravet-vst3-edit-gesture-provider-{normal,fast}-tests` (substituted loader).
+  These cover:
+  - the unchanged handler without enable;
+  - argument, alias and thread refusals;
+  - ordered capture with id, value and thread validation;
+  - the restart flag policy;
+  - ring overflow that refuses, with contiguous sequences over 1000 cycles;
+  - begin/end pairing with a full ring mid-gesture, duplicate and orphan
+    refusal, the 64-gesture limit, synthesised ends at editor close and
+    `kNoParamId` refusal;
+  - gestures issued from inside view and parameter callbacks;
+  - drain while an AUDIO capability is live;
+  - refusal after handler retirement.
+- Rust mock tests (`hosted_audio::graph::edit_tests`). These cover:
+  - delivery at offset 0 of the first dispatched block after the pump, and
+    not before;
+  - coalescing, the edit winning at offset 0, and framework identity;
+  - 200 blocks of continuous offset-0 automation with every edit delivered;
+  - deferral beyond 64 ids and across refused blocks;
+  - values kept pending across a failed dispatch, on the plain and lane
+    paths;
+  - a block with 63 distinct ids plus new edit ids including id 0, where one
+    edit applies and the other is deferred (the 64-id limit holds);
+  - `pump_edits` refused after the node returns;
+  - backpressure that never drops;
+  - restart records and malformed records;
+  - declaration and enable refusals;
+  - 10,000 blocks with edits and zero Rust allocations on AUDIO;
+  - bank editors with deferred reclamation, refused close and drop, and
+    ordered teardown.
+- `ravet-vst3-editor-bank-window-tests`: configure with
+  `-DRAVET_VST3_EDITOR_BANK_LIBRARY=/abs/libvst3_editor_bank.a` and
+  `-DRAVET_VST3_EDITOR_BANK_MODULE=/abs/ravet_gain_vst3.vst3`. The library is
+  the `ravet-host` example built with
+  `cargo build --release -p ravet-host --features vst3-hosted-audio,vst3-editor --example vst3-editor-bank`,
+  and the module is a Gain built with `RAVET_GAIN_EDITOR=ON`. The test runs
+  the actual RAVET Gain editor, attached to a bank child in a hidden offscreen
+  `NSWindow` that is never ordered front, while two Gain children process on
+  an AUDIO worker. It checks:
+  - programmatic edits injected into the Gain editor's own script-message
+    bridge, so the plug-in's controller issues the gestures itself;
+  - that an injected but unpumped edit does not change the audio;
+  - that the first block after `pump_edits` equals, bit for bit, a reference
+    child given the same value as a framework event at offset 0;
+  - five more edits while the worker processes continuously;
+  - deferred reclamation while the editor is open;
+  - clean teardown, three times;
+  - every AUDIO `process` call measured with `allocation-counter` (Rust heap
+    only).
+- ThreadSanitizer (local, normal build only). The native edit-gesture,
+  editor and hosted-audio provider fixtures, and the existing editor window
+  test with the actual Gain editor and concurrent AUDIO, were rebuilt with
+  `-fsanitize=thread` and reported no warnings. Only RAVET's own C++ is
+  instrumented; the Gain plug-in, the VST3 SDK hosting library and Rust code
+  are not.
+  - The Graph-bank editor window test could not be linked under
+    ThreadSanitizer: ld64 refuses a fourth personality routine (C++,
+    Objective-C and Rust plus the sanitizer runtime's). It has no sanitizer
+    evidence.
+  - This is not a proof that no race exists.
+
+Not covered: single-component or third-party plug-ins, a visible focused
+editor, WebKit JavaScript or input-event edits, multi-bank load, and Rust-side
+race detection (no sanitizer or model checker for the Rust rings).
+
+### Limits
+
+macOS `NSView` only, local arm64 evidence. The only real editor exercised is
+RAVET's own Gain editor, in a hidden window that is never ordered front. Its
+edits are injected in-process into its script-message handler, not produced
+by WebKit JavaScript evaluation, mouse or keyboard input. There is no DAW,
+third-party editor, visual-rendering, accessibility or real-time deadline
+claim. Allocation evidence covers the Rust heap only. Edit values are applied
+at block granularity (offset 0). The bank does not restart or re-prepare a
+running child for latency, I/O or routing changes. A forgotten editor guard
+keeps its bank retained.

@@ -7145,3 +7145,70 @@ whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
 checks, with no bound source change. Receipt
 target/combined-7-w261-w262-w264-gates.log, exit 0. The tree included an
 unrelated uncommitted owner edit to scripts/docs/hosted/ravet_tutorials.py.
+
+### W263 Graph-bank child editors and controller edit gestures public adoption
+
+Added opt-in controller edit gestures and MAIN-thread editors for hosted VST3 Graph-bank children
+([guide](vst3-hosting.md#graph-bank-child-editors-and-edit-gestures),
+[decision 0276](decisions/0276-graph-bank-editors-and-edit-gestures.md), adopted at R3 after two independent Sonnet 5.5 reviews).
+
+- The additive `RavetVst3EditGestureProviderV1` captures `beginEdit`, `performEdit` and `endEdit` on MAIN into a
+  bounded 256-record ring with id, value and thread validation.
+- Begin/end pairing is preserved: each of up to 64 open gestures reserves its end slot, and duplicate or orphan
+  calls are refused and counted. Closing the editor records a flagged synthesised end for each open gesture.
+- `restartComponent` accepts only parameter values, titles and latency changes, and only records them.
+- `pump_edits` moves edits only while the AUDIO ring (up to 256 values) and the host queue both have room, and
+  refuses once the node has returned.
+- Values reach the processor at offset 0 of the next successfully dispatched block. An edit replaces a same-id
+  block point at offset 0 (counted), so continuous automation cannot mask edits. Values stay pending across refused
+  blocks and failed dispatches.
+- `drain_edits` publishes ordered, balanced events with framework identity.
+- `Vst3GraphBankControl::open_editor` keeps a child's editor open while the bank processes. Bank reclamation is
+  deferred while any editor is open.
+
+Concurrent editor and AUDIO rely on the plug-in's own thread safety, as VST3 permits. Only RAVET's split-component
+Gain was exercised.
+
+Local macOS arm64 qualification, isolated and on the stage (public `d2b1c74`):
+
+- formatting
+- strict Clippy (default, all features, and `ravet-host` with `vst3-hosted-audio`, `vst3-editor` and
+  `vst3-catalogue` alone)
+- workspace tests with all features (1665 passed) and default doctests (64)
+- Rustdoc, default and all features, with warnings denied
+- native CMake/CTest: 75 of 75, including the edit-gesture ABI and provider fixtures, the reference modules and the
+  Graph-bank editor window test
+- the documentation checker and 62 checker tests; the stage also ran 4 REAPER check tests, the AU host check and the
+  whitespace check
+
+ThreadSanitizer reported no warnings for the native edit-gesture, editor and hosted-audio provider fixtures and the
+existing editor window test. The Graph-bank window test cannot be linked under TSan (ld64 personality limit). Only
+RAVET C++ is instrumented.
+
+The window test attaches the RAVET Gain VST3 editor (`RAVET_GAIN_EDITOR=ON`) to a Graph-bank child in a hidden
+offscreen `NSWindow`, never ordered front, while two Gain children process on an AUDIO worker. Edits are injected
+into the editor's script-message bridge. Results:
+
+- An unpumped edit leaves the audio unchanged.
+- The first block after `pump_edits` is bit-equal to a framework-fed reference.
+- Teardown was clean three times (612 lockstep and 1471 free-running blocks, 54 edits).
+- Zero Rust heap operations on AUDIO.
+
+No DAW, third-party or single-component plug-in, WebKit JavaScript or input-event, visual, accessibility, deadline or
+race-freedom claim follows.
+
+The first review found no blocker but required lossless offset-0 delivery, preserved
+begin/end pairing and accurate thread-safety wording; the R2 re-review found a merge
+defect where a phantom id 0 could stall edits at the 64-id limit, fixed in R3 with a
+regression test shown to fail on R2. Twenty-four public paths were adopted after base
+and staged hash verification. Packet target/w263-adoption.md; superseded R1 and R2
+receipts are preserved.
+
+### Combined public acceptance after W263
+
+All fourteen combined commands pass on a fresh cache: 1,551 all-feature runtime
+tests and 114 doctests (zero failed, four ignored), 64 default doctests,
+warning-denied Clippy and Rustdoc, formatting, documentation, Python and
+whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
+checks, with no bound source change. Receipt target/combined-8-w263-gates.log,
+exit 0.

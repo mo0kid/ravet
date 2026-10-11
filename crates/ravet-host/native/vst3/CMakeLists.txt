@@ -199,6 +199,37 @@ if(BUILD_TESTING)
     if(RAVET_VST3_EDITOR_TEST_MODULES)
         add_test(NAME ravet-vst3-editor-window-tests COMMAND ravet-vst3-editor-window-tests ${RAVET_VST3_EDITOR_TEST_MODULES})
     endif()
+    # Edit-gesture companion (decision 0276): C11 layout and the substituted
+    # loader fixture (injected gestures, reentry, restart policy, overflow).
+    add_executable(ravet-vst3-edit-gesture-abi-tests edit-gesture-abi-tests.c)
+    target_compile_options(ravet-vst3-edit-gesture-abi-tests PRIVATE -std=c11 -Wall -Wextra -Wpedantic -Werror)
+    add_test(NAME ravet-vst3-edit-gesture-abi-tests COMMAND ravet-vst3-edit-gesture-abi-tests)
+    foreach(profile IN ITEMS normal fast)
+        set(target "ravet-vst3-edit-gesture-provider-${profile}-tests")
+        # Substituted Module::create: the real module_mac loader is not linked.
+        add_executable(${target} provider.cpp edit-gesture-provider-tests.cpp)
+        target_compile_features(${target} PRIVATE cxx_std_17)
+        target_include_directories(${target} SYSTEM PRIVATE "${RAVET_VST3_SDK}")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror -O2 -UNDEBUG)
+        if(profile STREQUAL "fast")
+            target_compile_options(${target} PRIVATE -ffast-math)
+        endif()
+        target_link_libraries(${target} PRIVATE sdk_hosting "-framework CoreFoundation")
+        add_test(NAME ${target} COMMAND ${target})
+    endforeach()
+    # Graph-bank child editor in a hidden window (decision 0276): links the
+    # ravet-host vst3-editor-bank example staticlib (vst3-hosted-audio and
+    # vst3-editor features). Argument: the RAVET Gain VST3 built with its editor.
+    if(RAVET_VST3_EDITOR_BANK_LIBRARY)
+        add_executable(ravet-vst3-editor-bank-window-tests editor-bank-window-tests.mm)
+        target_compile_features(ravet-vst3-editor-bank-window-tests PRIVATE cxx_std_17)
+        target_compile_options(ravet-vst3-editor-bank-window-tests PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+        target_link_libraries(ravet-vst3-editor-bank-window-tests PRIVATE ravet-vst3-host
+            "${RAVET_VST3_EDITOR_BANK_LIBRARY}" "-framework Cocoa" "-framework WebKit" "-framework Security" "-framework SystemConfiguration" iconv)
+        if(RAVET_VST3_EDITOR_BANK_MODULE)
+            add_test(NAME ravet-vst3-editor-bank-window-tests COMMAND ravet-vst3-editor-bank-window-tests ${RAVET_VST3_EDITOR_BANK_MODULE})
+        endif()
+    endif()
     # Manual-only visible probe; never registered with CTest.
     add_executable(ravet-vst3-editor-visible-probe EXCLUDE_FROM_ALL editor-visible-probe.mm)
     target_compile_features(ravet-vst3-editor-visible-probe PRIVATE cxx_std_17)
