@@ -181,7 +181,9 @@ framework, leaves the host's other views untouched and does not change the
 browser sandbox. Software painting can change UI CPU cost; it does not change
 DSP. The native paint probe checks actual GTK-rendered pixels and saves
 `ravet-web-paint.png` in the test build directory, independently of JavaScript
-message/DOM checks. See [WebKit's graphics architecture](https://docs.webkit.org/Ports/WebKitGTK%20and%20WPE%20WebKit/Graphics.html).
+message/DOM checks. It requires the web view to fill its host socket exactly;
+the socket may differ from the requested 320x180 by up to two pixels, because a
+compositor with fractional output scaling can round the toplevel size. See [WebKit's graphics architecture](https://docs.webkit.org/Ports/WebKitGTK%20and%20WPE%20WebKit/Graphics.html).
 
 When a loaded SWELL host owns GDK event routing, the backend requests GTK via
 its `SWELL_ExtendedAPI("LOAD_GTK")` capability before creating widgets. This

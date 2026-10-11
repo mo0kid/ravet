@@ -167,8 +167,10 @@ fn directional_ids_owned_bytes_invalid_refresh_and_thread_correct_timing_queries
     assert_eq!(ports, Ports::default());
     MODE.store(0, Ordering::Relaxed);
 }
+// The instrument (no input ports) half links the sine example and lives in
+// linked_sine.rs: each test binary links at most one example CLAP crate.
 #[test]
-fn linked_sidechain_and_instrument_preserve_directional_auxiliary_and_no_input_ports() {
+fn linked_sidechain_preserves_directional_auxiliary_ports() {
     let info = HostInfo::new("Synthetic reference host", "RAVET", "", "0.1").unwrap();
     let entry = PluginEntry::load_from_clack::<
         SinglePluginEntry<ravet_sidechain_clap::SidechainPlugin>,
@@ -214,17 +216,4 @@ fn linked_sidechain_and_instrument_preserve_directional_auxiliary_and_no_input_p
         Some(TailLength::Finite(0))
     );
     instance.deactivate(stopped);
-    let entry = PluginEntry::load_from_clack::<SinglePluginEntry<ravet_sine_clap::SinePlugin>>(c"")
-        .unwrap();
-    let mut instance = PluginInstance::<RequestHost>::new(
-        |_| HostRequests::new(),
-        |_| (),
-        &entry,
-        c"org.ravet.sine",
-        &info,
-    )
-    .unwrap();
-    let ports = Ports::inspect(&mut instance).unwrap();
-    assert!(ports.inputs.is_empty());
-    assert_eq!(ports.outputs[0].channels, 2);
 }

@@ -32,7 +32,8 @@ static void message(void* context,const char* text) {
         char field[64]{},initial[4097]{},title[128]{};
         if(ravet_foundry_browse_request(text,field,initial,title)) {
             auto path=foundryChooseDirectory(owner->dialogParent,title,initial);
-            if(!path.empty()) {auto utf8=path.u8string();ravet_foundry_directory_selected(owner->controller,field,utf8.c_str());}
+            // u8string() is std::u8string (char8_t) from C++20; the C ABI takes UTF-8 bytes.
+            if(!path.empty()) {auto utf8=path.u8string();ravet_foundry_directory_selected(owner->controller,field,reinterpret_cast<const char*>(utf8.c_str()));}
         } else ravet_foundry_message(owner->controller,text);
     } catch(const std::exception& error) {std::cerr<<"Directory selection failed: "<<error.what()<<'\n';}
 }

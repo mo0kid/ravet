@@ -44,7 +44,14 @@ std::filesystem::path foundryChooseDirectory(void* parent,const char* title,cons
     std::filesystem::path result;
     if(gtk_dialog_run(GTK_DIALOG(dialog))==GTK_RESPONSE_ACCEPT) {
         char* path=gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-        if(path) {result=std::filesystem::u8path(path);g_free(path);}
+        if(path) {
+#if defined(__cpp_char8_t)
+            result=std::filesystem::path(reinterpret_cast<const char8_t*>(path)); // u8path is deprecated from C++20.
+#else
+            result=std::filesystem::u8path(path);
+#endif
+            g_free(path);
+        }
     }
     gtk_widget_destroy(dialog);
     return result;

@@ -236,7 +236,7 @@ status = "implemented"
 summary = "The f32/f64 preparation builder validates an explicit native note-port index/dialect and delivers ordered mixed parameters, CLAP notes, short MIDI/MPE or framed UMP through fixed audio-owner input slots."
 limits = "One selected native input index, <=256 advertised inputs, 1..4096 shared slots. CLAP wildcard note IDs; MIDI/MPE velocity rounds to 7 bits, zero note-on follows MIDI note-off semantics; MIDI2 framed words preserve group without translation. Strict dialect/unknown-kind/zero-frame performance rejection before native mutation. No inferred MPE negotiation, note expressions, SysEx assembly, performance output/rescan/editor/device scheduling. Loaded fixture and public sine macOS arm64 evidence only; no broad host/device/platform/deadline claim."
 sources = ["crates/ravet-host/src/graph_note_input.rs", "crates/ravet-host/src/graph_parameters.rs", "crates/ravet-host/src/graph_node.rs", "crates/ravet-host/src/lib.rs"]
-tests = ["crates/ravet-host/tests/graph_notes.rs", "crates/ravet-host/src/graph_note_input.rs", "crates/ravet-host/examples/hosted-graph.rs", "crates/ravet-host/examples/hosted-sine.rs", "crates/ravet-host/examples/support/sine_graph_probe.rs", "crates/ravet-host/examples/support/parameter_fixture.rs"]
+tests = ["crates/ravet-host/tests/graph_notes.rs", "crates/ravet-host/tests/linked_sine.rs", "crates/ravet-host/src/graph_note_input.rs", "crates/ravet-host/examples/hosted-graph.rs", "crates/ravet-host/examples/hosted-sine.rs", "crates/ravet-host/examples/support/sine_graph_probe.rs", "crates/ravet-host/examples/support/parameter_fixture.rs"]
 docs = ["docs/plugin-hosting.md", "docs/audio-graphs.md", "docs/architecture.md", "docs/decisions/0114-hosted-graph-note-input.md"]
 
 [[feature]]
@@ -947,7 +947,7 @@ status = "prototype"
 summary = "A main-thread instance-borrowing guard owns negotiated editor creation, embedded parent attachment, bounded resizing, idempotent show/hide and guaranteed paired destruction."
 limits = "Embedded sizes 1..16384 per dimension; native parent attachment/transient lifetime is an explicit unsafe caller contract. No parent window creation/pump, host GUI request scheduling, focus/scale policy or device integration. Local Cocoa RAVET/upstream EGUI child/lifecycle fixtures pass; visual hide/accessibility, floating/other OS APIs and broad compatibility unvalidated."
 sources = ["crates/ravet-host/src/editor.rs", "tools/editor-smoke/examples/hosted.rs"]
-tests = ["crates/ravet-host/tests/catalogue.rs", "tools/editor-smoke/examples/hosted.rs"]
+tests = ["crates/ravet-host/tests/catalogue.rs", "tools/editor-smoke/examples/hosted.rs", "crates/ravet-host/tests/linked_sine.rs"]
 docs = ["docs/plugin-hosting.md", "docs/decisions/0048-guarded-plugin-editors.md"]
 
 [[feature]]
@@ -987,7 +987,7 @@ status = "implemented"
 summary = "Owned inactive directional port snapshots validate IDs/layout/precision/pairs, with optional main-thread latency and audio-owner tail queries."
 limits = "0..9 ports per direction/1..64 channels, 256-byte names/types. Inactive inspection and atomic refresh; missing audio extension means no ports, missing timing stays None. No configuration negotiation, automatic compensation or native graph integration; separate ProcessingHost receives change notifications."
 sources = ["crates/ravet-host/src/audio_configuration.rs", "crates/ravet-host/examples/inspect.rs"]
-tests = ["crates/ravet-host/tests/audio_configuration.rs"]
+tests = ["crates/ravet-host/tests/audio_configuration.rs", "crates/ravet-host/tests/linked_sine.rs"]
 docs = ["docs/plugin-hosting.md", "docs/decisions/0063-hosted-audio-configuration.md"]
 
 [[feature]]

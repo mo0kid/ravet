@@ -7212,3 +7212,28 @@ warning-denied Clippy and Rustdoc, formatting, documentation, Python and
 whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
 checks, with no bound source change. Receipt target/combined-8-w263-gates.log,
 exit 0.
+
+### W265 Linux x86_64 qualification on native Omarchy
+
+Public commit 3ddaf94 (1,710 files, archive manifest hash-verified) was built and tested on
+the owner's Omarchy machine (Arch, kernel 7.2.3, x86_64, rustc 1.99.0, GCC 16.2.1, CMake
+4.4.3, WebKitGTK 2.52.6 under Hyprland 0.56.2/XWayland at output scale 1.6). Formatting,
+strict default/all-feature/ravet-host VST3 single-feature Clippy, doctests (62), warnings-denied
+Rustdoc, ravet-native-dsp thumbv6m/x86_64 checks, documentation and Python checks (62+4) pass.
+Non-incremental test builds failed to link three ravet-host test binaries that each linked two
+example CLAP crates exporting `clap_entry`; such a link depends on codegen-unit partitioning
+and is also latent on macOS. The sine-dependent checks now live in their own test binary, after
+which all-feature tests pass on Linux (1,619 passed, 4 ignored; macOS 1,667 including 48
+macOS-gated tests) as do default tests (1,263). The runtime-ffi facade links and runs with
+g++ C++17/C++23 and clang++ C++17. The Linux web editor CTest passes 4/4 with software
+painting after the paint fixture accepts compositor rounding (320x179 at scale 1.6) while still
+requiring the view to fill its host. Accelerated painting still fails on the NVIDIA RTX 2060.
+GCC 16's default C++20 exposed a char8_t conversion error in the Foundry Linux launcher; it now
+builds, and its sources compile as C++17 and C++20. LV2 gain/performance contracts pass 7/7
+against system LV2 headers. The VST3 host and reference CMake projects remain macOS-only by
+guard. No DAW, GUI launch of Foundry, GTK chooser, audio device, real-time deadline,
+other-distribution or Linux support claim follows from this single-machine evidence.
+Receipt target/w265-linux-validation.md.
+
+Ten public paths were adopted after base and staged hash verification; the macOS
+adoption stage passed all eighteen public gates with the fixes applied.

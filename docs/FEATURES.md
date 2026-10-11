@@ -616,7 +616,7 @@ The f32/f64 preparation builder validates an explicit native note-port index/dia
 
 **Source:** [`crates/ravet-host/src/graph_note_input.rs`](../crates/ravet-host/src/graph_note_input.rs), [`crates/ravet-host/src/graph_parameters.rs`](../crates/ravet-host/src/graph_parameters.rs), [`crates/ravet-host/src/graph_node.rs`](../crates/ravet-host/src/graph_node.rs), [`crates/ravet-host/src/lib.rs`](../crates/ravet-host/src/lib.rs).
 
-**Tests:** [`crates/ravet-host/tests/graph_notes.rs`](../crates/ravet-host/tests/graph_notes.rs), [`crates/ravet-host/src/graph_note_input.rs`](../crates/ravet-host/src/graph_note_input.rs), [`crates/ravet-host/examples/hosted-graph.rs`](../crates/ravet-host/examples/hosted-graph.rs), [`crates/ravet-host/examples/hosted-sine.rs`](../crates/ravet-host/examples/hosted-sine.rs), [`crates/ravet-host/examples/support/sine_graph_probe.rs`](../crates/ravet-host/examples/support/sine_graph_probe.rs), [`crates/ravet-host/examples/support/parameter_fixture.rs`](../crates/ravet-host/examples/support/parameter_fixture.rs).
+**Tests:** [`crates/ravet-host/tests/graph_notes.rs`](../crates/ravet-host/tests/graph_notes.rs), [`crates/ravet-host/tests/linked_sine.rs`](../crates/ravet-host/tests/linked_sine.rs), [`crates/ravet-host/src/graph_note_input.rs`](../crates/ravet-host/src/graph_note_input.rs), [`crates/ravet-host/examples/hosted-graph.rs`](../crates/ravet-host/examples/hosted-graph.rs), [`crates/ravet-host/examples/hosted-sine.rs`](../crates/ravet-host/examples/hosted-sine.rs), [`crates/ravet-host/examples/support/sine_graph_probe.rs`](../crates/ravet-host/examples/support/sine_graph_probe.rs), [`crates/ravet-host/examples/support/parameter_fixture.rs`](../crates/ravet-host/examples/support/parameter_fixture.rs).
 
 **Documentation:** [`docs/plugin-hosting.md`](../docs/plugin-hosting.md), [`docs/audio-graphs.md`](../docs/audio-graphs.md), [`docs/architecture.md`](../docs/architecture.md), [`docs/decisions/0114-hosted-graph-note-input.md`](../docs/decisions/0114-hosted-graph-note-input.md).
 
@@ -840,7 +840,7 @@ Owned inactive directional port snapshots validate IDs/layout/precision/pairs, w
 
 **Source:** [`crates/ravet-host/src/audio_configuration.rs`](../crates/ravet-host/src/audio_configuration.rs), [`crates/ravet-host/examples/inspect.rs`](../crates/ravet-host/examples/inspect.rs).
 
-**Tests:** [`crates/ravet-host/tests/audio_configuration.rs`](../crates/ravet-host/tests/audio_configuration.rs).
+**Tests:** [`crates/ravet-host/tests/audio_configuration.rs`](../crates/ravet-host/tests/audio_configuration.rs), [`crates/ravet-host/tests/linked_sine.rs`](../crates/ravet-host/tests/linked_sine.rs).
 
 **Documentation:** [`docs/plugin-hosting.md`](../docs/plugin-hosting.md), [`docs/decisions/0063-hosted-audio-configuration.md`](../docs/decisions/0063-hosted-audio-configuration.md).
 
@@ -3740,7 +3740,7 @@ A main-thread instance-borrowing guard owns negotiated editor creation, embedded
 
 **Source:** [`crates/ravet-host/src/editor.rs`](../crates/ravet-host/src/editor.rs), [`tools/editor-smoke/examples/hosted.rs`](../tools/editor-smoke/examples/hosted.rs).
 
-**Tests:** [`crates/ravet-host/tests/catalogue.rs`](../crates/ravet-host/tests/catalogue.rs), [`tools/editor-smoke/examples/hosted.rs`](../tools/editor-smoke/examples/hosted.rs).
+**Tests:** [`crates/ravet-host/tests/catalogue.rs`](../crates/ravet-host/tests/catalogue.rs), [`tools/editor-smoke/examples/hosted.rs`](../tools/editor-smoke/examples/hosted.rs), [`crates/ravet-host/tests/linked_sine.rs`](../crates/ravet-host/tests/linked_sine.rs).
 
 **Documentation:** [`docs/plugin-hosting.md`](../docs/plugin-hosting.md), [`docs/decisions/0048-guarded-plugin-editors.md`](../docs/decisions/0048-guarded-plugin-editors.md).
 

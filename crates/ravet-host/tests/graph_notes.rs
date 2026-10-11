@@ -1,7 +1,5 @@
 #[path = "../examples/support/parameter_fixture.rs"]
 mod fixture;
-#[path = "../examples/support/sine_graph_probe.rs"]
-mod sine_probe;
 use clack_host::prelude::*;
 use clack_plugin::entry::SinglePluginEntry;
 use ravet_foundation::{
@@ -300,21 +298,6 @@ note_stream!(
     prepare64,
     1e200
 );
-
-#[test]
-fn linked_sine_note_only_node_has_timed_sound_and_release_silence_without_heap() {
-    let entry = PluginEntry::load_from_clack::<SinglePluginEntry<ravet_sine_clap::SinePlugin>>(c"")
-        .unwrap();
-    let instance = PluginInstance::<RequestHost>::new(
-        |_| HostRequests::new(),
-        |_| (),
-        &entry,
-        c"org.ravet.sine",
-        &HostInfo::new("Linked sine note-only probe", "RAVET", "", "0.1").unwrap(),
-    )
-    .unwrap();
-    sine_probe::run(instance).unwrap();
-}
 
 macro_rules! output_faults {
     ($name:ident, $sample:ty, $prepare:ident, $value:expr) => {

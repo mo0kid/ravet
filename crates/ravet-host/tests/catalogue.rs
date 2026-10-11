@@ -124,25 +124,13 @@ fn owned_catalogue_and_live_instance_keep_entry_alive_after_wrapper_drop() {
     }
 }
 
+// The absent-extension half of this check links the sine example and lives in
+// linked_sine.rs: each test binary links at most one example CLAP crate.
 #[test]
-fn editor_rejects_absent_extension_and_unsupported_api_before_native_creation() {
+fn editor_rejects_unsupported_api_before_native_creation() {
     use clack_extensions::gui::{GuiApiType, GuiConfiguration};
     use ravet_host::{EditorError, PluginEditor};
-    let entry = PluginEntry::load_from_clack::<SinglePluginEntry<ravet_sine_clap::SinePlugin>>(c"")
-        .unwrap();
     let info = HostInfo::new("RAVET editor fixture", "RAVET", "", "0.1").unwrap();
-    let mut instance =
-        PluginInstance::<()>::new(|_| (), |_| (), &entry, c"org.ravet.sine", &info).unwrap();
-    assert!(matches!(
-        PluginEditor::create(
-            &mut instance,
-            GuiConfiguration {
-                api_type: GuiApiType::COCOA,
-                is_floating: false
-            }
-        ),
-        Err(EditorError::Unavailable)
-    ));
     let entry = PluginEntry::load_from_clack::<SinglePluginEntry<ravet_gain_clap::GainPlugin>>(c"")
         .unwrap();
     let mut instance =

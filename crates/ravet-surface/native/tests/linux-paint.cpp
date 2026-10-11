@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <cstdlib>
 static GtkWidget* findWeb(GtkWidget* widget) {
     if(WEBKIT_IS_WEB_VIEW(widget)) return widget;
     if(GTK_IS_CONTAINER(widget)) {
@@ -42,8 +43,14 @@ int main(int argc,char** argv) {
     for(int y=0;y<allocation.height;++y)for(int x=0;x<allocation.width;++x){auto* p=data+y*stride+x*4;auto close=[](int a,int b){return std::abs(a-b)<4;};if(close(p[2],0x12)&&close(p[1],0x34)&&close(p[0],0x56))++blue;if(close(p[2],0xe8)&&close(p[1],0x79)&&close(p[0],0x32))++orange;}
     const bool saved=cairo_surface_write_to_png(surface,argv[1])==CAIRO_STATUS_SUCCESS;
     cairo_surface_destroy(surface);
-    bool painted=allocation.width==320&&allocation.height==180&&blue>total*0.4&&orange>total*0.4&&saved;
-    std::cout<<allocation.width<<"x"<<allocation.height<<" blue="<<blue<<" orange="<<orange<<" total="<<total<<" painted="<<painted<<'\n';
+    // The compositor owns the final toplevel size: fractional output scaling can
+    // round the requested 320x180 by a pixel. Require the web view to fill the
+    // host socket exactly and the socket to stay within that rounding margin.
+    GtkAllocation host;gtk_widget_get_allocation(socket,&host);
+    const bool fills=allocation.width==host.width&&allocation.height==host.height;
+    const bool sized=std::abs(host.width-320)<=2&&std::abs(host.height-180)<=2;
+    bool painted=fills&&sized&&blue>total*0.4&&orange>total*0.4&&saved;
+    std::cout<<allocation.width<<"x"<<allocation.height<<" host="<<host.width<<"x"<<host.height<<" blue="<<blue<<" orange="<<orange<<" total="<<total<<" painted="<<painted<<'\n';
     ravet_web_destroy(view);gtk_widget_destroy(parent);pump(100);
     return painted?0:1;
 }
