@@ -127,7 +127,9 @@ equal to (0, 1) at the end to rounding. Setting `frames = 0` is an explicit cut.
 The new engine starts from its own prepared (empty) history. For a response longer than
 the fade, its output still lacks the tail from earlier input, so for stationary input the
 blend dips in level by up to `1 - (energy of the first frames taps / total energy)`. It
-recovers as the history fills. Engines with different latencies are not aligned.
+recovers as the history fills. Engines with different latencies are not aligned. Both
+limits have explicit, optional remedies described under
+[transition continuity](#transition-continuity-history-priming-and-latency-alignment).
 
 When a fade ends, the old engine returns through the returned queue, or through one
 deferred slot while that queue is full. If neither has room, it stays as a silent,
@@ -171,6 +173,109 @@ stress test of each policy. The transition is not a `Processor`, and offline tes
 no deadline claim. See
 [decision 0272](decisions/0272-impulse-response-preparation-and-live-convolution-transitions.md).
 
+### Transition continuity: history priming and latency alignment
+
+`convolution_transition_with_continuity(initial, maximum_frames, options, continuity)`
+takes a `TransitionContinuity { priming, alignment }`. `TransitionContinuity::NONE`
+(the default) behaves exactly like `convolution_transition`, which delegates to it.
+The default path's ADR 0272 behaviour is guarded by the 15 unchanged transition tests
+and by digests of output samples, statuses, offer results, reports and returned engines
+recorded from the ADR 0272 build in 108 scenarios.
+Construction checks every length, and the total storage (at most 256 MiB of samples),
+before allocating. Storage is reserved fallibly, and a refusal (`Priming`, `Alignment`,
+`Storage`, `Allocation`) returns the identical initial engine.
+
+`PrimingPolicy::History { frames, frames_per_block }` records the last `frames` input
+frames of each channel in a ring prepared at construction. When a proposal is taken,
+the incoming engine first processes the recorded history and its output is discarded.
+Its state then matches an engine that had been running on the same input. Choose
+`frames` of at least the incoming `tail_samples` (`taps - 1 + latency`). The output
+from the fade start then equals a never-switched engine with the new response to
+rounding, and the level dip disappears. If fewer than `frames` frames have been
+recorded (shortly after construction or `reset`), only the recorded frames are primed.
+
+Priming work is bounded at `frames_per_block` history frames per channel per block
+boundary, on top of normal rendering. Construction requires either
+`frames_per_block >= frames` or `frames_per_block > maximum_frames`:
+
+- If the recorded history fits in one step, the fade starts at the boundary where the
+  proposal is taken.
+- Otherwise the fade is delayed. The old engine plays alone while the incoming engine
+  catches up through the ring, and the fade starts at the first boundary whose
+  remaining lag fits. With blocks of at most `b` frames and an initial lag `g`, at
+  most `ceil((g - frames_per_block) / (frames_per_block - b))` blocks are delayed.
+
+`TransitionStatus::{priming, primed_frames}`, `TransitionEvent::PrimingStarted` and
+`priming_sequence`/`priming_lag` expose the schedule. A proposal that is being primed
+counts as an in-progress transition for `MidFadePolicy`, including a proposal that is
+pending at the boundary where priming completes: `Refuse` refuses it, `QueueOne` keeps
+it queued and `LatestWins` moves it to waiting, superseding an earlier waiting
+proposal. `reset` forgets the history, and a proposal being primed then starts at the
+next boundary from empty history. A single-block prime can cost up to `frames`
+frames of engine work at one boundary; choose `frames_per_block > maximum_frames` to
+spread it over several blocks.
+
+`AlignmentPolicy::DelayLower { maximum_difference }` prepares two delay lines of
+`maximum_difference + maximum_frames` frames per channel. Each line records its
+engine's raw output. For a transition from latency `a` to `b`, the lower-latency path
+is delayed by `|a - b|` during the whole fade, so both paths are aligned at
+`max(a, b)`:
+
+- If `b > a`, the old path is delayed from the fade start. The output latency changes
+  to `b` at the start frame, and the old path repeats its last `b - a` frames while
+  its gain is near one.
+- If `b < a`, the new path is delayed. The output latency stays `a` until the frame
+  where the fade completes, then changes to `b`, skipping `a - b` frames of the new
+  path while only it is audible.
+- A cut changes the output latency at the start frame, with no delay.
+
+Without priming, the incoming engine has no output from before the fade start. When
+`b < a` its delayed path therefore reads zeros for the first `a - b` fade frames and
+is silent while its gain rises; if `a - b` is at least the fade length it contributes
+nothing before the release, and the level dip is deeper. Priming fills those frames.
+
+Each change is reported in `TransitionStatus::output_latency_change` and
+`TransitionEvent::OutputLatencyChanged` with its absolute frame. `output_latency_samples()`
+gives the current value; the consumer applies its host's latency change. A proposal
+whose latency differs from the current engine's by more than `maximum_difference` is
+refused at the boundary where it would start. It is returned unused as
+`ReturnReason::Refused` with `TransitionEvent::AlignmentRefused` and
+`TransitionStatus::alignment_refused`, through a reserved returned slot. Without a free
+slot it stays where it is (`retirement_blocked`) and nothing starts. The check happens
+on the audio side because only that endpoint knows which engine is current.
+
+Both policies are allocation-free on the audio side. Each block copies the input
+into the ring and each engine's output through its line, in time proportional to the
+block. Taking a proposal forgets the incoming line and `reset` forgets both, in
+constant time: each line counts the frames written since it was forgotten and reads
+older positions as zero, so no clear proportional to the prepared size is needed.
+During a fade, the delayed path (old or new) therefore reads zeros for its delay after
+a `reset`.
+
+Tests check bit-exact output against independently computed references for f32 and
+f64 banks across block sizes 64, 1, 7 and random:
+
+- **Priming.** A primed engine equals a fresh engine fed the recorded input. For a
+  4,096-tap response with a 256-frame fade, the windowed level dip is -7.50 dB without
+  priming (-7.44 dB predicted from the missing tail energy) and 0 dB with priming.
+  Output equals a never-switched engine bit-for-bit when the history start is
+  partition-aligned, and to 3.3e-16 (f64) or 1.8e-7 (f32) of peak otherwise.
+- **Delayed fade.** The fade starts at the independently simulated boundary, within the
+  documented bound, with at most `frames_per_block` primed frames per block.
+- **Alignment.** Aligned blends have zero error. The default policy's misalignment
+  reaches 1.22 times the peak during the fade. On 148 impulses across three latency
+  changes, the measured onset always equals the reported output latency.
+
+Further tests cover priming from a history shorter than requested (before the ring
+fills and after `reset`), `LatestWins` proposals arriving during priming, `reset`
+during aligned fades in both directions against an independent reference, refusals
+that leave output, histories and returned engines untouched (including under
+backpressure), setup refusals with zero allocations, zero audio-side allocations
+through priming, alignment, refusal and reset, and a three-seed worker/audio stress
+test of each mid-fade policy. These are offline results;
+they make no deadline claim. See
+[decision 0275](decisions/0275-convolution-transition-priming-and-latency-alignment.md).
+
 ## Explicit event graphs
 
 While inactive, `set_event_routes` replaces default input broadcast with up to
@@ -202,6 +307,15 @@ chains, stable equal-time ordering, zero-frame events, duplicate-edge overflow,
 failed-edit preservation, combined cycles, fault reset and 10,000 heap-free
 merge/reset callbacks. A native f64 graph routes opaque UMP words unchanged.
 Native host/device event scheduling and deadline evidence remain separate.
+
+Hosted VST3 Graph-bank nodes accept these events only through an explicit
+per-node translation: declared parameter routes, a selected note bus and
+transport, with refuse or ignore policies. See
+[framework event translation](vst3-hosting.md#framework-event-translation).
+A refused block is silenced and reported as `ProcessStatus::Silence`, so the
+Graph continues; the reason is counted and recorded on the bank control, not
+in `GraphStatus`. Broadcast routing therefore needs either `Ignore` policies
+or explicit per-node event edges, unless silent refused blocks are acceptable.
 
 ## Explicit audio-owner sessions
 

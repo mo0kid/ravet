@@ -97,6 +97,7 @@ fn graph_bank_ownership_scenarios_on_one_main_thread() {
     end_failure_retains_owners_until_successful_retry();
     rich_lanes_round_trip_and_refuse_before_native_mutation();
     lanes_and_audio_ten_thousand_cycles_allocate_nothing();
+    super::translation_tests::scenarios();
     forgotten_node_and_refused_return_retain_bank();
     child_and_bank_capacity_and_generation_exhaustion();
 }

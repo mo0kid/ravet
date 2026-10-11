@@ -15,13 +15,23 @@
 //! [`TransitionStatus`] returned by each call is authoritative; the
 //! [`TransitionReport`] queue is best-effort (bounded, with loss counts).
 //!
-//! Limits: the new engine starts from empty history, so for a response longer
-//! than the fade its output still lacks the tail contributed by input from before
-//! the transition; for stationary input the blend dips in level, by up to
+//! Limits under the default [`convolution_transition`] constructor: the new
+//! engine starts from empty history, so for a response longer than the fade its
+//! output still lacks the tail contributed by input from before the transition;
+//! for stationary input the blend dips in level, by up to
 //! `1 - (energy of the first fade-length taps / total energy)` at the end of the
 //! fade, recovering as the new history fills. Engines with different latencies
 //! are not aligned: under [`LatencyPolicy::Report`] the fade mixes both
 //! latencies and the consumer applies any host latency change.
+//!
+//! [`convolution_transition_with_continuity`] adds two explicit, optional
+//! policies in a [`TransitionContinuity`]: [`PrimingPolicy::History`] feeds the
+//! incoming engine the most recent input from a prepared history ring before its
+//! fade starts (immediately, or over several blocks with a delayed fade), and
+//! [`AlignmentPolicy::DelayLower`] delays the lower-latency path through a
+//! prepared delay line during the fade, reports each output-latency change and
+//! refuses transitions whose latency difference exceeds a configured maximum.
+//! With [`TransitionContinuity::NONE`] the behaviour is exactly the default.
 //!
 //! ```
 //! use ravet_graph::{
@@ -61,6 +71,13 @@ pub const TRANSITION_MAXIMUM_FADE_FRAMES: usize = 1 << 20;
 pub const TRANSITION_RETURN_CAPACITY: usize = 4;
 /// Transition report queue capacity.
 pub const TRANSITION_REPORT_CAPACITY: usize = 16;
+/// Largest accepted [`PrimingPolicy::History`] length in frames.
+pub const TRANSITION_MAXIMUM_PRIMING_FRAMES: usize = 1 << 20;
+/// Largest accepted [`AlignmentPolicy::DelayLower`] maximum difference in frames.
+pub const TRANSITION_MAXIMUM_ALIGNMENT_FRAMES: usize = 1 << 20;
+/// Largest accepted continuity storage (history ring plus both delay lines) in
+/// bytes of samples, checked before any allocation.
+pub const TRANSITION_MAXIMUM_CONTINUITY_BYTES: usize = 256 << 20;
 
 mod sealed {
     pub trait Sealed {}
@@ -282,12 +299,135 @@ pub struct TransitionOptions {
     pub latency: LatencyPolicy,
 }
 
+/// Optional history priming of the incoming engine (see
+/// [`convolution_transition_with_continuity`]).
+///
+/// Under [`PrimingPolicy::History`] the audio endpoint records the most recent
+/// `frames` input frames of every channel in a ring prepared at construction.
+/// When a proposal is taken, the incoming engine first processes the recorded
+/// history (at most `frames`, fewer if less input has been seen since
+/// construction or the last [`ConvolutionTransition::reset`]), output discarded,
+/// so that when its fade starts its state equals that of an engine that had been
+/// running on the same input. With `frames` at least the incoming engine's
+/// `tail_samples` (`taps - 1 + latency`), its output from the fade start matches a
+/// never-switched engine with the same response to rounding, and the level dip of
+/// the default policy disappears.
+///
+/// Work is bounded per block: at most `frames_per_block` history frames per
+/// channel are processed at one block boundary, in addition to normal rendering.
+/// If the recorded history fits (`history <= frames_per_block`), priming completes
+/// and the fade starts at the same boundary. Otherwise the fade is **delayed**: the
+/// old engine keeps playing alone while the incoming engine catches up through the
+/// ring (consuming `frames_per_block` frames per boundary while each block adds its
+/// own frames), and the fade starts at the first boundary at which the remaining
+/// lag is at most `frames_per_block`. For blocks of at most `b` frames, a lag `g`
+/// shrinks by at least `frames_per_block - b` per block, so the fade starts after
+/// at most `ceil((g - frames_per_block) / (frames_per_block - b))` delayed blocks.
+/// A proposal being primed counts as an in-progress transition for
+/// [`MidFadePolicy`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimingPolicy {
+    /// No priming: the incoming engine starts from its prepared (empty) history.
+    None,
+    /// Prime from a prepared history ring.
+    History {
+        /// History ring length per channel, 1..=[`TRANSITION_MAXIMUM_PRIMING_FRAMES`].
+        frames: usize,
+        /// Largest number of history frames per channel processed at one block
+        /// boundary, at least 1. Must be at least `frames` (single-block priming) or
+        /// greater than the transition's `maximum_frames` (so a delayed fade always
+        /// catches up).
+        frames_per_block: usize,
+    },
+}
+
+/// Optional latency alignment between the outgoing and incoming engines (see
+/// [`convolution_transition_with_continuity`]).
+///
+/// Under [`AlignmentPolicy::DelayLower`] the audio endpoint keeps two delay lines
+/// of `maximum_difference + maximum_frames` frames per channel, prepared at
+/// construction; each records its engine's raw output. When a transition from
+/// latency `a` to latency `b` starts, the lower-latency path is delayed by
+/// `|a - b|` frames for the whole fade, so both paths are aligned at `max(a, b)`:
+///
+/// - `b > a`: the old path is delayed from the fade start; the output latency
+///   changes from `a` to `b` at the start frame (the old path repeats its last
+///   `b - a` output frames while its gain is near one).
+/// - `b < a`: the new path is delayed during the fade; the output latency stays
+///   `a` and changes to `b` at the frame where the fade completes (the delay is
+///   released while only the new path is audible, skipping `a - b` of its output
+///   frames).
+/// - a cut (`frames == 0`) changes the output latency at the start frame, with
+///   no delay (an unaligned jump).
+///
+/// Without [`PrimingPolicy::History`] the incoming engine has no output from
+/// before the fade start, so when `b < a` its delayed path reads zeros for the
+/// first `a - b` fade frames: it stays silent while its gain rises, and if
+/// `a - b` is at least the fade length it contributes nothing before the
+/// release, deepening the level dip. Priming fills those frames.
+///
+/// Each change is reported through [`TransitionStatus::output_latency_change`]
+/// and [`TransitionEvent::OutputLatencyChanged`], and
+/// [`ConvolutionTransition::output_latency_samples`] gives the current value.
+/// Outside fades no delay is applied. A proposal whose latency differs from the
+/// current engine's by more than `maximum_difference` is refused at the block
+/// boundary where it would start (only the audio endpoint knows the current
+/// engine): it is returned unused as [`ReturnReason::Refused`] with
+/// [`TransitionEvent::AlignmentRefused`], through a reserved returned slot; if
+/// none is free it stays where it is and the boundary reports
+/// `retirement_blocked`. Under [`LatencyPolicy::RequireEqual`] no difference can
+/// arise and the policy has no effect.
+///
+/// Cost: every block copies each engine's output through its line, proportional
+/// to the block. The boundary that takes a proposal forgets the incoming line and
+/// [`ConvolutionTransition::reset`] forgets both in constant time: each line
+/// tracks how many frames were written since it was forgotten and reads older
+/// positions as zero, so no clear proportional to the prepared size
+/// (`channels * (maximum_difference + maximum_frames)` samples) is performed.
+/// No allocation is performed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlignmentPolicy {
+    /// No alignment (the default behaviour): the fade mixes both latencies.
+    None,
+    /// Delay the lower-latency path by the latency difference during the fade.
+    DelayLower {
+        /// Largest accepted latency difference and delay in frames,
+        /// 0..=[`TRANSITION_MAXIMUM_ALIGNMENT_FRAMES`].
+        maximum_difference: usize,
+    },
+}
+
+/// Optional continuity policies for [`convolution_transition_with_continuity`].
+/// [`TransitionContinuity::NONE`] (also the [`Default`]) gives exactly the
+/// behaviour of [`convolution_transition`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransitionContinuity {
+    /// History priming of the incoming engine.
+    pub priming: PrimingPolicy,
+    /// Latency alignment during the fade.
+    pub alignment: AlignmentPolicy,
+}
+impl TransitionContinuity {
+    /// No priming and no alignment.
+    pub const NONE: Self = Self {
+        priming: PrimingPolicy::None,
+        alignment: AlignmentPolicy::None,
+    };
+}
+impl Default for TransitionContinuity {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 /// Why an engine was returned to the control owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnReason {
     /// Replaced; its fade (or cut) completed.
     Retired,
-    /// Refused mid-fade under [`MidFadePolicy::Refuse`]; never processed audio.
+    /// Refused mid-fade under [`MidFadePolicy::Refuse`], or refused at its start
+    /// boundary by [`AlignmentPolicy::DelayLower`] (reported as
+    /// [`TransitionEvent::AlignmentRefused`]); never processed audio.
     Refused,
     /// Replaced while waiting under [`MidFadePolicy::LatestWins`]; never processed audio.
     Superseded,
@@ -329,6 +469,29 @@ pub enum TransitionEvent {
     Refused,
     /// The waiting proposal was superseded.
     Superseded,
+    /// Priming of this proposal began under [`PrimingPolicy::History`]
+    /// (`Started` follows when its fade starts, possibly at the same boundary).
+    PrimingStarted {
+        /// Recorded history frames the incoming engine will process.
+        history_frames: usize,
+    },
+    /// The proposal was refused at its start boundary because its latency differs
+    /// from the current engine's by more than the
+    /// [`AlignmentPolicy::DelayLower`] maximum.
+    AlignmentRefused {
+        /// Latency of the current engine.
+        previous_latency: usize,
+        /// Latency of the refused engine.
+        latency: usize,
+    },
+    /// The aligned output latency changed at this frame (only under
+    /// [`AlignmentPolicy::DelayLower`]).
+    OutputLatencyChanged {
+        /// Output latency before the change.
+        previous_latency: usize,
+        /// Output latency from this frame.
+        latency: usize,
+    },
 }
 
 /// One audio-side event delivered to the control owner.
@@ -358,6 +521,16 @@ pub struct TransitionStatus {
     /// A proposal could not be taken because returned-engine storage is full;
     /// the control owner must take or reclaim returned engines.
     pub retirement_blocked: bool,
+    /// An incoming engine is still being primed after this block (delayed fade
+    /// under [`PrimingPolicy::History`]).
+    pub priming: bool,
+    /// History frames per channel fed to the incoming engine at this boundary.
+    pub primed_frames: usize,
+    /// Sequence refused at this boundary by [`AlignmentPolicy::DelayLower`].
+    pub alignment_refused: Option<u64>,
+    /// `(previous, new)` output latency when it changed within this block (only
+    /// under [`AlignmentPolicy::DelayLower`]).
+    pub output_latency_change: Option<(usize, usize)>,
 }
 
 /// Why an offer was refused. The caller keeps the engine.
@@ -399,6 +572,14 @@ pub enum TransitionSetupFailure {
     FadeFrames,
     /// Scratch reservation failed.
     Allocation,
+    /// Invalid [`PrimingPolicy::History`] lengths.
+    Priming,
+    /// [`AlignmentPolicy::DelayLower`] maximum exceeds
+    /// [`TRANSITION_MAXIMUM_ALIGNMENT_FRAMES`].
+    Alignment,
+    /// Continuity storage would exceed [`TRANSITION_MAXIMUM_CONTINUITY_BYTES`], or
+    /// a continuity size computation would overflow.
+    Storage,
 }
 
 /// Refused construction with ownership of the unchanged initial engine.
@@ -458,7 +639,10 @@ impl<E: TransitionEngine> ConvolutionTransitionControl<E> {
     /// Offer an already-prepared engine. Channel count, maximum frames and (under
     /// [`LatencyPolicy::RequireEqual`]) latency are checked here; a refused engine
     /// is returned unchanged. Success returns the proposal's sequence (1, 2, ...).
-    /// The engine should have fresh history; it is not reset on handoff.
+    /// The engine should have fresh history; it is not reset on handoff. Under
+    /// [`AlignmentPolicy::DelayLower`] the latency difference is checked by the
+    /// audio endpoint at the start boundary instead, against the engine current
+    /// at that time.
     /// `Ok` means "queued in the handoff", not "will play": a queued proposal can
     /// later be refused or superseded, and if the audio endpoint is dropped after
     /// the abandonment check it is freed with the queue.
@@ -531,8 +715,8 @@ impl<E: TransitionEngine> ConvolutionTransitionControl<E> {
 /// unprocessed outgoing owner until a later block boundary can return it.
 ///
 /// Drop behaviour (construct and drop this endpoint outside the audio callback):
-/// dropping it frees its current, outgoing, waiting and deferred engines on the
-/// dropping thread. The three queues, including any engines still queued in the
+/// dropping it frees its current, outgoing, priming, waiting and deferred engines
+/// on the dropping thread. The three queues, including any engines still queued in the
 /// handoff or returned queue, are freed by whichever endpoint is dropped last. If
 /// the control endpoint is dropped first, `process` continues: retirements still
 /// move into the (now unread) returned queue and, once it is full, the deferred
@@ -555,6 +739,67 @@ pub struct ConvolutionTransition<E: TransitionEngine> {
     options: TransitionOptions,
     frame: u64,
     lost_reports: u64,
+    continuity: TransitionContinuity,
+    /// Planar input history ring, `channels * history_frames` (empty when unused).
+    history: Vec<E::Sample>,
+    history_frames: usize,
+    history_write: usize,
+    history_recorded: usize,
+    /// Proposal being primed and its remaining lag behind the live input.
+    incoming: Option<(Proposal<E>, usize)>,
+    /// Two planar delay lines, `channels * line_capacity` each (empty when unused).
+    lines: [Vec<E::Sample>; 2],
+    line_capacity: usize,
+    line_write: [usize; 2],
+    /// Frames written to each line since it was last forgotten (saturating at
+    /// `line_capacity`); older positions read as zero, so forgetting a line is
+    /// constant time instead of a clear proportional to its prepared size.
+    line_valid: [usize; 2],
+    current_line: usize,
+    current_delay: usize,
+    outgoing_delay: usize,
+    output_latency: usize,
+}
+
+/// Write `block` into one channel of a delay line at `write`, then replace each
+/// frame with the line value `delay` frames earlier (`first` for frames before
+/// `split`, `rest` after), or zero when that frame precedes the `valid` frames
+/// written since the line was last forgotten. Requires
+/// `delay + block.len() <= line.len()`.
+fn delay_through<S: Copy + Default>(
+    line: &mut [S],
+    write: usize,
+    valid: usize,
+    block: &mut [S],
+    split: usize,
+    first: usize,
+    rest: usize,
+) {
+    let capacity = line.len();
+    if capacity == 0 {
+        return;
+    }
+    for (i, value) in block.iter().enumerate() {
+        line[(write + i) % capacity] = *value;
+    }
+    for (i, value) in block.iter_mut().enumerate() {
+        let delay = if i < split { first } else { rest };
+        if delay != 0 {
+            *value = if valid + i < delay {
+                S::default()
+            } else {
+                line[(write + i + capacity - delay) % capacity]
+            };
+        }
+    }
+}
+
+/// Fallibly reserve and zero-fill `len` samples.
+fn zeroed<S: Copy + Default>(len: usize) -> Option<Vec<S>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len).ok()?;
+    v.resize(len, S::default());
+    Some(v)
 }
 
 /// Construct the control and audio endpoints around a prepared initial engine
@@ -568,6 +813,66 @@ pub fn convolution_transition<E: TransitionEngine>(
     maximum_frames: usize,
     options: TransitionOptions,
 ) -> Result<(ConvolutionTransitionControl<E>, ConvolutionTransition<E>), TransitionSetupError<E>> {
+    convolution_transition_with_continuity(
+        initial,
+        maximum_frames,
+        options,
+        TransitionContinuity::NONE,
+    )
+}
+
+/// [`convolution_transition`] with explicit [`TransitionContinuity`] policies
+/// (CONTROL). Additionally prepares, before returning, a history ring of
+/// `channels * frames` samples for [`PrimingPolicy::History`] and two delay lines
+/// of `channels * (maximum_difference + maximum_frames)` samples for
+/// [`AlignmentPolicy::DelayLower`]. All lengths and the total
+/// ([`TRANSITION_MAXIMUM_CONTINUITY_BYTES`]) are checked before any allocation,
+/// storage is reserved fallibly, and a refusal returns the initial engine
+/// unchanged. [`TransitionContinuity::NONE`] allocates nothing extra and behaves
+/// exactly like [`convolution_transition`].
+///
+/// ```
+/// use ravet_graph::{
+///     AlignmentPolicy, CrossfadeLaw, CrossfadePolicy, LatencyPolicy, MidFadePolicy,
+///     PrimingPolicy, TransitionContinuity, TransitionOptions,
+///     convolution_transition_with_continuity,
+/// };
+/// use ravet_signal::{ConvolutionPartitioning, Convolver64};
+/// let zero = ConvolutionPartitioning::ZeroLatency { head: 16 };
+/// let delayed = ConvolutionPartitioning::UniformDelayed { partition: 16 };
+/// let first = Box::new(Convolver64::new(&[1.0, 1.0], zero, 64, 1 << 20).unwrap());
+/// let options = TransitionOptions {
+///     crossfade: CrossfadePolicy { frames: 8, law: CrossfadeLaw::EqualGain },
+///     mid_fade: MidFadePolicy::Refuse,
+///     latency: LatencyPolicy::Report,
+/// };
+/// let continuity = TransitionContinuity {
+///     priming: PrimingPolicy::History { frames: 64, frames_per_block: 64 },
+///     alignment: AlignmentPolicy::DelayLower { maximum_difference: 32 },
+/// };
+/// let (mut control, mut audio) =
+///     convolution_transition_with_continuity(first, 64, options, continuity).unwrap();
+/// let input = [1.0; 32];
+/// let mut output = [0.0; 32];
+/// audio.process(&[&input], &mut [&mut output], 32).unwrap();
+/// // Worker: a 16-frame-latency replacement with the same response.
+/// let next = Box::new(Convolver64::new(&[1.0, 1.0], delayed, 64, 1 << 20).unwrap());
+/// control.offer(next).unwrap();
+/// let status = audio.process(&[&input], &mut [&mut output], 32).unwrap();
+/// // Primed from the recorded input, the old path delayed by 16 frames: the
+/// // fade blends identical steady-state signals (to FFT rounding).
+/// assert_eq!(status.primed_frames, 32);
+/// assert_eq!(status.output_latency_change, Some((0, 16)));
+/// assert_eq!(audio.output_latency_samples(), Some(16));
+/// assert!(output.iter().all(|y| (y - 2.0).abs() < 1e-12));
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn convolution_transition_with_continuity<E: TransitionEngine>(
+    initial: Box<E>,
+    maximum_frames: usize,
+    options: TransitionOptions,
+    continuity: TransitionContinuity,
+) -> Result<(ConvolutionTransitionControl<E>, ConvolutionTransition<E>), TransitionSetupError<E>> {
     let refuse = |reason, engine| Err(TransitionSetupError { reason, engine });
     if maximum_frames == 0 || maximum_frames > initial.transition_maximum_frames() {
         return refuse(TransitionSetupFailure::MaximumFrames, initial);
@@ -575,6 +880,50 @@ pub fn convolution_transition<E: TransitionEngine>(
     if options.crossfade.frames > TRANSITION_MAXIMUM_FADE_FRAMES {
         return refuse(TransitionSetupFailure::FadeFrames, initial);
     }
+    let history_frames = match continuity.priming {
+        PrimingPolicy::None => 0,
+        PrimingPolicy::History {
+            frames,
+            frames_per_block,
+        } => {
+            if frames == 0
+                || frames > TRANSITION_MAXIMUM_PRIMING_FRAMES
+                || frames_per_block == 0
+                || (frames_per_block < frames && frames_per_block <= maximum_frames)
+            {
+                return refuse(TransitionSetupFailure::Priming, initial);
+            }
+            frames
+        }
+    };
+    let line_capacity = match continuity.alignment {
+        AlignmentPolicy::None => 0,
+        AlignmentPolicy::DelayLower { maximum_difference } => {
+            if maximum_difference > TRANSITION_MAXIMUM_ALIGNMENT_FRAMES {
+                return refuse(TransitionSetupFailure::Alignment, initial);
+            }
+            match maximum_difference.checked_add(maximum_frames) {
+                Some(capacity) => capacity,
+                None => return refuse(TransitionSetupFailure::Storage, initial),
+            }
+        }
+    };
+    let channels = initial.transition_channels();
+    let history_len = channels.checked_mul(history_frames);
+    let line_len = channels.checked_mul(line_capacity);
+    let total = history_len
+        .zip(line_len)
+        .and_then(|(h, l)| l.checked_mul(2).and_then(|l| l.checked_add(h)))
+        .and_then(|n| n.checked_mul(std::mem::size_of::<E::Sample>()));
+    let (history_len, line_len) = match (total, history_len, line_len) {
+        (Some(bytes), Some(h), Some(l)) if bytes <= TRANSITION_MAXIMUM_CONTINUITY_BYTES => (h, l),
+        _ => return refuse(TransitionSetupFailure::Storage, initial),
+    };
+    let (Some(history), Some(line_a), Some(line_b)) =
+        (zeroed(history_len), zeroed(line_len), zeroed(line_len))
+    else {
+        return refuse(TransitionSetupFailure::Allocation, initial);
+    };
     let mut scratch = Vec::new();
     if scratch.try_reserve_exact(maximum_frames).is_err() {
         return refuse(TransitionSetupFailure::Allocation, initial);
@@ -588,7 +937,6 @@ pub fn convolution_transition<E: TransitionEngine>(
     let (pending_tx, pending_rx) = RingBuffer::new(1);
     let (returned_tx, returned_rx) = RingBuffer::new(TRANSITION_RETURN_CAPACITY);
     let (reports_tx, reports_rx) = RingBuffer::new(TRANSITION_REPORT_CAPACITY);
-    let channels = initial.transition_channels();
     let latency = initial.transition_latency();
     Ok((
         ConvolutionTransitionControl {
@@ -619,6 +967,20 @@ pub fn convolution_transition<E: TransitionEngine>(
             options,
             frame: 0,
             lost_reports: 0,
+            continuity,
+            history,
+            history_frames,
+            history_write: 0,
+            history_recorded: 0,
+            incoming: None,
+            lines: [line_a, line_b],
+            line_capacity,
+            line_write: [0, 0],
+            line_valid: [0, 0],
+            current_line: 0,
+            current_delay: 0,
+            outgoing_delay: 0,
+            output_latency: latency,
         },
     ))
 }
@@ -721,12 +1083,189 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
         );
         status.started = Some(proposal.sequence);
         self.fade_position = 0;
+        if self.line_capacity > 0 {
+            // The incoming line was forgotten (and possibly primed) by `take_next`.
+            self.current_line = 1 - self.current_line;
+            let (old_delay, new_delay) = if fade_frames == 0 {
+                (0, 0)
+            } else if latency >= previous_latency {
+                (latency - previous_latency, 0)
+            } else {
+                (0, previous_latency - latency)
+            };
+            self.outgoing_delay = old_delay;
+            self.current_delay = new_delay;
+            if new_delay == 0 && latency != previous_latency {
+                self.change_output_latency(latency, self.frame, status);
+            }
+        }
         if fade_frames == 0 {
             self.retire(old_sequence, old);
             self.report(proposal.sequence, TransitionEvent::Completed, self.frame);
             status.completed = Some(proposal.sequence);
         } else {
             self.outgoing = Some((old_sequence, old));
+        }
+    }
+    fn change_output_latency(&mut self, latency: usize, frame: u64, status: &mut TransitionStatus) {
+        let previous_latency = self.output_latency;
+        self.output_latency = latency;
+        status.output_latency_change = Some((previous_latency, latency));
+        self.report(
+            self.current_sequence,
+            TransitionEvent::OutputLatencyChanged {
+                previous_latency,
+                latency,
+            },
+            frame,
+        );
+    }
+    /// Take the next proposal (waiting first) and begin it: refuse it under the
+    /// alignment maximum, otherwise prime it or start it directly.
+    fn take_next(&mut self, status: &mut TransitionStatus) {
+        let candidate = match &self.waiting {
+            Some(p) => Some(p.engine.transition_latency()),
+            None => self
+                .pending
+                .peek()
+                .ok()
+                .map(|p| p.engine.transition_latency()),
+        };
+        let Some(latency) = candidate else {
+            return;
+        };
+        let previous_latency = self.current.transition_latency();
+        if let AlignmentPolicy::DelayLower { maximum_difference } = self.continuity.alignment
+            && latency.abs_diff(previous_latency) > maximum_difference
+        {
+            let Ok(chunk) = self.returned.write_chunk_uninit(1) else {
+                status.retirement_blocked = true;
+                return;
+            };
+            let proposal = match self.waiting.take() {
+                Some(p) => Some(p),
+                None => self.pending.pop().ok(),
+            };
+            if let Some(p) = proposal {
+                let sequence = p.sequence;
+                chunk.fill_from_iter(std::iter::once(ReturnedEngine {
+                    reason: ReturnReason::Refused,
+                    sequence,
+                    engine: p.engine,
+                }));
+                status.alignment_refused = Some(sequence);
+                self.report(
+                    sequence,
+                    TransitionEvent::AlignmentRefused {
+                        previous_latency,
+                        latency,
+                    },
+                    self.frame,
+                );
+            }
+            return;
+        }
+        let next = match self.waiting.take() {
+            Some(p) => Some(p),
+            None => self.pending.pop().ok(),
+        };
+        let Some(p) = next else {
+            return;
+        };
+        if self.line_capacity > 0 {
+            let incoming = 1 - self.current_line;
+            // Forget the incoming line (constant time; see `line_valid`).
+            self.line_write[incoming] = 0;
+            self.line_valid[incoming] = 0;
+        }
+        if self.history_frames == 0 {
+            self.start(p, status);
+            return;
+        }
+        let lag = self.history_recorded;
+        self.report(
+            p.sequence,
+            TransitionEvent::PrimingStarted {
+                history_frames: lag,
+            },
+            self.frame,
+        );
+        self.incoming = Some((p, lag));
+        self.prime_step(status);
+    }
+    /// Feed at most `frames_per_block` recorded history frames per channel to the
+    /// incoming engine (output discarded, or recorded in its delay line), then
+    /// start its fade once it has caught up with the live input.
+    fn prime_step(&mut self, status: &mut TransitionStatus) {
+        let PrimingPolicy::History {
+            frames_per_block, ..
+        } = self.continuity.priming
+        else {
+            return;
+        };
+        let Some((proposal, lag)) = self.incoming.as_mut() else {
+            return;
+        };
+        let ring = self.history_frames;
+        let chunk = frames_per_block.min(*lag);
+        let engine = &mut proposal.engine;
+        let incoming_line = 1 - self.current_line;
+        let capacity = self.line_capacity;
+        let mut read = (self.history_write + ring - *lag) % ring;
+        let mut remaining = chunk;
+        while remaining > 0 {
+            let n = remaining.min(ring - read).min(self.maximum_frames);
+            let write = self.line_write[incoming_line];
+            for channel in 0..self.channels {
+                let source = &self.history[channel * ring + read..channel * ring + read + n];
+                let scratch = &mut self.scratch[..n];
+                if engine
+                    .transition_process(channel, source, scratch, n)
+                    .is_err()
+                {
+                    scratch.fill(E::Sample::default());
+                }
+                if capacity > 0 {
+                    let line = &mut self.lines[incoming_line]
+                        [channel * capacity..(channel + 1) * capacity];
+                    for (i, value) in scratch.iter().enumerate() {
+                        line[(write + i) % capacity] = *value;
+                    }
+                }
+            }
+            if capacity > 0 {
+                self.line_write[incoming_line] = (write + n) % capacity;
+                self.line_valid[incoming_line] = (self.line_valid[incoming_line] + n).min(capacity);
+            }
+            read = (read + n) % ring;
+            remaining -= n;
+        }
+        *lag -= chunk;
+        status.primed_frames = chunk;
+        if *lag == 0
+            && let Some((p, _)) = self.incoming.take()
+        {
+            self.start(p, status);
+        }
+    }
+    /// Append this block's input to the history ring (last `history_frames` only).
+    fn record_history(&mut self, input: &[&[E::Sample]], frames: usize) {
+        let ring = self.history_frames;
+        if ring == 0 {
+            return;
+        }
+        let take = frames.min(ring);
+        let skip = frames - take;
+        for (channel, x) in input.iter().enumerate() {
+            let history = &mut self.history[channel * ring..(channel + 1) * ring];
+            for (i, value) in x[skip..frames].iter().enumerate() {
+                history[(self.history_write + i) % ring] = *value;
+            }
+        }
+        self.history_write = (self.history_write + take) % ring;
+        self.history_recorded = (self.history_recorded + frames).min(ring);
+        if let Some((_, lag)) = self.incoming.as_mut() {
+            *lag = (*lag + frames).min(self.history_recorded);
         }
     }
     fn boundary(&mut self, status: &mut TransitionStatus) {
@@ -742,6 +1281,14 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
         {
             self.retire(sequence, old);
         }
+        // Priming always progresses, so its lag stays within the history ring. A
+        // completion that cuts (no fade) ends this boundary: at most one start.
+        if self.incoming.is_some() {
+            self.prime_step(status);
+            if status.started.is_some() && self.outgoing.is_none() {
+                return;
+            }
+        }
         let has_pending = !self.pending.is_empty();
         // Under Refuse, a proposal that arrived during a transition stays refused
         // even if retirement backpressure delayed its return past the fade.
@@ -754,7 +1301,7 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
             }
         }
         let has_pending = !self.pending.is_empty();
-        if self.outgoing.is_some() {
+        if self.outgoing.is_some() || self.incoming.is_some() {
             match self.options.mid_fade {
                 MidFadePolicy::QueueOne => {}
                 MidFadePolicy::Refuse => {
@@ -785,13 +1332,7 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
             status.retirement_blocked = true;
             return;
         }
-        let next = match self.waiting.take() {
-            Some(p) => Some(p),
-            None => self.pending.pop().ok(),
-        };
-        if let Some(p) = next {
-            self.start(p, status);
-        }
+        self.take_next(status);
     }
     /// Process the first `frames` frames of every channel. Channel count, the
     /// maximum and every prefix are admitted before any state changes; a refused
@@ -829,6 +1370,24 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
             old_gains[i] = g_old;
             new_gains[i] = g_new;
         }
+        // Alignment: the current path is delayed by `current_delay` while fading,
+        // released at the frame where the fade completes; the old path by
+        // `outgoing_delay`. Both lines always record their engine's raw output.
+        let capacity = self.line_capacity;
+        let completes = faded > 0 && position + faded == length;
+        let current_delay = self.current_delay;
+        let current_rest = if completes { 0 } else { current_delay };
+        let outgoing_delay = self.outgoing_delay;
+        let current_write = self.line_write[self.current_line];
+        let outgoing_write = self.line_write[1 - self.current_line];
+        let current_valid = self.line_valid[self.current_line];
+        let outgoing_valid = self.line_valid[1 - self.current_line];
+        let [line_a, line_b] = &mut self.lines;
+        let (current_line, outgoing_line) = if self.current_line == 0 {
+            (line_a, line_b)
+        } else {
+            (line_b, line_a)
+        };
         let current = &mut self.current;
         let scratch = &mut self.scratch;
         let mut outgoing = self.outgoing.as_mut().map(|(_, e)| e);
@@ -836,6 +1395,17 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
             if current.transition_process(channel, x, y, frames).is_err() {
                 // Unreachable after admission and offer checks; silence, never panic.
                 y[..frames].fill(E::Sample::default());
+            }
+            if capacity > 0 {
+                delay_through(
+                    &mut current_line[channel * capacity..(channel + 1) * capacity],
+                    current_write,
+                    current_valid,
+                    &mut y[..frames],
+                    faded,
+                    current_delay,
+                    current_rest,
+                );
             }
             if faded == 0 {
                 continue;
@@ -846,9 +1416,28 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
             if old.transition_process(channel, x, scratch, faded).is_err() {
                 scratch[..faded].fill(E::Sample::default());
             }
+            if capacity > 0 {
+                delay_through(
+                    &mut outgoing_line[channel * capacity..(channel + 1) * capacity],
+                    outgoing_write,
+                    outgoing_valid,
+                    &mut scratch[..faded],
+                    faded,
+                    outgoing_delay,
+                    outgoing_delay,
+                );
+            }
             for (i, (out, previous)) in y[..faded].iter_mut().zip(&scratch[..faded]).enumerate() {
                 *out = E::Sample::from_gain(old_gains[i]) * *previous
                     + E::Sample::from_gain(new_gains[i]) * *out;
+            }
+        }
+        if capacity > 0 {
+            self.line_write[self.current_line] = (current_write + frames) % capacity;
+            self.line_valid[self.current_line] = (current_valid + frames).min(capacity);
+            if faded > 0 {
+                self.line_write[1 - self.current_line] = (outgoing_write + faded) % capacity;
+                self.line_valid[1 - self.current_line] = (outgoing_valid + faded).min(capacity);
             }
         }
         self.fade_position += faded;
@@ -860,18 +1449,41 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
             let at = self.frame.saturating_add(faded as u64);
             self.report(self.current_sequence, TransitionEvent::Completed, at);
             status.completed = Some(self.current_sequence);
+            if capacity > 0 {
+                self.outgoing_delay = 0;
+                if self.current_delay > 0 {
+                    self.current_delay = 0;
+                    let latency = self.current.transition_latency();
+                    self.change_output_latency(latency, at, &mut status);
+                }
+            }
         }
+        self.record_history(input, frames);
         status.fading = self.outgoing.is_some() && self.fade_position < length;
+        status.priming = self.incoming.is_some();
         self.frame = self.frame.saturating_add(frames as u64);
         Ok(status)
     }
     /// Clear the histories of the current and (if fading) outgoing engines. The
     /// fade position, waiting proposal and handoff are unchanged.
+    ///
+    /// With continuity policies, reset also forgets the recorded input history,
+    /// forgets both delay lines in constant time (alignment delays and output
+    /// latency unchanged; during a fade the delayed path, old or new, reads zeros
+    /// for its delay after the reset) and resets a proposal being primed with zero remaining lag, so its
+    /// fade starts at the next block boundary from empty history.
     pub fn reset(&mut self) {
         self.current.transition_reset();
         if let Some((_, old)) = &mut self.outgoing {
             old.transition_reset();
         }
+        if let Some((proposal, lag)) = &mut self.incoming {
+            proposal.engine.transition_reset();
+            *lag = 0;
+        }
+        self.history_recorded = 0;
+        // Forget both delay lines (constant time; see `line_valid`).
+        self.line_valid = [0, 0];
     }
     /// Current engine latency in frames.
     pub fn latency_samples(&self) -> usize {
@@ -920,5 +1532,23 @@ impl<E: TransitionEngine> ConvolutionTransition<E> {
     /// Fixed configuration.
     pub fn options(&self) -> TransitionOptions {
         self.options
+    }
+    /// Fixed continuity policies.
+    pub fn continuity(&self) -> TransitionContinuity {
+        self.continuity
+    }
+    /// Aligned output latency in frames under [`AlignmentPolicy::DelayLower`]
+    /// (the delay from input to output of the audible signal after the last
+    /// processed frame), or `None` without alignment.
+    pub fn output_latency_samples(&self) -> Option<usize> {
+        (self.line_capacity > 0).then_some(self.output_latency)
+    }
+    /// Sequence being primed under [`PrimingPolicy::History`] (delayed fade).
+    pub fn priming_sequence(&self) -> Option<u64> {
+        self.incoming.as_ref().map(|(p, _)| p.sequence)
+    }
+    /// Remaining history frames the priming engine lags behind the live input.
+    pub fn priming_lag(&self) -> Option<usize> {
+        self.incoming.as_ref().map(|(_, lag)| *lag)
     }
 }

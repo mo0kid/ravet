@@ -221,8 +221,8 @@ response and its Fourier transform for six rate pairs. The maximum error relativ
 is below 1.6e-5 with 64 taps and 1.1e-6 with 256 taps. The tests also cover length
 formulas, bitwise gain and delay relations, exact mapping, trim offsets and normalization
 gains, energy normalization at 1e200, `f64::MAX` and subnormal scale, and allocation-free
-policy refusals. Live replacement is in
-[audio graphs](audio-graphs.md). See [decision 0272](decisions/0272-impulse-response-preparation-and-live-convolution-transitions.md).
+policy refusals. Live replacement, with optional history priming and latency alignment,
+is in [audio graphs](audio-graphs.md). See [decision 0272](decisions/0272-impulse-response-preparation-and-live-convolution-transitions.md).
 
 ## Configurable oversampling
 

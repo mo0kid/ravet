@@ -282,6 +282,10 @@ pub enum Error {
         report: Option<ControlReport>,
     },
     Processing(processing::Error),
+    /// A Graph node refused this block's framework translation or its mix with
+    /// a rich lane batch before any native call; the batch was not processed.
+    /// The node returned `Silence` and was not faulted.
+    Framework(graph::framework::Refusal),
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -35,11 +35,20 @@
 //! node stays faulted. Rebuild means stop/join workers, return every node, MAIN
 //! reclaim, and construct a fresh bank.
 //!
-//! Portable Foundation event and transport mapping is not implemented by this
-//! node: non-empty portable events refuse before native execution. Complete
-//! typed native events, parameter points and block context use the explicit
-//! per-node rich lanes ([`LaneOptions`]). No DAW, third-party plug-in,
-//! foreign-heap or real-time deadline claim follows from these checks.
+//! Ordinary framework events and transport reach a node only through an
+//! explicit per-node [`framework::FrameworkTranslation`] declared with
+//! [`Vst3GraphBankBuilder::translate`]: declared parameter routes and scales,
+//! a selected note bus with an explicit note-ID policy, optional expressions,
+//! poly pressure and transport, refuse/ignore policies and a merge order with
+//! rich lanes. A translation refusal silences that block and returns
+//! [`ProcessStatus::Silence`]. Neither the node nor an enclosing Graph
+//! latches; the reason is counted and recorded for MAIN
+//! ([`Vst3GraphBankControl::refused`], [`Vst3GraphBankControl::drain_refusals`]).
+//! Without a translation, non-empty framework events refuse before native
+//! execution, with a node fault as before. Complete typed native events, parameter points and block
+//! context also use the explicit per-node rich lanes ([`LaneOptions`]). No DAW,
+//! third-party plug-in, foreign-heap or real-time deadline claim follows from
+//! these checks.
 //!
 //! Nodes are `Send` but not `Sync`, and the control cannot leave MAIN:
 //!
@@ -63,6 +72,7 @@ use super::{
     MAXIMUM_CHANNELS, OutChannel, Precision, Provider as HostedProvider, Timing, dispatch,
 };
 use crate::vst3::instances::{Error as InstanceError, Instance, Library, parameters, processing};
+use framework::{FrameworkTranslation, Refusal, Source, TranslationError, Translator};
 use processing::{Context, EventBuses, Input, InputEvents, InputPoints, Output, OutputStorage};
 use ravet_foundation::{
     AudioLayout, EventError, PrepareError, ProcessBlock, ProcessConfig, ProcessError,
@@ -77,7 +87,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicPtr, AtomicU32, Ordering},
+        atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering},
     },
     thread::ThreadId,
 };
@@ -108,10 +118,18 @@ pub mod diagnostic {
     pub const RESET_REFUSED: u32 = 32;
     /// Completed batch could not be returned; batch retained, not freed.
     pub const DONE_REFUSED: u32 = 64;
-    /// Non-empty portable events refused (portable mapping not implemented).
+    /// Non-empty framework events refused by a node without a translation.
     pub const EVENTS_REFUSED: u32 = 128;
     /// Pre-dispatch admission refusal (shape/precision/capacity).
     pub const ADMISSION: u32 = 256;
+    /// Framework translation refused a block (invalid, unmapped or unsupported
+    /// under a refusing policy, same offset, capacity or transport). Not a node
+    /// fault: the block returned `Silence`.
+    pub const FRAMEWORK_REFUSED: u32 = 512;
+    /// Framework input and a lane batch could not be mixed (merge policy,
+    /// two contexts, conflict or merged capacity). Not a node fault: the block
+    /// returned `Silence`.
+    pub const MIXED_REFUSED: u32 = 1024;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,6 +166,11 @@ pub enum BankError {
     Hosted {
         child: usize,
         error: HostedError,
+    },
+    /// Framework translation declaration refused for a child.
+    Translation {
+        child: usize,
+        error: TranslationError,
     },
 }
 impl std::fmt::Display for BankError {
@@ -238,8 +261,20 @@ pub struct Vst3GraphNodeOptions {
 
 type Setup = dyn FnOnce(&mut Instance<'static, 'static>) -> Result<(), BankError>;
 
+pub mod framework;
+
+struct ChildSpec {
+    options: Vst3GraphNodeOptions,
+    setup: Option<Box<Setup>>,
+    translation: Option<FrameworkTranslation>,
+}
+
 struct Shared {
     diagnostic: AtomicU32,
+    /// Framework events skipped under an ignoring policy.
+    ignored: AtomicU64,
+    /// Blocks refused by framework translation or mixing.
+    refused: AtomicU64,
 }
 impl Shared {
     fn mark(&self, bits: u32) {
@@ -295,6 +330,7 @@ struct Bundle<S> {
     empty: InputEvents,
     discard: OutputStorage,
     lanes: Option<LaneAudio>,
+    framework: Option<Translator>,
 }
 // SAFETY: the handle is the sole exclusive native AUDIO capability and the
 // tables are immutable process-static code/data whose AUDIO entries support a
@@ -311,6 +347,8 @@ struct ChildSlot {
     returned: bool,
     shared: Arc<Shared>,
     lanes: Option<LaneMain>,
+    /// MAIN end of the translator's bounded refusal ring.
+    refusals: Option<rtrb::Consumer<Refusal>>,
     profile: HostedAudioProfile,
     timing: Timing,
 }
@@ -435,6 +473,8 @@ struct PreparedChild<S> {
     discard: OutputStorage,
     lane_audio: Option<LaneAudio>,
     lane_main: Option<LaneMain>,
+    framework: Option<Translator>,
+    refusals: Option<rtrb::Consumer<Refusal>>,
 }
 
 /// MAIN construction of one owned bank from one static Library.
@@ -445,7 +485,7 @@ pub struct Vst3GraphBankBuilder<S: HostedSample> {
     hosted: HostedProvider<'static>,
     sample_rate: f64,
     maximum_frames: u32,
-    children: Vec<(Vst3GraphNodeOptions, Option<Box<Setup>>)>,
+    children: Vec<ChildSpec>,
     sample: PhantomData<S>,
 }
 impl<S: HostedSample> Vst3GraphBankBuilder<S> {
@@ -519,8 +559,28 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
         self.children
             .try_reserve(1)
             .map_err(|_| BankError::Allocation)?;
-        self.children.push((options, setup));
+        self.children.push(ChildSpec {
+            options,
+            setup,
+            translation: None,
+        });
         Ok(self.children.len() - 1)
+    }
+    /// Declare the framework event/transport translation for an added child,
+    /// replacing an earlier declaration. Shape and capacity are checked here;
+    /// parameter routes and the note bus are checked against the refreshed
+    /// catalogue in [`Self::build`] before any lease begins. See [`framework`].
+    pub fn translate(
+        &mut self,
+        child: usize,
+        translation: FrameworkTranslation,
+    ) -> Result<(), BankError> {
+        let spec = self.children.get_mut(child).ok_or(BankError::Shape)?;
+        translation
+            .check(spec.options.lanes)
+            .map_err(|error| BankError::Translation { child, error })?;
+        spec.translation = Some(translation);
+        Ok(())
     }
     /// Create, set up, refresh and prepare every child, then start all and
     /// begin all leases. On failure no node escapes; native owners are released
@@ -529,10 +589,13 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
         if self.children.is_empty() {
             return Err(BankError::Shape);
         }
-        let lane_bytes = self.children.iter().try_fold(0usize, |sum, (o, _)| {
-            o.lanes
-                .map_or(Some(0), |l| l.bytes())
-                .and_then(|b| sum.checked_add(b))
+        let lane_bytes = self.children.iter().try_fold(0usize, |sum, c| {
+            let lanes = c.options.lanes.map_or(Some(0), |l| l.bytes())?;
+            let translation = c
+                .translation
+                .as_ref()
+                .map_or(Some(0), |t| t.bytes(c.options.lanes))?;
+            sum.checked_add(lanes)?.checked_add(translation)
         });
         if lane_bytes.is_none_or(|b| b > MAXIMUM_LANE_BYTES) {
             return Err(BankError::Capacity);
@@ -562,7 +625,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
         prepared
             .try_reserve_exact(self.children.len())
             .map_err(|_| BankError::Allocation)?;
-        for (child, (options, setup)) in self.children.into_iter().enumerate() {
+        for (child, spec) in self.children.into_iter().enumerate() {
             let owner = LaneOwner {
                 generation: id.generation,
                 child,
@@ -571,8 +634,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 &library,
                 child,
                 owner,
-                options,
-                setup,
+                spec,
                 self.parameters,
                 self.processing,
                 self.hosted,
@@ -607,6 +669,8 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
             let (producer, consumer) = rtrb::RingBuffer::<Box<dyn Any + Send>>::new(1);
             let shared = Arc::new(Shared {
                 diagnostic: AtomicU32::new(0),
+                ignored: AtomicU64::new(0),
+                refused: AtomicU64::new(0),
             });
             // Every fallible node part is built before any lease begins, so
             // no lease can be stranded by a late construction error.
@@ -623,6 +687,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 })?,
                 discard: item.discard,
                 lanes: item.lane_audio,
+                framework: item.framework,
                 layout: AudioLayout::new(
                     item.state.input_channels as usize,
                     item.state.output_channels as usize,
@@ -638,6 +703,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                 returned: false,
                 shared,
                 lanes: item.lane_main,
+                refusals: item.refusals,
                 profile: item.profile,
                 timing: item.timing,
             });
@@ -678,6 +744,7 @@ impl<S: HostedSample> Vst3GraphBankBuilder<S> {
                     empty: pending.empty,
                     discard: pending.discard,
                     lanes: pending.lanes,
+                    framework: pending.framework,
                 })),
                 returns: pending.returns,
                 shared: pending.shared,
@@ -703,6 +770,7 @@ struct Pending<S> {
     empty: InputEvents,
     discard: OutputStorage,
     lanes: Option<LaneAudio>,
+    framework: Option<Translator>,
     layout: AudioLayout,
     timing: Timing,
 }
@@ -711,21 +779,25 @@ fn prepare_child<S: HostedSample>(
     library: &Rc<Library<'static>>,
     child: usize,
     owner: LaneOwner,
-    options: Vst3GraphNodeOptions,
-    setup: Option<Box<Setup>>,
+    spec: ChildSpec,
     parameter_provider: parameters::Provider<'static>,
     processing_provider: processing::Provider<'static>,
     hosted: HostedProvider<'static>,
     sample_rate: f64,
     maximum_frames: u32,
 ) -> Result<PreparedChild<S>, BankError> {
+    let ChildSpec {
+        options,
+        setup,
+        translation,
+    } = spec;
     let mut instance = library
         .create_retained(options.class_index)
         .map_err(|error| BankError::Instance { child, error })?;
     if let Some(setup) = setup {
         setup(&mut instance).map_err(|_| BankError::Setup { child })?;
     }
-    instance
+    let catalogue = instance
         .refresh_parameters(parameter_provider)
         .map_err(|error| BankError::Parameters { child, error })?;
     instance
@@ -772,6 +844,22 @@ fn prepare_child<S: HostedSample>(
         .try_reserve_exact(length)
         .map_err(|_| BankError::Allocation)?;
     scratch.resize(length, S::default());
+    let (framework, refusals) = match translation
+        .map(|t| {
+            Translator::prepare(
+                t,
+                catalogue.parameters(),
+                &buses.input,
+                options.lanes,
+                sample_rate,
+            )
+        })
+        .transpose()
+        .map_err(|error| BankError::Translation { child, error })?
+    {
+        Some((translator, refusals)) => (Some(translator), Some(refusals)),
+        None => (None, None),
+    };
     let processing_error = |error| BankError::Processing { child, error };
     let discard = OutputStorage::maximum().map_err(processing_error)?;
     let (lane_audio, lane_main) = match options.lanes {
@@ -829,6 +917,8 @@ fn prepare_child<S: HostedSample>(
         discard,
         lane_audio,
         lane_main,
+        framework,
+        refusals,
     })
 }
 /// Start all children on MAIN, then begin all native leases. Unwinds admitted
@@ -1123,6 +1213,55 @@ impl Vst3GraphBankControl {
                 .ok_or(BankError::Shape)
         })
     }
+    /// Framework events skipped so far under an ignoring translation policy,
+    /// including values superseded under `SameOffsetPolicy::LastWins`.
+    pub fn ignored(&self, child: usize) -> Result<u64, BankError> {
+        self.with_slot(|s| {
+            s.children
+                .get(child)
+                .map(|c| c.shared.ignored.load(Ordering::Relaxed))
+                .ok_or(BankError::Shape)
+        })
+    }
+    /// Blocks refused so far by framework translation or mixing. Each refused
+    /// block returned `Silence`; the node and any enclosing Graph continued.
+    pub fn refused(&self, child: usize) -> Result<u64, BankError> {
+        self.with_slot(|s| {
+            s.children
+                .get(child)
+                .map(|c| c.shared.refused.load(Ordering::Relaxed))
+                .ok_or(BankError::Shape)
+        })
+    }
+    /// Pass each unread [`Refusal`] of a translating child to `f`, oldest
+    /// first, and return how many were drained. The ring keeps at most
+    /// [`framework::REFUSAL_RECORDS`] unread records; further refusals are
+    /// counted by [`Self::refused`] but their details are dropped. A child
+    /// without a translation has none.
+    pub fn drain_refusals(
+        &self,
+        child: usize,
+        mut f: impl FnMut(Refusal),
+    ) -> Result<usize, BankError> {
+        let mut drained = Vec::new();
+        drained
+            .try_reserve_exact(framework::REFUSAL_RECORDS)
+            .map_err(|_| BankError::Allocation)?;
+        self.with_slot(|s| {
+            let slot = s.children.get_mut(child).ok_or(BankError::Shape)?;
+            if let Some(ring) = slot.refusals.as_mut() {
+                while drained.len() < framework::REFUSAL_RECORDS
+                    && let Ok(refusal) = ring.pop()
+                {
+                    drained.push(refusal);
+                }
+            }
+            Ok(())
+        })?;
+        // Call outside the registry borrow, so `f` may use the control.
+        drained.iter().copied().for_each(&mut f);
+        Ok(drained.len())
+    }
     /// First recorded bank failure, if any.
     pub fn failure(&self) -> Result<Option<BankError>, BankError> {
         self.with_slot(|s| Ok(s.failure))
@@ -1298,6 +1437,35 @@ impl<S: HostedSample> Vst3GraphNode<S> {
         block.clear_outputs();
         ProcessStatus::Fault(error)
     }
+    /// Pre-dispatch framework refusal: silence this block without faulting the
+    /// node. The plug-in was not called and its history did not advance.
+    ///
+    /// Returns [`ProcessStatus::Silence`], not a fault, so an enclosing Graph
+    /// continues with the next block (decision 0273). The translator already
+    /// recorded the [`Refusal`]; here the block is counted and marked.
+    fn decline(&mut self, block: &mut ProcessBlock<'_, '_, '_, S>, bits: u32) -> ProcessStatus
+    where
+        S: Sample,
+    {
+        self.shared.mark(bits);
+        self.shared.refused.fetch_add(1, Ordering::Relaxed);
+        block.clear_outputs();
+        ProcessStatus::Silence
+    }
+}
+/// Consume the admitted head batch of a refused framework block and return it
+/// to MAIN as failed, keeping lane sequences aligned. Done capacity was checked.
+fn decline_batch(lanes: &mut LaneAudio, refusal: Refusal) {
+    let Ok(mut batch) = lanes.ready.pop() else {
+        // Admission checked the head batch; nothing to return otherwise.
+        return;
+    };
+    batch.outcome = Outcome::Failed(HostedError::Framework(refusal));
+    lanes.next += 1;
+    if let Err(rtrb::PushError::Full(batch)) = lanes.done.push(batch) {
+        // Reserved capacity was checked; never free on AUDIO.
+        std::mem::forget(batch);
+    }
 }
 impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
     /// Admits only the exact prepared rate, packed layout and a maximum block
@@ -1350,7 +1518,8 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
         {
             return self.refuse(block, diagnostic::ADMISSION, ProcessError::LayoutMismatch);
         }
-        if !block.events.is_empty() {
+        let translating = self.bundle.as_ref().is_some_and(|b| b.framework.is_some());
+        if !translating && !block.events.is_empty() {
             let count = block.events.len();
             return self.refuse(
                 block,
@@ -1373,6 +1542,22 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
             };
             if bits != 0 {
                 return self.refuse(block, bits, ProcessError::NotPrepared);
+            }
+        }
+        // Framework translation into prepared storage, before any native call.
+        if let Some(translator) = bundle.framework.as_mut() {
+            match translator.translate(block.events, block.transport, frames) {
+                Ok(ignored) => {
+                    if ignored != 0 {
+                        self.shared.ignored.fetch_add(ignored, Ordering::Relaxed);
+                    }
+                }
+                Err(refusal) => {
+                    if let Some(lanes) = bundle.lanes.as_mut() {
+                        decline_batch(lanes, refusal);
+                    }
+                    return self.decline(block, diagnostic::FRAMEWORK_REFUSED);
+                }
             }
         }
         let stride = bundle.stride;
@@ -1404,6 +1589,18 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
         let handle = bundle.handle.as_ptr();
         let (failed, retire) = match bundle.lanes.as_mut() {
             None => {
+                let input = match bundle.framework.as_ref() {
+                    Some(t) => Input {
+                        points: t.points.points(),
+                        events: &t.events,
+                        context: t.context.as_ref(),
+                    },
+                    None => Input {
+                        points: &[],
+                        events: &bundle.empty,
+                        context: None,
+                    },
+                };
                 let (result, retire) = dispatch(
                     &bundle.state,
                     handle,
@@ -1411,19 +1608,42 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                     &native_inputs[..inputs],
                     &native_outputs[..outputs],
                     frames as u32,
-                    &Input {
-                        points: &[],
-                        events: &bundle.empty,
-                        context: None,
-                    },
+                    &input,
                     &mut bundle.discard,
                 );
                 (result.is_err(), retire)
             }
             Some(lanes) => {
+                // Mixed framework/lane input: explicit merge order or refusal.
+                let resolved = match bundle.framework.as_mut() {
+                    None => Ok(None),
+                    Some(t) => {
+                        let head = lanes.ready.peek().expect("checked head batch");
+                        t.resolve(&head.events, &head.points, head.context.as_ref())
+                            .map(Some)
+                    }
+                };
+                let resolved = match resolved {
+                    Ok(resolved) => resolved,
+                    Err(refusal) => {
+                        decline_batch(lanes, refusal);
+                        return self.decline(block, diagnostic::MIXED_REFUSED);
+                    }
+                };
                 let mut batch = lanes.ready.pop().expect("checked head batch");
                 let (outcome, retire) = {
                     let b = &mut *batch;
+                    let (points, events, context) = match (resolved, bundle.framework.as_ref()) {
+                        (Some((Source::Framework, context)), Some(t)) => {
+                            (t.points.points(), &t.events, context)
+                        }
+                        (Some((Source::Merged, context)), Some(t)) => {
+                            let (events, points) = t.merged_input();
+                            (points, events, context)
+                        }
+                        (Some((_, context)), _) => (b.points.points(), &b.events, context),
+                        (None, _) => (b.points.points(), &b.events, b.context),
+                    };
                     let (result, retire) = dispatch(
                         &bundle.state,
                         handle,
@@ -1432,9 +1652,9 @@ impl<S: HostedSample + Sample> Processor<S> for Vst3GraphNode<S> {
                         &native_outputs[..outputs],
                         frames as u32,
                         &Input {
-                            points: b.points.points(),
-                            events: &b.events,
-                            context: b.context.as_ref(),
+                            points,
+                            events,
+                            context: context.as_ref(),
                         },
                         &mut b.output,
                     );
@@ -1504,3 +1724,5 @@ impl<S: HostedSample> Drop for Vst3GraphNode<S> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod translation_tests;

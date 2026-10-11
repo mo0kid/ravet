@@ -7,6 +7,11 @@
 //! effect aux out = main[0] - main[1]; instrument out[c][i] = (c+1)*0.1.
 //! Every input parameter point is echoed to the output queue; a context with
 //! TEMPO adds point id 9999 at offset 0 with value tempo/1000.
+//! Opt-in modes: [`PARAMETERS`] advertises ids 1, 5 (writable), 7 (read-only)
+//! and 9 (hidden); [`EVENT_BUSES`] advertises event inputs 0 (16 channels) and
+//! 1 (2 channels); [`CAPTURE`] copies every processed input (frames, events,
+//! payload, points, context) into [`Probe::captures`] (allocates; never used
+//! under an allocation counter).
 #![allow(clippy::missing_safety_doc, clippy::needless_range_loop)]
 use super::{Block64, RawBus, RawInfo, RawProfile, RawProvider, RawReport, RawTiming};
 use crate::vst3::instances::{
@@ -33,6 +38,19 @@ pub const REFUSE_F64: u32 = 16;
 pub const FAIL_DESTROY: u32 = 32;
 pub const MALFORMED_TIMING: u32 = 64;
 pub const MALFORMED_BUS: u32 = 128;
+pub const PARAMETERS: u32 = 256;
+pub const EVENT_BUSES: u32 = 512;
+pub const CAPTURE: u32 = 1024;
+
+/// One processed native input as received by the mock.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Capture {
+    pub frames: u32,
+    pub events: Vec<RawEvent>,
+    pub payload: Vec<u8>,
+    pub points: Vec<Point>,
+    pub context: Option<Context>,
+}
 
 /// Observable counters that outlive the mock module itself.
 #[derive(Default)]
@@ -51,6 +69,7 @@ pub struct Probe {
     pub wrong_thread: AtomicUsize,
     pub control_during_audio: AtomicUsize,
     pub log: Mutex<Vec<String>>,
+    pub captures: Mutex<Vec<Capture>>,
 }
 impl Probe {
     pub fn leak() -> &'static Probe {
@@ -65,6 +84,50 @@ impl Probe {
     pub fn count(&self, counter: &AtomicUsize) -> usize {
         counter.load(Ordering::SeqCst)
     }
+    pub fn captures(&self) -> Vec<Capture> {
+        self.captures.lock().unwrap().clone()
+    }
+}
+#[allow(clippy::too_many_arguments)]
+fn capture(
+    token: *mut c_void,
+    frames: u32,
+    points: *const Point,
+    point_count: u32,
+    events: *const RawEvent,
+    event_count: u32,
+    payload: *const u8,
+    payload_bytes: u32,
+    context: *const Context,
+) {
+    let t = unsafe { &*token.cast::<Token>() };
+    let c = child(t.child.cast());
+    if c.probe.mode.load(Ordering::SeqCst) & CAPTURE == 0 {
+        return;
+    }
+    let slice = |p: *const RawEvent, n: u32| {
+        if n == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(p, n as usize) }.to_vec()
+        }
+    };
+    let capture = Capture {
+        frames,
+        events: slice(events, event_count),
+        payload: if payload_bytes == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(payload, payload_bytes as usize) }.to_vec()
+        },
+        points: if point_count == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(points, point_count as usize) }.to_vec()
+        },
+        context: (!context.is_null()).then(|| unsafe { *context }),
+    };
+    c.probe.captures.lock().unwrap().push(capture);
 }
 thread_local! {
     static NEXT: Cell<Option<&'static Probe>> = const { Cell::new(None) };
@@ -273,16 +336,33 @@ unsafe extern "C" fn restart(_: *const c_void, flags: *mut u32) -> i32 {
     unsafe { *flags = 0 };
     0
 }
+/// (id, flags): 1 automatable, 5 writable, 7 read-only, 9 hidden+read-only.
+const MOCK_PARAMETERS: [(u32, u32); 4] = [(1, 1), (5, 0), (7, 2), (9, 18)];
 unsafe extern "C" fn p_refresh(
-    _: *mut c_void,
+    handle: *mut c_void,
     count: *mut u32,
     _: *mut parameters::RawReport,
 ) -> i32 {
-    unsafe { *count = 0 };
+    let advertised = child(handle).probe.mode.load(Ordering::SeqCst) & PARAMETERS != 0;
+    unsafe { *count = if advertised { 4 } else { 0 } };
     0
 }
-unsafe extern "C" fn p_info(_: *const c_void, _: u32, _: *mut parameters::RawRecord) -> i32 {
-    10
+unsafe extern "C" fn p_info(
+    handle: *const c_void,
+    index: u32,
+    record: *mut parameters::RawRecord,
+) -> i32 {
+    if child(handle).probe.mode.load(Ordering::SeqCst) & PARAMETERS == 0 || index >= 4 {
+        return 10;
+    }
+    let (id, flags) = MOCK_PARAMETERS[index as usize];
+    unsafe {
+        let r = &mut *record;
+        r.id = id;
+        r.flags = flags;
+        r.title[..6].copy_from_slice(b"Param\0");
+    }
+    0
 }
 unsafe extern "C" fn p_value(
     _: *mut c_void,
@@ -332,24 +412,46 @@ unsafe extern "C" fn p_process(
     10
 }
 unsafe extern "C" fn e_refresh(
-    _: *mut c_void,
+    handle: *mut c_void,
     selection: *const processing::RawSelection,
     info: *mut processing::RawInfo,
     report: *mut processing::RawReport,
 ) -> i32 {
+    let buses = child(handle).probe.mode.load(Ordering::SeqCst) & EVENT_BUSES != 0;
     unsafe {
         let selection = &*selection;
-        if selection.input_mask != 0 || selection.output_mask != 0 {
+        let admitted = if buses { 0b11 } else { 0 };
+        if selection.input_mask & !admitted != 0 || selection.output_mask != 0 {
             return 1;
         }
-        (*info).input_bus_count = 0;
+        (*info).input_bus_count = if buses { 2 } else { 0 };
         (*info).output_bus_count = 0;
+        (*info).input_mask = selection.input_mask;
         (*report).stage = 1;
     }
     0
 }
-unsafe extern "C" fn e_bus(_: *const c_void, _: u32, _: u32, _: *mut processing::RawBus) -> i32 {
-    10
+unsafe extern "C" fn e_bus(
+    handle: *const c_void,
+    direction: u32,
+    index: u32,
+    bus: *mut processing::RawBus,
+) -> i32 {
+    if child(handle).probe.mode.load(Ordering::SeqCst) & EVENT_BUSES == 0
+        || direction != 0
+        || index >= 2
+    {
+        return 10;
+    }
+    unsafe {
+        let b = &mut *bus;
+        b.index = index;
+        b.channels = if index == 0 { 16 } else { 2 };
+        b.bus_type = index;
+        b.flags = u32::from(index == 0);
+        b.name[..7].copy_from_slice(b"Events\0");
+    }
+    0
 }
 unsafe extern "C" fn e_assignment(_: *const c_void, _: u32, _: u32, _: u32, _: *mut u32) -> i32 {
     10
@@ -653,15 +755,26 @@ unsafe extern "C" fn process32(
     block: *const Block,
     points: *const Point,
     point_count: u32,
-    _: *const RawEvent,
-    _: u32,
-    _: *const u8,
-    _: u32,
+    events: *const RawEvent,
+    event_count: u32,
+    payload: *const u8,
+    payload_bytes: u32,
     context: *const Context,
     wire: *mut RawOutputs,
     report: *mut processing::RawReport,
 ) -> i32 {
     let b = unsafe { &*block };
+    capture(
+        token,
+        b.frames,
+        points,
+        point_count,
+        events,
+        event_count,
+        payload,
+        payload_bytes,
+        context,
+    );
     let mut inputs = [(std::ptr::null(), 0); 64];
     let mut outputs = [(std::ptr::null_mut(), 0); 64];
     for i in 0..b.input_channels as usize {
@@ -691,15 +804,26 @@ unsafe extern "C" fn process64(
     block: *const Block64,
     points: *const Point,
     point_count: u32,
-    _: *const RawEvent,
-    _: u32,
-    _: *const u8,
-    _: u32,
+    events: *const RawEvent,
+    event_count: u32,
+    payload: *const u8,
+    payload_bytes: u32,
     context: *const Context,
     wire: *mut RawOutputs,
     report: *mut processing::RawReport,
 ) -> i32 {
     let b = unsafe { &*block };
+    capture(
+        token,
+        b.frames,
+        points,
+        point_count,
+        events,
+        event_count,
+        payload,
+        payload_bytes,
+        context,
+    );
     let mut inputs = [(std::ptr::null(), 0); 64];
     let mut outputs = [(std::ptr::null_mut(), 0); 64];
     for i in 0..b.input_channels as usize {

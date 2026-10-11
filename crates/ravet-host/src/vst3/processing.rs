@@ -781,6 +781,58 @@ impl InputEvents {
             .iter()
             .all(|r| event_admitted(r, self.bytes(), frames, buses, false))
     }
+    /// Copy one already admitted record and its payload from `source` into this
+    /// prepared storage, with the same order, wire and native budget checks as
+    /// [`Self::push`]. No heap work; a refusal leaves this storage unchanged.
+    pub(super) fn push_copy(&mut self, source: &InputEvents, index: usize) -> Result<(), Error> {
+        let mut r = *source.records[..source.count]
+            .get(index)
+            .ok_or(Error::Shape)?;
+        if self.count == self.records.len() {
+            return Err(Error::Capacity);
+        }
+        if self.count > 0 && r.offset < self.records[self.count - 1].offset {
+            return Err(Error::Shape);
+        }
+        let text = matches!(r.kind, 5..=7);
+        let length = r.payload_bytes as usize;
+        let from = r.payload_offset as usize;
+        let bytes = source
+            .bytes()
+            .get(from..from + length)
+            .ok_or(Error::Shape)?;
+        let start = if text {
+            (self.used + 1) & !1
+        } else {
+            self.used
+        };
+        if start > self.byte_capacity || length > self.byte_capacity - start {
+            return Err(Error::Capacity);
+        }
+        let native_start = if text {
+            (self.native_used + 1) & !1
+        } else {
+            self.native_used
+        };
+        let terminator = if text { 2 } else { 0 };
+        if native_start > 65536
+            || terminator > 65536 - native_start
+            || length > 65536 - native_start - terminator
+        {
+            return Err(Error::Capacity);
+        }
+        if start > self.used {
+            let used = self.used;
+            self.bytes_mut()[used] = 0;
+        }
+        self.bytes_mut()[start..start + length].copy_from_slice(bytes);
+        r.payload_offset = start as u32;
+        self.records[self.count] = r;
+        self.count += 1;
+        self.used = start + length;
+        self.native_used = native_start + length + terminator;
+        Ok(())
+    }
 }
 /// CONTROL-allocated output backing. A successful view exclusively borrows it;
 /// count limits and every record/payload/queue are admitted before a view exists.
@@ -1055,9 +1107,17 @@ impl Catalogue {
 }
 /// Prepared parameter staging for mixed explicit/mapped points. Same-ID equal
 /// offsets are an explicit conflict; points are never silently merged/sorted.
+///
+/// Admission is bounded per point. Offsets are non-decreasing, so the conflict
+/// check scans only the trailing equal-offset run. That run holds distinct IDs,
+/// so it has at most 64 points. The distinct-ID set (at most 64 entries) is
+/// kept incrementally. A full 2048-point block therefore costs at most about
+/// 2048 x 128 comparisons, not a quadratic rescan.
 pub struct InputPoints {
     points: Vec<Point>,
     count: usize,
+    ids: [u32; 64],
+    distinct: usize,
 }
 impl InputPoints {
     pub fn new(capacity: usize) -> Result<Self, Error> {
@@ -1074,6 +1134,8 @@ impl InputPoints {
                 },
             )?,
             count: 0,
+            ids: [0; 64],
+            distinct: 0,
         })
     }
     pub fn points(&self) -> &[Point] {
@@ -1081,6 +1143,27 @@ impl InputPoints {
     }
     pub fn clear(&mut self) {
         self.count = 0;
+        self.distinct = 0;
+    }
+    /// Index of the admitted point with `id` at `offset`, if any. Only the
+    /// trailing equal-offset run (at most 64 points) is scanned.
+    pub(crate) fn same_offset(&self, id: u32, offset: u32) -> Option<usize> {
+        self.points()
+            .iter()
+            .enumerate()
+            .rev()
+            .take_while(|(_, p)| p.offset == offset)
+            .find(|(_, p)| p.id == id)
+            .map(|(i, _)| i)
+    }
+    /// Replace the value of admitted point `index` (a last-wins coalesce of a
+    /// same-ID, same-offset value). The value must be normalized.
+    pub(crate) fn replace_value(&mut self, index: usize, value: f64) -> Result<(), Error> {
+        if index >= self.count || !unit(value) {
+            return Err(Error::Shape);
+        }
+        self.points[index].value = value;
+        Ok(())
     }
     pub fn push(&mut self, point: Point) -> Result<(), Error> {
         if self.count == self.points.len() {
@@ -1093,26 +1176,16 @@ impl InputPoints {
         {
             return Err(Error::Shape);
         }
-        if self
-            .points()
-            .iter()
-            .any(|p| p.id == point.id && p.offset == point.offset)
-        {
+        if self.same_offset(point.id, point.offset).is_some() {
             return Err(Error::Conflict);
         }
-        let mut ids = [0; 64];
-        let mut count = 0;
-        for p in self.points() {
-            if !ids[..count].contains(&p.id) {
-                if count == 64 {
-                    return Err(Error::Capacity);
-                }
-                ids[count] = p.id;
-                count += 1;
+        let known = self.ids[..self.distinct].contains(&point.id);
+        if !known {
+            if self.distinct == self.ids.len() {
+                return Err(Error::Capacity);
             }
-        }
-        if count == 64 && !ids.contains(&point.id) {
-            return Err(Error::Capacity);
+            self.ids[self.distinct] = point.id;
+            self.distinct += 1;
         }
         self.points[self.count] = point;
         self.count += 1;

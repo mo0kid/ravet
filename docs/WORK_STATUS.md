@@ -7021,3 +7021,78 @@ warning-denied Clippy and Rustdoc, formatting, documentation, Python and
 whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
 checks, with no bound source change. Receipt
 target/combined-6-w258-w259-gates.log, exit 0.
+
+### W264 convolution transition priming and latency alignment public adoption
+
+Live convolution transitions gain an opt-in `TransitionContinuity` with two
+explicit policies. `PrimingPolicy::History` feeds the incoming engine recent
+input from a history ring prepared at construction, bounded per block, delaying
+the fade within a documented bound when the history does not fit one block.
+`AlignmentPolicy::DelayLower` delays the lower-latency path through prepared
+delay lines during the fade, reports output-latency changes (rise at fade start,
+fall at completion) and refuses transitions whose difference exceeds a configured
+maximum. Delay lines track their valid length, so take and reset are constant
+time. The default constructor delegates with continuity disabled; its W259
+behaviour is guarded by the 15 byte-identical W259 transition tests and by
+digests recorded from the public W259 build over 108 scenarios (both profiles,
+macOS arm64 only because platform `sin`/`cos` differ between profiles).
+
+An independent Sonnet 5.5 review found no blocking or major defect; R2 corrected
+the default-behaviour overclaim, aligned status wording, documented zero-fill
+during unprimed delayed fades, latency changes on cut and reset, added
+checked delay-line sizing and three further tests (LatestWins during priming,
+short history, reset during aligned fades). A 4,096-tap response with a
+256-frame fade dips 7.50 dB unprimed (7.44 dB predicted) and 0 dB primed; primed
+output matches a never-switched engine bit-exactly at partition-aligned history
+and within 3.3e-16 (f64) and 1.75e-7 (f32) of peak otherwise; aligned fades have
+zero error against an independent reference; all 148 measured impulse onsets
+match the reported latency; AUDIO-side allocation is zero.
+
+Nine public paths were adopted after base and staged hash verification. The
+stage passed all 24 public commands: 1,640 all-feature workspace tests (zero
+failed, four ignored), 64 doctests, warning-denied Clippy and Rustdoc,
+formatting, documentation, 62 script and four REAPER tests, whitespace, 32
+release transition tests and three release stress/allocation runs. One
+intermediate run was discarded after a scratch mutant shared its Cargo target
+directory; the disk-interrupted and contaminated receipts are preserved and
+marked. Packet target/w264-adoption.md. No real-time deadline claim follows. See
+[decision0275](decisions/0275-convolution-transition-priming-and-latency-alignment.md).
+
+### W261 framework events in hosted VST3 Graph nodes public adoption
+
+Hosted VST3 Graph children can opt into translation of ordinary RAVET framework
+events through `Vst3GraphBankBuilder::translate(child, FrameworkTranslation)`;
+untranslated children still refuse framework events. Declared parameter routes
+(normalized or declared linear scale, no implied ID equality) produce one point
+per value at its exact sample offset; notes use a selected event bus and an
+explicit note-ID policy, with note expression and poly pressure only where
+declared; transport becomes a ProcessContext with flags exactly for the fields
+present. Mixed framework and rich-lane blocks follow explicit Refuse,
+FrameworkFirst or LaneFirst order; two contexts in one block refuse. Routes and
+the note bus are validated against the plug-in catalogue before any child starts;
+storage is prepared on MAIN with bounded per-point admission and no AUDIO
+allocation.
+
+An independent Sonnet 5.5 review found no blocker; its major finding was that a
+translation refusal returned Fault, which the Graph latches and hosted nodes can
+only clear by rebuild. R4 returns the existing `ProcessStatus::Silence` for a
+refused block (the device-underrun precedent), so the Graph silences that node
+and continues; distinct refusal reasons are exposed through per-child counters,
+a bounded 16-record ring, diagnostic bits and refused lane batches. Native
+faults, admission refusals and events to untranslated nodes still fault. Mock and
+actual-Gain Graph tests drive refusals through `Graph::process` and confirm
+continuation. R4 also adds distinct refusal and build-error variants, removes
+AUDIO-path `expect`/`unreachable!`, bounds point admission and adds an opt-in
+same-offset last-wins policy.
+
+Fifteen public paths were adopted after base and staged hash verification. The
+stage, built on W264, passed the public gates (1,654 all-feature tests, 64
+doctests, warning-denied Clippy and Rustdoc, formatting, documentation, 62 script
+and four REAPER tests) and VST3 CTest 67/67; the isolated R4 actual-module
+consumer passed in debug and release (Gain parameter change exactly at sample 11;
+Performance notes, expressions, pressure, Level and transport within 1.1e-10 f32
+and 7.5e-18 f64 of a closed-form voice; 10,000 translated Graph blocks with zero
+Rust AUDIO allocations). Pressure and transport reach the actual modules but are
+wire-checked only by the mock. Packet target/w261-adoption.md; superseded R1–R3
+receipts are preserved. Local macOS arm64 only; no DAW, third-party plug-in or
+deadline claim. See [decision0273](decisions/0273-hosted-vst3-graph-framework-events.md).

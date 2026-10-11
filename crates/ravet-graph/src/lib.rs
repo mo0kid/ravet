@@ -747,12 +747,14 @@ pub use dynamic::{
 mod convolution_transition;
 #[cfg(feature = "convolution-transitions")]
 pub use convolution_transition::{
-    ConvolutionTransition, ConvolutionTransitionControl, CrossfadeLaw, CrossfadePolicy,
-    LatencyPolicy, MidFadePolicy, ReturnReason, ReturnedEngine, TRANSITION_MAXIMUM_FADE_FRAMES,
-    TRANSITION_REPORT_CAPACITY, TRANSITION_RETURN_CAPACITY, TransitionEngine, TransitionEvent,
+    AlignmentPolicy, ConvolutionTransition, ConvolutionTransitionControl, CrossfadeLaw,
+    CrossfadePolicy, LatencyPolicy, MidFadePolicy, PrimingPolicy, ReturnReason, ReturnedEngine,
+    TRANSITION_MAXIMUM_ALIGNMENT_FRAMES, TRANSITION_MAXIMUM_CONTINUITY_BYTES,
+    TRANSITION_MAXIMUM_FADE_FRAMES, TRANSITION_MAXIMUM_PRIMING_FRAMES, TRANSITION_REPORT_CAPACITY,
+    TRANSITION_RETURN_CAPACITY, TransitionContinuity, TransitionEngine, TransitionEvent,
     TransitionOfferError, TransitionOfferFailure, TransitionOptions, TransitionReport,
     TransitionSample, TransitionSetupError, TransitionSetupFailure, TransitionStatus,
-    convolution_transition,
+    convolution_transition, convolution_transition_with_continuity,
 };
 
 mod events;

@@ -185,8 +185,124 @@ matching head batch per block and never skips or overwrites one. A missing
 batch, sequence/owner or frame mismatch refuses before native mutation and faults
 the node with a copied diagnostic. `control.receive` re-validates the batch's
 complete rich output on MAIN and recycles it. No Vec/String/Box is constructed or
-dropped on AUDIO. Portable Foundation events are not mapped by this node:
-non-empty portable events refuse before native execution.
+dropped on AUDIO. Framework events reach a node only through the explicit
+translation below; a node without one refuses non-empty framework events
+before native execution.
+
+#### Framework event translation
+
+`builder.translate(child, FrameworkTranslation)` opts one child in to
+translating ordinary RAVET events and block-start transport
+(`hosted_audio::graph::framework`, [decision 0273](decisions/0273-hosted-vst3-graph-framework-events.md)).
+Shape and capacity are checked when you call `translate`. `build` checks
+parameter routes and the note bus against the refreshed catalogue after every
+child is prepared and before any child starts or any lease begins. A refusal
+is `BankError::Translation { child, error }` and unwinds like any build error.
+Each `TranslationError` names the failing case and route index (duplicate
+graph or native ID, reserved native ID, invalid scale, note bus, capacity,
+unknown or read-only parameter). Routes are checked against a catalogue
+snapshot taken at `build`; a later plug-in restart that changes parameter
+flags is not revalidated.
+
+| Framework input | VST3 input | Rule |
+|---|---|---|
+| `ParameterValue` | `IParameterChanges` point | Declared `ParameterRoute` (graph ID, native ID, `Normalized` or declared `Linear { minimum, maximum }`) |
+| `NoteOn` / `NoteOff` | `NoteOnEvent` / `NoteOffEvent` | `noteId -1` under `Unidentified`; refused under `RequireIdentified` |
+| `NoteWithId` | `NoteOnEvent` / `NoteOffEvent` | ID kept, 0..=`i32::MAX` |
+| `NoteExpression` (not pressure) | `NoteExpressionValueEvent` | `expressions` declared; ID-only target; volume `/4`, tuning `/240 + 0.5`, others unchanged |
+| `NoteExpression::Pressure` | `PolyPressureEvent` | `poly_pressure` declared; concrete channel and key, optional ID (else -1) |
+| `Transport` | `ProcessContext` | `transport` declared; flags exactly for the fields present |
+
+- **Routes.** No ID equality is inferred. Graph IDs and native IDs are unique,
+  with at most 2048 routes. A route must name a writable parameter that is not
+  hidden. Values outside the declared scale refuse. The plug-in still owns
+  stepped quantization and any nonlinear mapping; declare a `Normalized` route
+  for those.
+- **Points.** Each value becomes one point at its exact sample offset. Points
+  are never sorted or merged.
+  - A second value for the same native ID at the same offset follows
+    `same_offset`. `SameOffsetPolicy::Refuse` (the default) refuses the block.
+    `LastWins` replaces the earlier value and counts it as ignored.
+  - The native queue admits at most 64 distinct IDs per block
+    (`MAXIMUM_PARAMETER_IDS`), reported as its own refusal.
+  - Admission is bounded per point. The conflict check scans only the trailing
+    equal-offset run (at most 64 points), and the distinct-ID set is kept
+    incrementally. A full 2048-point block costs at most about 2048 x 128
+    comparisons.
+- **Notes.** The note bus must be selected in `event_inputs`. Channels must be
+  within its channel count. Velocity is copied unchanged. Tuning, length,
+  `ppqPosition` and flags are zero; nothing is derived from transport. The
+  translator is stateless: a note-off without an earlier note-on is passed
+  through, and the plug-in owns voice state. Once expressions or pressure are
+  declared, a malformed target or value refuses even under `Ignore`; only
+  undeclared capabilities are ignored.
+- **Transport.** All-absent transport passes no context. Otherwise `playing`
+  and `sample_position` must both be known, because the SDK has no availability
+  flag for either. The sample position is copied exactly. Present tempo, beats,
+  recording, active loop, signature, bar start and beat loop set `kTempoValid`,
+  `kProjectTimeMusicValid`, `kRecording`, `kCycleActive`, `kTimeSigValid`,
+  `kBarPositionValid` and `kCycleValid`. Discontinuity, pre-roll, tempo
+  increment, bar number and sample loops are validated but not represented.
+  `framework::transport_context` exposes this mapping. With `transport` false,
+  transport is not passed and is not counted as ignored.
+- **Policies.** `unmapped_parameters` and `unsupported` are each `Refuse` or
+  `Ignore`. `unsupported` covers MIDI, UMP, modulation, gestures, scoped values
+  and release, choke, completion, notes without a route and undeclared
+  expressions. Ignored events are counted: read them on MAIN with
+  `control.ignored(child)`.
+- **Mixed blocks.** In queued mode, `MergePolicy::Refuse` refuses a block where
+  both the framework and the lane batch carry events or points.
+  `FrameworkFirst` and `LaneFirst` merge by offset, with that source first at
+  equal offsets; cross-source point conflicts refuse. A context from both
+  sources always refuses. A context from only one source is used.
+- **Capacity.** `events` and `points` are each 0..=2048 per block. Merged
+  storage, needed only by the merging policies, must also fit 2048 alongside
+  the lane batch. All of it is allocated on MAIN and counted in the 64 MiB
+  per-bank budget. AUDIO translation allocates, locks and frees nothing.
+
+Every refusal, including capacity overflow, happens before the plug-in runs.
+The plug-in is not called and its history does not advance.
+
+- **Outputs.** The block's outputs are silenced and the node returns
+  `ProcessStatus::Silence`, not a fault.
+- **No latch.** Neither the node nor an enclosing `ravet_graph::Graph`
+  latches. The Graph reports `GraphStatus::Continue` and the next valid block
+  runs.
+- **Reason.** The reason is a `framework::Refusal`, with a distinct variant for
+  each case: invalid event, unmapped parameter, unsupported kind, same offset,
+  event or point capacity, the 64-ID limit, transport, mixed input, two
+  contexts, merge conflict and merged capacity.
+- **Reporting.**
+  - `control.refused(child)` counts refused blocks.
+  - `control.drain_refusals(child, f)` passes up to 16 unread records to `f`,
+    oldest first. Further refusals are counted but their details are dropped.
+  - `diagnostic::FRAMEWORK_REFUSED` or `diagnostic::MIXED_REFUSED` is set.
+  - In queued mode, the matching lane batch is consumed and `receive` reports
+    it as `Error::Framework(refusal)`, so sequences stay aligned.
+
+A Graph status does not carry the refusal. Callers that must react to
+refusals poll these on MAIN. Native faults, admission refusals and framework
+events sent to a node without a translation still fault and latch, and need a
+rebuild. Decision 0273 explains why refusals return `Silence`.
+
+Tests check every mapping and refusal with the mock provider, including exact
+sample offsets and 10,000-cycle zero-allocation runs. An actual caller-linked
+consumer loads RAVET Gain and Performance VST3 bundles built from the same tree.
+A Gain node driven by framework values 1.0 at sample 0 and 3.0 at sample 11
+(declared linear 0..4 route) matches the smoothing reference exactly, changing
+first at sample 11. A Performance node driven by `NoteWithId`, volume and pan
+expressions, poly pressure, Level values and transport matches a closed-form
+voice (maximum error about 1.1e-10 in f32 and 7.5e-18 in f64). A broadcast
+Graph chain, Performance into Gain at 0.5, matches the same reference and
+reports the expected ignored counts. A refusing Gain node inside a Graph
+silences only the refused block. The Graph reports `Continue` for every block,
+output equals input before and after the refusal, and a later gain change is
+applied. The mock provider checks the same over seven Graph blocks with two
+refusals. 10,000 variable Graph blocks with
+translated events perform zero Rust allocations on AUDIO. The reference
+Performance voice does not apply pressure or transport, so those reach the
+actual modules without an audible check; the mock provider checks their wire
+form.
 
 #### Checked reset
 
@@ -202,9 +318,9 @@ Explicit unsafe table/code/module trust remains the caller's obligation. Rust
 allocation counting covers Rust only: foreign SDK/C++ heap, crash isolation and
 real-time deadlines are not established. Evidence is local macOS arm64 with the
 authored Gain/Performance references and authored native fixtures; no DAW,
-third-party plug-in or other-platform support follows. Portable event/transport
-mapping and the shared Sidechain VST3 reference module are not part of this
-feature. Editors for scoped instances are described below; editors for Graph-bank
+third-party plug-in or other-platform support follows. The shared Sidechain
+VST3 reference module is not part of this feature. Framework event translation
+is described above. Editors for scoped instances are described below; editors for Graph-bank
 children are not yet provided.
 
 ## Hosted editors (macOS NSView)
