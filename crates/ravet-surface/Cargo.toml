@@ -10,13 +10,23 @@ description = "Editors, controls, and visualisation for RAVET"
 workspace = true
 
 [features]
+postscript-outlines = ["text", "dep:skrifa"]
 default = []
 image = ["dep:png", "dep:zune-jpeg"]
 jpeg-encode = ["image", "dep:jpeg-encoder"]
+gif-image = ["image", "dep:gif", "dep:weezl"]
 raster = ["dep:tiny-skia"]
+svg-image = ["dep:resvg", "dep:roxmltree", "dep:svgtypes", "dep:simplecss"]
 text = ["dep:harfrust", "dep:read-fonts", "dep:unicode-bidi", "dep:unicode-linebreak", "dep:unicode-segmentation"]
 
 [dependencies]
+skrifa = { version = "=0.48.0", default-features = false, features = ["std"], optional = true }
+resvg = { version = "=0.48.1", default-features = false, optional = true }
+roxmltree = { version = "=0.21.1", default-features = false, features = ["std"], optional = true }
+svgtypes = { version = "=0.16.1", default-features = false, features = ["std"], optional = true }
+simplecss = { version = "=0.2.2", default-features = false, features = ["std"], optional = true }
+gif = { version = "=0.14.2", default-features = false, features = ["std"], optional = true }
+weezl = { version = "=0.1.10", default-features = false, features = ["std"], optional = true }
 jpeg-encoder = { version = "=0.7.1", default-features = false, features = ["std"], optional = true }
 png = { version = "=0.18.1", default-features = false, optional = true }
 zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"], optional = true }
@@ -54,3 +64,11 @@ required-features = ["text"]
 [[example]]
 name = "raster-preview"
 required-features = ["raster", "text"]
+
+[[example]]
+name = "fallback-oracle"
+required-features = ["text"]
+
+[[example]]
+name = "paragraph-fallback-oracle"
+required-features = ["text"]

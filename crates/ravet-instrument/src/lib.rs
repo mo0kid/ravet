@@ -17,7 +17,9 @@ pub use performance_sine::PerformanceSine;
 mod synthesis;
 pub use negotiation::{NegotiatedChanges, NegotiatedVoices, RpnDecoder, RpnUpdate};
 use ravet_foundation::{MidiKind, MidiMessage};
-pub use synthesis::{INSTRUMENT_LEVEL_ID, SINE_PROGRAMS, SineInstrument};
+pub use synthesis::{
+    INSTRUMENT_LEVEL_ID, SINE_PROGRAMS, SineInstrument, SineInstrument64, SineOptions,
+};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZoneSide {
     Lower,

@@ -12,7 +12,8 @@ pub struct ResamplingProgress {
 /// Processing interpolates table phases and allocates nothing. Filter delay is
 /// (taps-1)/2 input samples; initial history is zero. This is a fixed quality
 /// profile, not a spectral rejection or callback deadline guarantee. Fixed
-/// rates use [`Self::new`]; [`Self::new_variable`] prepares bounded live ppm
+/// rates use [`Self::new`]; [`Self::new_integer_rates`] selects an exact integer
+/// schedule; [`Self::new_variable`] prepares bounded live ppm
 /// adjustments with a conservative fixed cutoff and retained stream phase.
 #[derive(Clone, Debug)]
 pub struct SincResampler {
@@ -20,16 +21,134 @@ pub struct SincResampler {
     nominal_step: f64,
     maximum_adjustment_ppm: f64,
     distance: f64,
+    integer_phase: Option<IntegerPhase>,
     has_input: bool,
     history: Vec<f64>,
     coefficients: Vec<f64>,
     write: usize,
+}
+/// Immutable next-output coordinates for an explicitly integer-scheduled stream.
+/// This is a mathematical schedule, not evidence that a reader decoded its prefix.
+/// Padded input coordinates can exceed u64; absolute products use u128.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IntegerResamplingPosition {
+    output_frame: u64,
+    input_frames_consumed: u128,
+    distance: i64,
+}
+impl IntegerResamplingPosition {
+    pub fn output_frame(&self) -> u64 {
+        self.output_frame
+    }
+    pub fn input_frames_consumed(&self) -> u128 {
+        self.input_frames_consumed
+    }
+}
+/// A relative phase with no duration-dependent counter or rounding recurrence.
+#[derive(Clone, Copy, Debug)]
+struct IntegerPhase {
+    distance: i64,
+    input_rate: u32,
+    output_rate: u32,
+}
+impl IntegerPhase {
+    fn new(input_rate: u32, output_rate: u32) -> Result<Self, ResamplingError> {
+        if input_rate == 0
+            || output_rate == 0
+            || u64::from(input_rate) > 16 * u64::from(output_rate)
+            || u64::from(output_rate) > 16 * u64::from(input_rate)
+        {
+            return Err(ResamplingError);
+        }
+        Ok(Self {
+            distance: i64::from(output_rate),
+            input_rate,
+            output_rate,
+        })
+    }
+    fn consume(&mut self) {
+        // Called only for initial input or distance>0. State stays >-output_rate.
+        self.distance -= i64::from(self.output_rate);
+    }
+    fn produce(&mut self) {
+        // Called only for distance<=0. State stays <=input_rate.
+        self.distance += i64::from(self.input_rate);
+    }
+    fn fraction(&self) -> f64 {
+        -(self.distance as f64) / f64::from(self.output_rate)
+    }
 }
 impl SincResampler {
     /// Finite positive rates and even tap count 16..256. Control-thread work.
     /// Rates are expressed in the same units; no hardware/format conversion.
     pub fn new(input_rate: f64, output_rate: f64, taps: usize) -> Result<Self, ResamplingError> {
         Self::prepare(input_rate, output_rate, taps, 0.)
+    }
+    /// Prepare a caller-selected exact integer-rate schedule. Positive u32 rates,
+    /// ratio 1/16..16 and even 16..256 taps; coefficient/history preparation matches
+    /// the fixed profile. Scheduling uses a bounded signed relative numerator,
+    /// without duration-dependent floating recurrence. Only phase interpolation
+    /// uses f64; numerical PCM can differ from `new`. This does not improve the
+    /// spectral profile or establish device/callback deadlines. Nonzero live ppm
+    /// adjustments reject; finite streams still require caller-supplied padding.
+    pub fn new_integer_rates(
+        input_rate: u32,
+        output_rate: u32,
+        taps: usize,
+    ) -> Result<Self, ResamplingError> {
+        let phase = IntegerPhase::new(input_rate, output_rate)?;
+        let mut prepared = Self::prepare(f64::from(input_rate), f64::from(output_rate), taps, 0.)?;
+        prepared.integer_phase = Some(phase);
+        Ok(prepared)
+    }
+    /// Compute the exact next-output input coordinate without changing state.
+    /// Integer profiles only; u128 input count includes explicit caller padding.
+    /// No allocation, I/O, source validation or finite-file tail policy is implied.
+    pub fn integer_position(
+        &self,
+        output_frame: u64,
+    ) -> Result<IntegerResamplingPosition, ResamplingError> {
+        let phase = self.integer_phase.ok_or(ResamplingError)?;
+        let product = u128::from(output_frame) * u128::from(phase.input_rate);
+        let divisor = u128::from(phase.output_rate);
+        let remainder = product % divisor;
+        let input_frames_consumed = 1 + product / divisor + u128::from(remainder != 0);
+        let distance = if remainder == 0 {
+            0
+        } else {
+            remainder as i64 - i64::from(phase.output_rate)
+        };
+        Ok(IntegerResamplingPosition {
+            output_frame,
+            input_frames_consumed,
+            distance,
+        })
+    }
+    /// Prime an integer stream so its next sample is the specified output frame.
+    /// Off-audio source-window preparation supplies exactly `taps` finite samples
+    /// oldest-to-newest, ending at input coordinate C-1 from integer_position.
+    /// Leading/trailing zeros and finite-file bounds belong to the caller. Invalid
+    /// mode/history preserves all state. This operation allocates nothing and does
+    /// not read, seek, authenticate source history or change coefficients/rates.
+    pub fn prime_integer_at(
+        &mut self,
+        output_frame: u64,
+        chronological_history: &[f64],
+    ) -> Result<IntegerResamplingPosition, ResamplingError> {
+        let position = self.integer_position(output_frame)?;
+        if chronological_history.len() != self.history.len()
+            || chronological_history.iter().any(|v| !v.is_finite())
+        {
+            return Err(ResamplingError);
+        }
+        self.history.copy_from_slice(chronological_history);
+        self.write = 0;
+        self.has_input = true;
+        self.integer_phase
+            .as_mut()
+            .expect("validated integer profile")
+            .distance = position.distance;
+        Ok(position)
     }
     /// Prepare a live-adjustable clock-drift profile. Maximum adjustment must
     /// be finite in (0,10000] ppm (one percent); the entire permitted input/
@@ -129,6 +248,7 @@ impl SincResampler {
             nominal_step: step,
             maximum_adjustment_ppm,
             distance: 1.,
+            integer_phase: None,
             has_input: false,
             history: vec![0.; taps],
             coefficients,
@@ -161,6 +281,9 @@ impl SincResampler {
     /// Retain the current rate adjustment; set zero explicitly to return nominal.
     pub fn reset(&mut self) {
         self.distance = 1.;
+        if let Some(phase) = self.integer_phase.as_mut() {
+            phase.distance = i64::from(phase.output_rate);
+        }
         self.has_input = false;
         self.write = 0;
         self.history.fill(0.);
@@ -175,18 +298,30 @@ impl SincResampler {
         let mut progress = ResamplingProgress::default();
         let taps = self.history.len();
         while progress.produced < output.len() {
-            if !self.has_input || self.distance > 0. {
+            if !self.has_input
+                || self
+                    .integer_phase
+                    .map_or(self.distance > 0., |phase| phase.distance > 0)
+            {
                 if progress.consumed == input.len() {
                     break;
                 }
                 self.history[self.write] = input[progress.consumed];
                 self.write = (self.write + 1) % taps;
-                self.distance -= 1.;
+                if let Some(phase) = self.integer_phase.as_mut() {
+                    phase.consume();
+                } else {
+                    self.distance -= 1.;
+                }
                 self.has_input = true;
                 progress.consumed += 1;
                 continue;
             }
-            let position = (-self.distance).clamp(0., 1.) * 1024.;
+            let position = self
+                .integer_phase
+                .map_or(-self.distance, |phase| phase.fraction())
+                .clamp(0., 1.)
+                * 1024.;
             let phase = (position.floor() as usize).min(1023);
             let fraction = position - phase as f64;
             let mut sample = 0.;
@@ -198,8 +333,45 @@ impl SincResampler {
             }
             output[progress.produced] = sample;
             progress.produced += 1;
-            self.distance += self.step;
+            if let Some(phase) = self.integer_phase.as_mut() {
+                phase.produce();
+            } else {
+                self.distance += self.step;
+            }
         }
         progress
+    }
+}
+
+#[cfg(test)]
+mod integer_phase_tests {
+    use super::IntegerPhase;
+    #[test]
+    fn recurrence_passes_old_source_ceiling_without_accumulated_phase_error() {
+        let n = 16_777_216u64 + 4097;
+        let input_rate = 44100;
+        let output_rate = 48000;
+        let mut phase = IntegerPhase::new(input_rate, output_rate).unwrap();
+        let mut produced = 0u64;
+        for consumed in 1..=n {
+            assert!(phase.distance > 0);
+            phase.consume();
+            while phase.distance <= 0 {
+                assert!(phase.distance > -i64::from(output_rate));
+                phase.produce();
+                produced += 1;
+            }
+            assert!(phase.distance <= i64::from(input_rate));
+            if consumed % 65536 == 0 || consumed == n {
+                let expected = (u128::from(consumed - 1) * u128::from(output_rate))
+                    / u128::from(input_rate)
+                    + 1;
+                assert_eq!(u128::from(produced), expected);
+                let absolute_numerator = u128::from(output_rate)
+                    + u128::from(produced) * u128::from(input_rate)
+                    - u128::from(consumed) * u128::from(output_rate);
+                assert_eq!(phase.distance as u128, absolute_numerator);
+            }
+        }
     }
 }

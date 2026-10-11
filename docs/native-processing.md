@@ -143,12 +143,18 @@ See [decision 0144](decisions/0144-native-transport-records.md).
 
 ## Exported processor entry
 
-`NativeProcessor<P, S>::entry()` supplies a static v1 function table for a
-consumer-selected `Default + Send + 'static` processor in native f32 or f64.
+`NativeProcessor<P, S>::entry()` acquires a canonical static v1 table at runtime
+on CONTROL for a consumer-selected `Default + Send + 'static` processor in native f32 or f64.
 `export_native_processor_v1!(symbol, Processor32, Processor64)` exports the
 consumer's entry symbol: 32/64 select matching tables, other values return null.
 The public Gain library exports `ravet_native_processor_v1` alongside its existing
 product ABI. The matching C header is `include/RavetNativeProcessor.h`.
+
+Acquisition is deliberately non-const: exported and transitive companion paths
+return the same table address across codegen units. All six companion kinds retain
+exact originating-pointer checks. Move prior const expressions to CONTROL runtime
+acquisition; see [canonical native tables](native-table-identity.md) for the API
+change, independent actual-consumer validation and remaining lifetime obligations.
 
 Check table version, byte size and sample bits before use. Create returns an
 opaque exclusively owned handle, or null on construction panic. Keep the exact
@@ -473,16 +479,20 @@ rendering, SDK queues and host notifications.
 `include/RavetNativeClient.hpp` supplies SDK-independent C++17
 `ravet::native::NativeProcessorClient`. Construct it on control from the native
 processor table and optional direct audio-state/telemetry tables. It validates
-exact v1 shapes, needed callbacks, counts/precisions and matching originating
-callback profiles, creates companion caches, then the processor. Invalid profiles
+exact v1 shapes, needed callbacks, counts/precisions and exact originating
+core table addresses, creates companion caches, then the processor. Invalid profiles
 or factory failures stay invalid, with acquired partial resources retired on
 stopped destruction. Tables/library/types remain alive throughout; no copy/move
 or hidden state/mailbox/codec is introduced.
 
-Equivalent Rust-promoted tables can have distinct addresses. The supported client
-profile compares callback identities, rather than table addresses; it cannot
-authenticate arbitrary foreign code. Exact type/library pairing remains a caller
-obligation. Query `valid`, `hasAudioState`, `hasTelemetry` and capability counts
+Companions must return the exact supplied core address. Byte-identical copied
+core tables with equivalent callbacks reject before cache/processor acquisition;
+use canonical runtime acquisition instead. This corrects the earlier weaker
+callback-equivalence policy and does not authenticate arbitrary foreign code.
+A violating foreign CONTROL acquisition/query exception is contained with balanced
+earlier resource retirement; native callbacks/destruction must still not unwind.
+See [exact client acquisition](native-client-acquisition.md). Exact type/library
+pairing remains a caller obligation. Query `valid`, `hasAudioState`, `hasTelemetry` and capability counts
 before using optional interfaces. Missing/invalid interfaces return rejection,
 leaving their output fields unchanged.
 

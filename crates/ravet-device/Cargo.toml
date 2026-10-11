@@ -8,6 +8,7 @@ description = "Explicit standalone audio device adapter for RAVET"
 
 [features]
 default = []
+resampled-playback = ["ravet-audio-file/resampled-playback"]
 vorbis-recording = ["ravet-audio-file/vorbis-encode"]
 mp3-recording = ["ravet-audio-file/mp3-encode"]
 
@@ -22,5 +23,5 @@ rtrb = "=0.4.0"
 [dev-dependencies]
 allocation-counter = "=0.8.1"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"

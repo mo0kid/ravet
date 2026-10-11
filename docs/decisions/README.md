@@ -369,3 +369,135 @@ and feature status in the same change. Preserve the earlier rationale as history
 - [0198: Worker-created automatic MP3 recording](0198-worker-created-mp3-recording.md)
 
 - [0201: Bounded opaque JPEG encoding](0201-bounded-opaque-jpeg-encoding.md)
+
+- [0204: Local resizable split-pane layout](0204-local-split-pane-layout.md)
+
+- [0208: Fixed flat-list selection](0208-fixed-list-selection.md)
+
+- [0203: Explicit Performance AUv2 audio precision and checked lifecycle](0203-auv2-performance-audio-precision.md)
+
+- [0206: Explicit static GIF assets](0206-explicit-static-gif-assets.md)
+
+- [0207: Prepared file playback at an explicit output rate](0207-prepared-output-rate-file-playback.md)
+
+- [0209: Native AAX parameter schema and registered control adoption](0209-aax-native-schema-control.md)
+
+- [0211: Fixed hierarchical tree expansion and selection](0211-fixed-tree-expansion-selection.md)
+
+- [0210: Explicit trusted VST3 catalogue ownership](0210-trusted-vst3-catalogues.md)
+
+- [0214: Fixed readonly native table grid](0214-fixed-readonly-table-grid.md)
+
+- [0213: Checked native AAX lifecycle and bounded global intent](0213-aax-checked-native-lifecycle.md)
+
+- [0212: Converted buffered file playback](0212-converted-buffered-file-playback.md)
+
+- [0217: Fixed-model virtual text list](0217-fixed-virtual-text-list.md)
+
+- [0218: Native AAX short-note instrument adoption](0218-aax-native-short-note-instrument.md)
+
+- [0216: Reclaimable native output ownership](0216-reclaimable-native-output.md)
+
+- [0219: Initialized AAX transport capture](0219-aax-native-transport-capture.md)
+
+- [0215: Scoped VST3 instance ownership](0215-scoped-vst3-instances.md)
+
+- [0220: Explicit grid and measured native window consumption](0220-explicit-grid-measured-window.md)
+
+- [0221: Explicit integer-rate long-file scheduling](0221-explicit-integer-rate-file-scheduling.md)
+
+- [0222: Prepared native AAX audio bus mapping](0222-aax-prepared-native-bus-mapping.md)
+  fixes explicit capacities/source-order mapping and actual registered Rust adoption.
+- [0223: Opt-in standalone content constraints](0223-standalone-content-constraints.md)
+  defines portable finite fitting, native bound restoration and resize/policy reentry.
+
+- [0224: Indexed integer PCM seeking](0224-indexed-integer-pcm-seeking.md)
+
+- [0225: Owned standalone window lifecycle](0225-owned-standalone-window-lifecycle.md)
+
+- [0226: AAX generated short-MIDI output](0226-aax-generated-short-midi-output.md)
+
+- [0227: Owned stopped VST3 state transactions](0227-owned-vst3-state-transactions.md)
+
+- [0228: Output-clock file/capture processing](0228-output-clock-file-capture-processing.md)
+
+- [0229: Explicit color preparation](0229-explicit-color-preparation.md)
+
+- [0230: Prepared AAX initial and acknowledged dynamic timing](0230-aax-prepared-timing.md)
+
+- [0231: Retire paired clocked callbacks before original-owner recovery](0231-reclaimable-clocked-duplex-ownership.md)
+
+- [0232: Owned bounded SVG image import](0232-owned-svg-image-import.md)
+
+- [0233: Owned VST3 controller parameters and timed DSP input](0233-owned-vst3-parameters.md)
+
+- [0234: Checked native AAX editor ownership and automation](0234-aax-native-editor-ownership.md)
+
+- [0235: Explicit low-cost streaming interpolation profiles](0235-low-cost-streaming-interpolation.md)
+
+- [ADR0236: Explicit native semantic companion for custom editor content](0236-explicit-native-semantic-companion.md)
+
+- [0237: One temporal output per input for selectable fractional delay](0237-selectable-causal-fractional-delay.md)
+
+- [0238: Bounded selected-order Butterworth sections and verified specifications](0238-selected-order-butterworth-designs.md)
+
+- [0239: FIR coefficient generation with explicit empirical and numerical policies](0239-fir-coefficient-design-family.md)
+
+- [0242: Bounded Chebyshev I/II poles, zeros and edge selection](0242-selected-order-chebyshev-designs.md)
+
+- [0241: Caller-owned contextual local font fallback](0241-contextual-local-font-fallback.md)
+
+- [0243: Bounded elliptic poles, zeros and specification selection](0243-selected-order-elliptic-designs.md)
+
+- [0240: Explicit native precision behind AAX float audio](0240-aax-native-precision.md)
+
+- [0245: Bounded sampled equiripple FIR design](0245-sampled-equiripple-fir-designs.md)
+
+- [0246: Prepared hosted VST3 events, parameters and block context](0246-hosted-vst3-events-context.md)
+
+- [0247: Complete short MIDI AAX input and shared precision synthesis](0247-aax-short-midi-input.md)
+
+- [0249: Canonical runtime native companion tables](0249-native-canonical-tables.md)
+
+- [0248: Configured elliptic allpass halfband and oversampling](0248-configured-iir-halfband-design.md)
+
+- [0250: Exact native client origin and balanced acquisition](0250-native-client-acquisition.md)
+
+- [0251: Native peak and RMS ballistics](0251-native-peak-rms-ballistics.md)
+
+- [0244: Explicit system fonts and immutable variation instances](0244-explicit-system-fonts-and-immutable-variations.md)
+
+- [0252: First-order topology-preserving filters](0252-first-order-topology-preserving-filters.md)
+
+- [0254: Raw short-MIDI AAX effects, auxiliary buses and one AUDIO admission](0254-aax-raw-effects-auxiliary.md)
+
+- [0253: Exact-face wrapped mixed-direction paragraphs](0253-font-stack-paragraphs.md)
+
+- [0255: Prepared panning curves and pair ramps](0255-prepared-panning-curves-and-pair-ramps.md)
+
+- [0256: Paired dry/wet queues and causal latency](0256-paired-dry-wet-queues-and-causal-latency.md)
+
+- [0257: Six-stage native modulated feedback phaser](0257-six-stage-native-modulated-feedback-phaser.md)
+
+- [0258: Native nonlinear multimode ladder](0258-native-nonlinear-multimode-ladder.md)
+
+- [0259: Explicit selected PostScript outlines and native-source consumption](0259-explicit-postscript-outlines.md)
+
+- [0261: Exact LV2 native core and shared schema admission](0261-lv2-exact-origin-admission.md)
+
+- [0260: Typed graph stages and shared-control mono ownership](0260-typed-chain-shared-mono-ownership.md)
+
+- [0262: Explicit prepared AAX native meter taps](0262-aax-native-metering.md)
+
+- [0263: Prepared interpolated peak estimates](0263-prepared-interpolated-peak-estimates.md)
+
+- [0264: Prepared calibrated loudness and loudness range](0264-prepared-calibrated-loudness-range.md)
+
+| [0265](0265-lv2-native-generated-output.md) | Complete bounded native LV2 short MIDI output | Implemented; fresh native replay and public workspace gate passed; no DAW, Linux or deadline claim |
+| [0266](0266-scoped-native-floating-control.md) | Scoped native floating-control ownership | Implemented in `ravet-native-dsp`; native AArch64 and Rosetta x86_64 qualification |
+| [0267](0267-explicit-packed-register-and-slice-family.md) | Explicit packed values and prepared vector slices | Implemented in `ravet-native-dsp`; native AArch64 and Rosetta x86_64 qualification |
+| [0268](0268-hosted-vst3-graph-banks.md) | Hosted VST3 native 32/64 aux buses and owned Graph banks | Prototype; mock-provider, native fixture and actual Gain/Performance evidence, no DAW or deadline claim |
+| [0269](0269-auv3-asynchronous-host-ownership.md) | Asynchronous AUv3 host ownership and joined main-bus rendering | Prototype; in-process native/Rust evidence, out-of-process rendering unvalidated |
+| [0270](0270-native-convolution-schedules.md) | Native-precision zero-latency, uniform and nonuniform convolution banks | Implemented; offline numerical, allocation and Graph-consumer evidence only, no deadline claim |
+| [0271](0271-hosted-vst3-editor-ownership.md) | Hosted VST3 editor ownership (macOS NSView) | Prototype; injected view, provider and actual Gain hidden-window evidence, no DAW, third-party editor or accessibility claim |
+| [0272](0272-impulse-response-preparation-and-live-convolution-transitions.md) | Source-rate impulse-response preparation and live convolution transitions | Implemented; offline analytic, allocation and concurrency evidence only, no deadline claim |

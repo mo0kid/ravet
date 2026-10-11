@@ -1,0 +1,162 @@
+{
+  "source": "first-party analytic outlines only; no system/proprietary font assets",
+  "license": "GPL-3.0-only",
+  "generator": "generate.py",
+  "fonts": [
+    {
+      "name": "ambiguous-cff-and-cff2.otf",
+      "sha256": "c12c4def141c48a866e3b74ddf3fcd6f8235749127d55609f40e10f71e29703c",
+      "bytes": 1376
+    },
+    {
+      "name": "analytic-cff.otf",
+      "sha256": "8fb3e857746dc6782b56835203a48b9e240a3d6c52d0050b9a674f0fea02576b",
+      "bytes": 1236
+    },
+    {
+      "name": "analytic-cff2.otf",
+      "sha256": "e177e7fefc7309c4d62189bc79323d3dff64d7263671e54e051cee3ef28d0cd6",
+      "bytes": 1548
+    },
+    {
+      "name": "cff2-matrix-decimal-far.otf",
+      "sha256": "ea73d4fa1c117ac47ad59323a5dbccbba5c5e7c34af9b9db036f1325d2bf58b5",
+      "bytes": 1572
+    },
+    {
+      "name": "cff2-matrix-decimal-near.otf",
+      "sha256": "f739af438db0ce1aee155d62918303dc8d2fe74329332320748192289c291ab0",
+      "bytes": 1576
+    },
+    {
+      "name": "cff2-matrix-shear.otf",
+      "sha256": "319df19b5cd2eead4333bf17676a5030dc401ee7e2cb0e721f24b873b1f081d3",
+      "bytes": 1564
+    },
+    {
+      "name": "cff2-matrix-translation.otf",
+      "sha256": "ab76e60c38b031154a489067c5747201a28f3e2b8494e33c0069e54855369eba",
+      "bytes": 1560
+    },
+    {
+      "name": "cff2-matrix-unequal.otf",
+      "sha256": "39b30a256c369b0264f67ff23679cfeccd6dd60113886480e7bd81790d0224b7",
+      "bytes": 1560
+    },
+    {
+      "name": "cff2-matrix-valid.otf",
+      "sha256": "e177e7fefc7309c4d62189bc79323d3dff64d7263671e54e051cee3ef28d0cd6",
+      "bytes": 1548
+    },
+    {
+      "name": "cid-2-cff.otf",
+      "sha256": "fad3552c0ab19df0579ace9709543e3a6cc53b9bdae1e007c4b9828f5aa9140c",
+      "bytes": 1336
+    },
+    {
+      "name": "cid-256-cff.otf",
+      "sha256": "3b7dd67d94c853db1f5ce412cc0169746fb2ebc9d52f872cd66b94d593641d16",
+      "bytes": 10388
+    },
+    {
+      "name": "cid-257-cff.otf",
+      "sha256": "e6e03dbaa9cb31bcdf29c3a8fb32a03b217ef43d639a79984b1d2679bb867806",
+      "bytes": 10424
+    },
+    {
+      "name": "commands-4096-cff.otf",
+      "sha256": "b852a5c6f3b9375a7e1f777bc7df519561829dd618c8fac6173cfe762fa67601",
+      "bytes": 13508
+    },
+    {
+      "name": "commands-4097-cff.otf",
+      "sha256": "17a84acfddb275e202c5b322facfd33bfabc228d06024de95decb41f6c5a82b4",
+      "bytes": 13508
+    },
+    {
+      "name": "consumer-capacity-cff.otf",
+      "sha256": "bdc7b9824674b6fdfa1c198e68e4995b0db55f1b94063b0770796c96c8c29a2e",
+      "bytes": 13540
+    },
+    {
+      "name": "consumer-cff.otf",
+      "sha256": "cf0eb4300264724f66f92afca69260d8ade8e34ee2cba9fbef2883dd9f10ed18",
+      "bytes": 1268
+    },
+    {
+      "name": "consumer-cff2.otf",
+      "sha256": "f09c4d7ff41366e8e1ead97e78dd98214b84e8155883212fb07643b07d88901d",
+      "bytes": 1580
+    },
+    {
+      "name": "fallback-only-b-cff.otf",
+      "sha256": "a2a5de9b25ba8097cda7e380d86a98f4f74edd8ca600d98756a5c463c53dabf5",
+      "bytes": 1228
+    },
+    {
+      "name": "glyf-with-invalid-cff.ttf",
+      "sha256": "994c6bdfd20a0a2b6fa970e99f6994df4d0189b0418c2af1c2081178b98b85a8",
+      "bytes": 1640
+    },
+    {
+      "name": "invalid-private-bluevalues-cff.otf",
+      "sha256": "8eadd84df9e1079d903172d41b1bfd381b040cf5789ead0bdb05d7fce41a4d65",
+      "bytes": 1236
+    },
+    {
+      "name": "invalid-select-bad-fd.otf",
+      "sha256": "70f3d706efc2ac4bf0bd172cf3a3c6d0e17424e1c7704feb2947c0956f2212a5",
+      "bytes": 1336
+    },
+    {
+      "name": "invalid-select-bad-sentinel.otf",
+      "sha256": "6e2f802adec9a0492ea0d99adc9eef7454aa7031c625b8b9e31082a18d721d1d",
+      "bytes": 1336
+    },
+    {
+      "name": "invalid-select-duplicate-first.otf",
+      "sha256": "cadbb841b83312e3bf29208bc8e2bbabed4c3a8c9fe0b1399f146637b7a1dd11",
+      "bytes": 1336
+    },
+    {
+      "name": "invalid-select-first-gap.otf",
+      "sha256": "15b1bd5899d1206802c5cc9fc906552b23163604fdecf0bf1ff56a0bf196d531",
+      "bytes": 1336
+    },
+    {
+      "name": "matrix-cff.otf",
+      "sha256": "e11e9f450c2ae4a15acbbb2f13b2cd135746e1be0f03da67fc8a1cb30b9c5027",
+      "bytes": 1248
+    },
+    {
+      "name": "no-outlines.otf",
+      "sha256": "ddb6df42b9641a9ed666ea8bb2b73a8d6ace024bb44bd5cf4029db721699fb4c",
+      "bytes": 1024
+    },
+    {
+      "name": "private-blend-cff2.otf",
+      "sha256": "4ac6ed5de8dcb41b742775411f44a096546a1ce54730b7c18f603e9461a06cdf",
+      "bytes": 1564
+    },
+    {
+      "name": "subr-cff.otf",
+      "sha256": "5362a07937a56edbcd8b8589ca6da1a0d6af87e3dda7600d3d816c8b9a9f1716",
+      "bytes": 1252
+    },
+    {
+      "name": "tiny-negative-cff.otf",
+      "sha256": "28bf5396c177ffc49eccecdbe89e6729e497a13960970caef703e02229d66d25",
+      "bytes": 1248
+    },
+    {
+      "name": "tiny-negative-matrix-cff.otf",
+      "sha256": "ec8258670b5b8456910dabc6369b70eddd1d883be8cda3874d4108f06046c007",
+      "bytes": 1264
+    },
+    {
+      "name": "tiny-positive-cff.otf",
+      "sha256": "83ee95fc72736706953268da6879d7b0613fefa3b0632e24db07e42d9cf3344d",
+      "bytes": 1248
+    }
+  ]
+}

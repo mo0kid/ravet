@@ -227,7 +227,11 @@ completion workloads. See
 ## Portable sine instrument
 
 `SineInstrument<N>` connects voice ownership, chosen-side negotiation and linear
-ADSR to a no-input mono/stereo f32 processor. Prepare a finite positive sample rate with ADSR counts fitting u32, at most 65,536
+ADSR to a no-input mono/stereo f32 processor. The additive `SineInstrument64<N>`
+facade uses the same render kernel with actual f64 output, without an intermediate
+f32 sample buffer; existing `SineInstrument::new` inference and scalar behavior
+remain unchanged. Both expose CONTROL Level schema/setter and last-program request
+observation. Prepare a finite positive sample rate with ADSR counts fitting u32, at most 65,536
 frames and 1,024 events, with no auxiliary/output-event buses. Complete block
 validation precedes every event/state change; faults silence active outputs.
 Zero-frame events apply without advancing phase/envelopes. New or stolen notes
@@ -246,8 +250,9 @@ clear voices/history while retaining requested level and negotiated zone/ranges.
 
 Processing/reset use no heap, blocking or I/O. Drop/deactivate/prepare require
 stopped callback ownership. This is a portable reference; no editor, complete
-state codec, f64, plug-in instrument adapter, device deadline, click-free stealing
-or bandlimited waveform bank is claimed. The executable example renders a
+state codec, plug-in instrument adapter, device deadline, click-free stealing
+or bandlimited waveform bank is claimed. The separate native/AAX MidiSine reference
+composes the portable instrument explicitly. The executable example renders a
 synthetic timed note and release into memory without opening a device:
 
 ```sh
@@ -434,14 +439,22 @@ See [decision 0080](decisions/0080-complete-program-banks.md).
 The public `SINE_PROGRAMS` catalogue contains three complete level states at
 MIDI bank 0: program 0 Default (0.2), 1 Quiet (0.05), 2 Full (1.0), with permanent
 IDs 1..3. `SineInstrument::programs()` returns its validated immutable bank.
-Only the chosen side's master (channel 0 lower, 15 upper) stages bank/program
-requests, including before MPE negotiation. This is one global reference level,
+Bank/program requests are staged by the existing receiver policy independently
+of `SineOptions`. With default `SineOptions { apply_midi_programs: true }`, only
+the chosen side's master (channel 0 lower, 15 upper) applies those requests to
+Level, including before MPE negotiation. This is one global reference level,
 not sixteen different channel patches. Other channels and unavailable addresses
 preserve level. Recall preserves sounding voices, oscillator phase/envelopes,
 zone/ranges and release tails. Level automation and programs obey event order
 with no smoothing; reset/reprepare/System Reset clear pending banks while keeping
 level. Accepted RPN6 zone configuration also clears selectors/requests;
 RPN0 range-only updates preserve them. Program identity is not persisted or inferred from custom level edits.
+
+`SineInstrument::with_options` and `SineInstrument64::with_options` can explicitly
+disable automatic program-to-Level replacement. Bank/program requests and ordinary
+voice/pedal/RPN/MPE negotiation remain observable; accepted global Level remains
+controlled by explicit automation/recall. The separate [MidiSine native/AAX reference](aax-short-midi.md)
+uses that policy and complete Level-only state, rather than inventing host program menus.
 
 The CLAP reference receives these changes through process MIDI events, reflects
 the resulting level into its existing complete state and coalesces changed

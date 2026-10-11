@@ -43,7 +43,7 @@ bool failures(){
     for(uint32_t field=0;field<5;++field){auto bad=*core;if(field==0)bad.version=2;if(field==1)bad.byte_size=16;if(field==2)bad.sample_bits=16;if(field==3)bad.reserved=1;if(field==4)bad.process=nullptr;NativeProcessorClient rejected(&bad);if(!check(!rejected.valid(),"core prefix/callback preflight"))return false;}
     NativeProcessorClient wrongPrecision(core,ravet_native_audio_state_v1(64));NativeProcessorClient wrongTelemetry(core,nullptr,ravet_native_telemetry_v1(64));
     if(!check(!wrongPrecision.valid()&&!wrongTelemetry.valid(),"precision pairing"))return false;
-    auto copiedCore=*core;NativeProcessorClient wrongOrigin(&copiedCore,state,telemetry);if(!check(wrongOrigin.valid(),"equivalent promoted core table"))return false;
+    auto copiedCore=*core;NativeProcessorClient wrongOrigin(&copiedCore,state,telemetry);if(!check(!wrongOrigin.valid(),"byte-identical copied core is not exact companion origin"))return false;
     auto badCore=*core; badCore.reset=[](void*)->int32_t{return 0;}; NativeProcessorClient wrongCallbacks(&badCore,state,telemetry); if(!check(!wrongCallbacks.valid(),"different originating callback profile"))return false;
     for(uint32_t field=0;field<4;++field){auto bad=*state;if(field==0)bad.version=2;if(field==1)bad.byte_size=16;if(field==2)bad.parameter_count=1025;if(field==3)bad.snapshot=nullptr;NativeProcessorClient rejected(core,&bad);if(!check(!rejected.valid(),"state profile"))return false;}
     for(uint32_t field=0;field<4;++field){auto bad=*telemetry;if(field==0)bad.version=2;if(field==1)bad.byte_size=16;if(field==2)bad.telemetry_count=1025;if(field==3)bad.snapshot=nullptr;NativeProcessorClient rejected(core,nullptr,&bad);if(!check(!rejected.valid(),"telemetry profile"))return false;}

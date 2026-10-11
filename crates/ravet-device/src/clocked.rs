@@ -98,20 +98,52 @@ pub struct ClockedDuplexStatistics {
     pub correction_ppm: f64,
 }
 #[derive(Default)]
-struct ClockCounters {
+pub(super) struct ClockCounters {
     priming: AtomicU64,
     underflow: AtomicU64,
     queued: AtomicU64,
     ppm: AtomicU64,
 }
 impl ClockCounters {
-    fn snapshot(&self) -> ClockedDuplexStatistics {
+    pub(super) fn snapshot(&self) -> ClockedDuplexStatistics {
         ClockedDuplexStatistics {
             priming_output_frames: self.priming.load(Ordering::Relaxed),
             underflow_output_frames: self.underflow.load(Ordering::Relaxed),
             queued_input_frames: self.queued.load(Ordering::Relaxed),
             correction_ppm: f64::from_bits(self.ppm.load(Ordering::Relaxed)),
         }
+    }
+}
+/// Original preparation error and original processor/raw capture consumer.
+/// Failed prepare is inactive; foreign lifecycle panics are exceptional.
+pub struct PreparedClockedDuplexFailure<P> {
+    processor: P,
+    consumer: AudioConsumer,
+    error: ClockedDuplexError,
+}
+impl<P> PreparedClockedDuplexFailure<P> {
+    pub fn error(&self) -> &ClockedDuplexError {
+        &self.error
+    }
+    pub fn into_parts(self) -> (P, AudioConsumer, ClockedDuplexError) {
+        (self.processor, self.consumer, self.error)
+    }
+}
+impl<P> std::fmt::Display for PreparedClockedDuplexFailure<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+impl<P> std::error::Error for PreparedClockedDuplexFailure<P> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+impl<P> std::fmt::Debug for PreparedClockedDuplexFailure<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedClockedDuplexFailure")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
     }
 }
 /// Prepared f32 duplex input-clock conversion with per-channel f64 sinc storage.
@@ -139,7 +171,7 @@ pub struct PreparedClockedDuplex<P: Processor> {
     raw_frames: usize,
     raw_position: usize,
     primed: bool,
-    clock_counters: Arc<ClockCounters>,
+    pub(super) clock_counters: Arc<ClockCounters>,
 }
 impl<P: Processor> PreparedClockedDuplex<P> {
     pub fn new(
@@ -150,44 +182,116 @@ impl<P: Processor> PreparedClockedDuplex<P> {
         output_channels: usize,
         options: ClockedDuplexOptions,
     ) -> Result<Self, ClockedDuplexError> {
-        validate_configuration(
+        Self::new_owned(
+            processor,
+            consumer,
             input_rate,
             output_rate,
-            consumer.channels(),
             output_channels,
-            consumer.capacity_frames(),
             options,
-        )?;
-        let clock = FifoClockController::new(options.clock).map_err(ClockedDuplexError::Clock)?;
-        let channels = consumer.channels();
-        let mut converters = Vec::with_capacity(channels);
-        for _ in 0..channels {
-            converters.push(
-                SincResampler::new_variable(
-                    f64::from(input_rate),
-                    f64::from(output_rate),
-                    options.taps,
-                    options.clock.maximum_ppm,
-                )
-                .map_err(ClockedDuplexError::Resampler)?,
-            );
-        }
-        let (converted, converted_consumer) =
-            audio_ring(channels, options.maximum_frames.next_power_of_two())
+        )
+        .map_err(|failure| failure.error)
+    }
+    /// Prepare on control with failure-owned original P and raw capture consumer.
+    /// Fallible transient scratch reserves precede child preparation. Existing
+    /// converter/controller bounds and initial priming remain unchanged.
+    pub fn new_owned(
+        processor: P,
+        consumer: AudioConsumer,
+        input_rate: u32,
+        output_rate: u32,
+        output_channels: usize,
+        options: ClockedDuplexOptions,
+    ) -> Result<Self, PreparedClockedDuplexFailure<P>> {
+        let prepared = (|| {
+            validate_configuration(
+                input_rate,
+                output_rate,
+                consumer.channels(),
+                output_channels,
+                consumer.capacity_frames(),
+                options,
+            )?;
+            let clock =
+                FifoClockController::new(options.clock).map_err(ClockedDuplexError::Clock)?;
+            let channels = consumer.channels();
+            let mut converters = Vec::new();
+            converters
+                .try_reserve_exact(channels)
                 .map_err(|_| ClockedDuplexError::InvalidConfiguration)?;
-        let maximum = options.maximum_frames;
-        let captured = vec![0.; maximum * channels];
-        let interleaved = vec![0.; maximum * channels];
-        let raw_planar = vec![vec![0.; maximum]; channels];
-        let resampled = vec![vec![0.; maximum]; channels];
-        let inner = PreparedDuplex::new(
+            for _ in 0..channels {
+                converters.push(
+                    SincResampler::new_variable(
+                        f64::from(input_rate),
+                        f64::from(output_rate),
+                        options.taps,
+                        options.clock.maximum_ppm,
+                    )
+                    .map_err(ClockedDuplexError::Resampler)?,
+                );
+            }
+            let (converted, converted_consumer) =
+                audio_ring(channels, options.maximum_frames.next_power_of_two())
+                    .map_err(|_| ClockedDuplexError::InvalidConfiguration)?;
+            let maximum = options.maximum_frames;
+            let captured = super::input::scratch(maximum * channels, 0.0f32)
+                .map_err(ClockedDuplexError::Processor)?;
+            let interleaved = super::input::scratch(maximum * channels, 0.0f32)
+                .map_err(ClockedDuplexError::Processor)?;
+            let raw_planar = super::input::planar(channels, maximum, 0.0f64)
+                .map_err(ClockedDuplexError::Processor)?;
+            let resampled = super::input::planar(channels, maximum, 0.0f64)
+                .map_err(ClockedDuplexError::Processor)?;
+            let clock_counters = Arc::default();
+            Ok((
+                clock,
+                converters,
+                converted,
+                converted_consumer,
+                captured,
+                interleaved,
+                raw_planar,
+                resampled,
+                clock_counters,
+            ))
+        })();
+        let (
+            clock,
+            converters,
+            converted,
+            converted_consumer,
+            captured,
+            interleaved,
+            raw_planar,
+            resampled,
+            clock_counters,
+        ) = match prepared {
+            Ok(parts) => parts,
+            Err(error) => {
+                return Err(PreparedClockedDuplexFailure {
+                    processor,
+                    consumer,
+                    error,
+                });
+            }
+        };
+        let inner = match PreparedDuplex::new_owned(
             processor,
             output_rate,
             converted_consumer,
             output_channels,
-            maximum,
-        )
-        .map_err(ClockedDuplexError::Processor)?;
+            options.maximum_frames,
+        ) {
+            Ok(inner) => inner,
+            Err(failure) => {
+                let (processor, _converted_consumer, error) = failure.into_parts();
+                return Err(PreparedClockedDuplexFailure {
+                    processor,
+                    consumer,
+                    error: ClockedDuplexError::Processor(error),
+                });
+            }
+        };
         Ok(Self {
             inner,
             raw: consumer,
@@ -204,8 +308,19 @@ impl<P: Processor> PreparedClockedDuplex<P> {
             raw_frames: 0,
             raw_position: 0,
             primed: false,
-            clock_counters: Arc::default(),
+            clock_counters,
         })
+    }
+    /// Consume exclusive stopped ownership on control, deactivate once and return
+    /// original processor/raw consumer. Prefetched capture and converted transient
+    /// histories are discarded; queued raw frames retain their existing position.
+    /// This performs no seek, source-worker join or endpoint rollback.
+    pub fn into_parts(self) -> (P, AudioConsumer) {
+        let Self { inner, raw, .. } = self;
+        (inner.into_processor(), raw)
+    }
+    pub fn into_processor(self) -> P {
+        self.into_parts().0
     }
     pub fn statistics(&self) -> OutputStatistics {
         self.inner.statistics()
@@ -356,7 +471,7 @@ impl<P: Processor> DeviceRenderer for PreparedClockedDuplex<P> {
 /// fresh state or backend failure/panic recovery; no fallback/hotplug is implicit.
 pub struct ClockedDuplexStream {
     streams: DuplexStream,
-    clock_counters: Arc<ClockCounters>,
+    pub(super) clock_counters: Arc<ClockCounters>,
 }
 impl ClockedDuplexStream {
     pub fn play(&self) -> Result<(), cpal::Error> {

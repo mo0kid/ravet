@@ -602,17 +602,34 @@ impl<S: GraphSample> Graph<S> {
     /// Clear all node histories and route delays, re-enabling a faulted graph.
     /// Requested parameters are preserved by each node's reset contract.
     pub fn reset(&mut self) {
+        let _ = self.try_reset();
+    }
+    /// Reset in execution order, remaining faulted on any refusal.
+    /// Earlier nodes may already have reset; history changes cannot roll back.
+    /// Route delays and the fault latch clear only after whole success.
+    pub fn try_reset(&mut self) -> Result<(), GraphStatus> {
+        self.faulted = true;
+        for &index in &self.order {
+            let node = &mut self.nodes[index];
+            node.definition
+                .processor
+                .try_reset()
+                .map_err(|error| GraphStatus::Fault {
+                    node: Some(node.definition.id),
+                    error,
+                })?;
+        }
         self.host_events.clear();
         for node in &mut self.nodes {
             node.input_events.clear();
             node.output_event_count = 0;
-            node.definition.processor.reset();
         }
         for route in &mut self.routes {
             route.delay.fill(S::default());
             route.cursor = 0;
         }
         self.faulted = false;
+        Ok(())
     }
     pub fn deactivate(&mut self) {
         assert!(
@@ -662,7 +679,11 @@ impl<S: GraphSample> GraphAudioSession<'_, S> {
         self.graph.process(block)
     }
     pub fn reset(&mut self) {
-        self.graph.reset();
+        let _ = self.try_reset();
+    }
+    /// Forward checked history reset; refusal leaves the graph faulted.
+    pub fn try_reset(&mut self) -> Result<(), GraphStatus> {
+        self.graph.try_reset()
     }
     pub fn latency_samples(&self) -> u32 {
         self.graph.latency_samples()
@@ -722,5 +743,24 @@ pub use dynamic::{
     GraphOfferFailure, GraphSwapStatus,
 };
 
+#[cfg(feature = "convolution-transitions")]
+mod convolution_transition;
+#[cfg(feature = "convolution-transitions")]
+pub use convolution_transition::{
+    ConvolutionTransition, ConvolutionTransitionControl, CrossfadeLaw, CrossfadePolicy,
+    LatencyPolicy, MidFadePolicy, ReturnReason, ReturnedEngine, TRANSITION_MAXIMUM_FADE_FRAMES,
+    TRANSITION_REPORT_CAPACITY, TRANSITION_RETURN_CAPACITY, TransitionEngine, TransitionEvent,
+    TransitionOfferError, TransitionOfferFailure, TransitionOptions, TransitionReport,
+    TransitionSample, TransitionSetupError, TransitionSetupFailure, TransitionStatus,
+    convolution_transition,
+};
+
 mod events;
 pub use events::{EventConnection, EventEndpoint, EventFilter};
+#[allow(unsafe_code)]
+mod typed;
+pub use typed::{
+    StageAt, StageTuple, TypedChain, TypedChainAudioSession, TypedChainError, TypedChainFailure,
+};
+mod mono;
+pub use mono::{MonoDuplicator, MonoFactoryError, MonoFactoryFailure, SharedMonoKernel};

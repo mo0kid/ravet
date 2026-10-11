@@ -15,15 +15,16 @@ spec.loader.exec_module(bundle)
 
 
 class Runner:
-    def __init__(self, target, fail_validation=False):
+    def __init__(self, target, fail_validation=False, fail_name=None):
         self.target, self.calls, self.fail_validation = target, [], fail_validation
+        self.fail_name = fail_name
 
     def run(self, arguments, *, capture=False):
         args = [str(item) for item in arguments]
         self.calls.append(args)
         if args[:2] == ["cargo", "metadata"]:
             return json.dumps({"target_directory": str(self.target)})
-        if self.fail_validation and "contracts" in Path(args[0]).name:
+        if (self.fail_validation and "contracts" in Path(args[0]).name) or Path(args[0]).name == self.fail_name:
             raise subprocess.CalledProcessError(1, args)
 
 
@@ -52,7 +53,7 @@ class Lv2BundleTests(unittest.TestCase):
     def test_both_profiles_share_pipeline_and_keep_artifacts_separate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root, sdk, target = self.fixture(temporary)
-            for name in ("performance", "gain"):
+            for name in ("performance", "gain", "note-routing"):
                 runner = Runner(target)
                 context = bundle.prepare_context(root, sdk, name, platform="darwin", runner=runner)
                 built = bundle.build_reference(context)
@@ -66,11 +67,26 @@ class Lv2BundleTests(unittest.TestCase):
                 configured = next(args for args in runner.calls if args[0] == "cmake" and "-S" in args)
                 flag = next(arg for arg in configured if arg.startswith("-DRAVET_PERFORMANCE_LIBRARY="))
                 self.assertEqual(flag.endswith("libravet_performance_native.a"), name == "performance")
+                routing = next(arg for arg in configured if arg.startswith("-DRAVET_ROUTING_LIBRARY="))
+                self.assertEqual(routing.endswith("libravet_bus_routing_native.a"), name == "note-routing")
                 signed = next(args for args in runner.calls if args[0] == "codesign")
                 self.assertEqual(Path(signed[-1]).parent, artifact)
                 checked = [args for args in runner.calls if "contracts" in Path(args[0]).name]
                 self.assertEqual(len(checked), len(context.profile.validators))
                 self.assertTrue(all(Path(args[-1]).parent == artifact for args in checked))
+
+    def test_origin_refusal_gate_is_required_and_failure_propagates_for_both_profiles(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, sdk, target = self.fixture(temporary)
+            for name in ("gain", "performance"):
+                runner = Runner(target, fail_name="ravet_lv2_origin_contracts")
+                context = bundle.prepare_context(root, sdk, name, platform="linux", runner=runner)
+                built = bundle.build_reference(context)
+                artifact = bundle.package_reference(built)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    bundle.validate_reference(built, artifact)
+                self.assertEqual(Path(runner.calls[-1][0]).name, "ravet_lv2_origin_contracts")
+                self.assertEqual(Path(runner.calls[-1][1]), artifact / (context.profile.binary + ".so"))
 
     def test_configuration_failures_precede_commands_and_mutation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -94,6 +110,43 @@ class Lv2BundleTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 bundle.validate_reference(built, artifact)
             self.assertFalse(any(args[0] == "codesign" for args in runner.calls))
+
+    def test_every_note_output_validator_failure_is_mandatory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, sdk, target = self.fixture(temporary)
+            for failed in bundle.PROFILES["note-routing"].validators:
+                class FailingRunner(Runner):
+                    def run(self, arguments, *, capture=False):
+                        if Path(str(arguments[0])).name == failed:
+                            self.calls.append([str(item) for item in arguments])
+                            raise subprocess.CalledProcessError(17, arguments)
+                        return super().run(arguments, capture=capture)
+                runner = FailingRunner(target)
+                context = bundle.prepare_context(root, sdk, "note-routing", platform="linux", runner=runner)
+                built = bundle.build_reference(context)
+                artifact = bundle.package_reference(built)
+                with self.assertRaises(subprocess.CalledProcessError) as failure:
+                    bundle.validate_reference(built, artifact)
+                self.assertEqual(failure.exception.returncode, 17)
+                self.assertEqual(Path(runner.calls[-1][0]).name, failed)
+                self.assertEqual(Path(runner.calls[-1][-1]), artifact / "ravet_note_routing_lv2.so")
+
+    def test_note_output_codesign_failure_is_not_accepted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, sdk, target = self.fixture(temporary)
+            class FailingRunner(Runner):
+                def run(self, arguments, *, capture=False):
+                    if str(arguments[0]) == "codesign":
+                        self.calls.append([str(item) for item in arguments])
+                        raise subprocess.CalledProcessError(19, arguments)
+                    return super().run(arguments, capture=capture)
+            runner = FailingRunner(target)
+            context = bundle.prepare_context(root, sdk, "note-routing", platform="darwin", runner=runner)
+            built = bundle.build_reference(context)
+            with self.assertRaises(subprocess.CalledProcessError) as failure:
+                bundle.package_reference(built)
+            self.assertEqual(failure.exception.returncode, 19)
+            self.assertFalse(any("contracts" in Path(args[0]).name for args in runner.calls))
 
 
 if __name__ == "__main__":

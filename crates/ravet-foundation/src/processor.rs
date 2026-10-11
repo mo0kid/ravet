@@ -243,6 +243,8 @@ pub enum ProcessError {
     /// Native/backend execution failed; histories may have advanced. Silence
     /// output and stop/reset/rebuild under the owning session policy.
     BackendFailure,
+    /// History cannot be cleared by this backend; stop/join and rebuild on CONTROL.
+    RebuildRequired,
     /// A format mapping cannot represent the supplied known transport context.
     /// Validation rejection before native/backend state changes.
     InvalidTransport,
@@ -300,6 +302,13 @@ pub trait Processor<S: Sample = f32> {
     fn stop_audio(&mut self) {}
     fn process(&mut self, block: &mut ProcessBlock<'_, '_, '_, S>) -> ProcessStatus;
     fn reset(&mut self);
+    /// Attempt history reset without allocating or changing configuration.
+    /// Existing processors delegate to their successful legacy reset by default.
+    /// A refusal may follow earlier reset work; consumers must remain faulted.
+    fn try_reset(&mut self) -> Result<(), ProcessError> {
+        self.reset();
+        Ok(())
+    }
     fn deactivate(&mut self);
     /// Prepared algorithmic latency in samples. Changes are advertised by adapters
     /// using their format's restart/latency protocol outside the audio callback.
@@ -342,6 +351,7 @@ impl core::fmt::Display for ProcessError {
         match self {
             Self::InvalidTransport => f.write_str("transport context cannot be represented by the backend"),
             Self::BackendFailure => f.write_str("backend execution failed; histories may have advanced"),
+            Self::RebuildRequired => f.write_str("backend history reset requires stopped control-thread rebuild"),
             Self::NotPrepared => f.write_str("processor is not prepared"),
             Self::LayoutMismatch => {
                 f.write_str("buffer channel counts do not match the prepared layout")

@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RAVET layout workspace</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#121721;color:#e9edf5;font:14px system-ui}#workspace{position:absolute;inset:0}.panel{position:absolute;visibility:hidden;overflow:auto;border:1px solid #35415a;border-radius:8px;background:#1c2432;padding:12px}h1,h2,p{margin:0 0 8px}h1{font-size:18px}h2{font-size:15px}#header,#status{display:flex;align-items:center;gap:16px;padding:6px 12px}#header h1,#status p{margin:0}#editor{background:#223247}#status{font-size:12px}#diagnostic{position:absolute;left:12px;bottom:8px;color:#f6cb87;pointer-events:none}#diagnostic:empty{display:none}button{font:inherit}li{margin:8px 0}#inspector label{display:block;margin:8px 0}
+</style></head><body>
+<main id="workspace" aria-label="Layout workspace">
+<header class="panel" id="header"><h1>Layout workspace</h1><span>Resize this window to rearrange its panels</span></header>
+<section class="panel" id="library" aria-labelledby="library-heading"><h2 id="library-heading">Library</h2><ul><li>Sketch</li><li>Arrangement</li><li>Reference</li></ul></section>
+<section class="panel" id="editor" aria-labelledby="editor-heading"><h2 id="editor-heading">Editor</h2><p>Explicit track spans preserve a clear work area.</p><label>Notes <textarea aria-label="Notes" rows="3">A resizable workspace</textarea></label></section>
+<section class="panel" id="inspector" aria-labelledby="inspector-heading"><h2 id="inspector-heading">Inspector</h2><label><input type="checkbox" checked> Show guides</label><p>Panels remain ordinary semantic HTML.</p></section>
+<footer class="panel" id="status"><p id="dimensions">Waiting for measured size</p></footer>
+</main><p id="diagnostic" role="status"></p>
+<script>
+(()=>{'use strict';const ids=['header','library','editor','inspector','status'];const panels=ids.map(id=>document.getElementById(id));let pending=null,last=null;
+function admit(data){if(!data||data.kind!=='layout'||!['two columns','three columns'].includes(data.mode)||!Number.isFinite(data.width)||!Number.isFinite(data.height)||data.width<=0||data.height<=0||!Array.isArray(data.panels)||data.panels.length!==5)return false;
+for(let i=0;i<5;i++){const p=data.panels[i];if(!p||p.id!==ids[i]||![p.x,p.y,p.width,p.height].every(Number.isFinite)||p.width<26||p.height<26||p.x<0||p.y<0||p.x+p.width>data.width+1e-8||p.y+p.height>data.height+1e-8)return false;}return true;}
+function apply(){if(!pending||Math.abs(innerWidth-pending.width)>1||Math.abs(innerHeight-pending.height)>1)return false;const data=pending;for(let i=0;i<5;i++){const p=data.panels[i],s=panels[i].style;s.left=p.x+'px';s.top=p.y+'px';s.width=p.width+'px';s.height=p.height+'px';s.visibility='visible';}last=data;pending=null;document.getElementById('dimensions').textContent=`${data.width} × ${data.height} logical points · ${data.mode}`;document.getElementById('diagnostic').textContent='';return true;}
+window.ravetApplyState=data=>{if(data&&data.kind==='layout-error'){document.getElementById('diagnostic').textContent='Layout unavailable: '+String(data.error).slice(0,64);pending=null;return false;}if(!admit(data))return false;pending=data;return apply();};window.ravetUpdate=window.ravetApplyState;addEventListener('resize',apply);
+window.ravetLayoutReport=()=>({viewport:[innerWidth,innerHeight],pending:pending&&[pending.width,pending.height],applied:last&&[last.width,last.height],mode:last&&last.mode,diagnostic:document.getElementById('diagnostic').textContent,panels:panels.map(node=>{const r=node.getBoundingClientRect();return{id:node.id,x:r.x,y:r.y,width:r.width,height:r.height,visible:getComputedStyle(node).visibility!=='hidden'};})});})();
+</script></body></html>

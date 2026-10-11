@@ -1,5 +1,9 @@
 # Owned worker image assets
 
+The separate optional [SVG importer](svg-images.md) supplies owned sRGB
+premultiplied image pixels from a bounded resource-free static SVG profile.
+It does not select these static bitmap codecs.
+
 Enable the default-disabled `ravet-surface/image` or umbrella `ravet/image`
 feature for `image::{ImageAsset, ImageFormat, decode_image, encode_png}`.
 Select PNG or JPEG explicitly and supply owned/borrowed bytes; these APIs create
@@ -39,8 +43,36 @@ are consumer choices. PNG components also receive no color-management transform.
 an explicit1..16 MiB output budget. Encoding/overflow errors publish no partial
 bytes. Backend destructor writes can only reach that private sink; once rejected,
 its gate accepts no further bytes. There is no external I/O or caller sink.
-GIF/WebP, animation, SVG parsing, metadata editing and resampling are outside
+WebP, animation, SVG parsing, metadata editing and resampling are outside
 this API.
+
+Enable the separate default-disabled `ravet-surface/gif-image` or umbrella
+`ravet/gif-image` feature for `image::{GifBackground, decode_static_gif}`. It
+includes `image`; image-only consumers do not select GIF dependencies. Exactly
+one complete GIF87a/89a image is decoded with explicit `Transparent` zero-RGBA
+or `LogicalPalette` opaque global-background fill. The latter requires a valid
+global palette; a local palette overrides global colors inside the descriptor.
+The descriptor must fit the logical screen. Indexed transparency replaces those
+canvas pixels, including their numeric RGB, with alpha zero. Interlacing is
+decoded; no frame timing, disposal or animation compositing is scheduled.
+
+Full structural preflight enforces 1..16 MiB source, 1..4096 screen/frame
+dimensions, 64 MiB RGBA output and 8192 total blocks/subblocks. Missing/invalid
+palette entries, incomplete/end-code-invalid LZW, extra decoded pixels, second
+images, looping applications, plaintext/unknown extensions, interactive flags
+and trailing file data reject. GIF89a comments and non-loop opaque applications
+are bounded and ignored; GIF87a extensions reject. Color management, metadata,
+file I/O, codec working allocations and execution deadlines remain explicit
+consumer/worker obligations.
+
+First-party [GIF fixtures](../crates/ravet-surface/tests/fixtures/gif/README.md)
+compare exact independently decoded Pillow pixels and independent literal-LZW
+partial canvases. Five groups cover local/global palettes, transparency,
+interlacing, every truncated prefix, malformed LZW, extension/animation faults,
+source/dimension bounds and inclusive 8192-record limits. Complete independent
+MIT/Apache-2.0 [notices](../crates/ravet-surface/third-party/gif.md) retain exact
+gif0.14.2/weezl0.1.10 pins; defaults disabled, std only, no color_quant/native C.
+See [decision0206](decisions/0206-explicit-static-gif-assets.md).
 
 Enable the separate default-disabled `ravet-surface/jpeg-encode` or umbrella
 `ravet/jpeg-encode` feature for `image::{JpegOptions, JpegSampling, encode_jpeg}`.
@@ -62,6 +94,7 @@ cargo test -p ravet-surface --features image --doc --locked
 cargo test -p ravet-metal --test image --locked
 cargo test -p ravet-surface --features jpeg-encode --test jpeg --locked
 cargo test -p ravet-surface --features jpeg-encode --test jpeg --locked -- --include-ignored
+cargo test -p ravet-surface --features gif-image --test gif --locked
 ```
 
 The first-party fixture [generator/provenance](../crates/ravet-surface/tests/fixtures/image/README.md)
@@ -93,3 +126,8 @@ configuration forbids unsafe code. Complete independent MIT/Apache-2.0/IJG
 [notices and DCT attribution](../crates/ravet-surface/third-party/jpeg.md) include
 the required executable acknowledgement. See
 [decision0201](decisions/0201-bounded-opaque-jpeg-encoding.md).
+
+Caller-declared standard sRGB or linear-sRGB pixels can be prepared through the
+dependency-free [explicit color APIs](color-preparation.md). These borrowed views
+validate alpha association, transfer into caller buffers and composite in linear
+light; they infer no ICC/gamma metadata and leave numeric decoding unchanged.

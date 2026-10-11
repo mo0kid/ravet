@@ -192,7 +192,13 @@ impl<
     };
     /// Validate consumer metadata on control before acquiring the companion.
     pub fn entry() -> Option<&'static NativeCachedParameterEntryV1> {
-        NativeParameters::<P, S, N>::entry().map(|_| &Self::ENTRY)
+        NativeParameters::<P, S, N>::entry().map(|_| Self::canonical_entry())
+    }
+    // Keep one address-bearing body per concrete companion, across exports and
+    // cross-codegen companion chains. Runtime metadata validation remains above.
+    #[inline(never)]
+    fn canonical_entry() -> &'static NativeCachedParameterEntryV1 {
+        &Self::ENTRY
     }
     extern "C" fn parameters_entry() -> *const NativeParameterEntryV1 {
         NativeParameters::<P, S, N>::entry().map_or(ptr::null(), |entry| entry as *const _)

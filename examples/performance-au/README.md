@@ -6,7 +6,12 @@ Level state validation and rejected-render cleanup; Apple/Steinberg SDK sources
 remain external.
 Its parameter schema/control/text and complete-state preflight consume the
 [reusable native AU helpers](../../docs/native-au.md).
-Prepared output buffer validation also uses their explicit planar bus mapper.
+Prepared output buffer validation uses their complete-format planar mapper.
+The default audio precision is f32; stopped explicit f64 negotiation selects
+checked setup, typed render/silence and matching native schema/state provenance.
+Level controls/text/state remain f32. Serialized offline mode changes and reset
+preserve the selected precision; coherent Level recall survives stopped 32↔64
+reinitialization. SDK initialization uses an outer main-thread guard.
 Their AU transport collector preflights supported host callbacks before DSP,
 retains independent native availability and explicitly omits partial transport
 from its VST3 projection.

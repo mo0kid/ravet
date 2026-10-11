@@ -54,7 +54,7 @@ def build_reference(context):
         build = vst3.target / "au-performance/release"
         source = context.root / "examples/performance-au"
         target = "ravet_performance_au"
-        validators = ("ravet_au_performance_contracts", "ravet_au_native_parameters_contracts", "ravet_au_native_audio_contracts", "ravet_au_native_transport_contracts", "ravet_au_native_transport_fast_contracts", "ravet_au_native_midi_output_contracts", "ravet_au_native_midi_output_fast_contracts", "ravet_au_synthetic_midi_output_contracts", "ravet_au_native_audio64_contracts", "ravet_au_native_audio64_fast_contracts", "ravet_au_synthetic_audio64_contracts")
+        validators = ("ravet_au_performance_contracts", "ravet_au_native_parameters_contracts", "ravet_au_native_audio_contracts", "ravet_au_native_transport_contracts", "ravet_au_native_transport_fast_contracts", "ravet_au_native_midi_output_contracts", "ravet_au_native_midi_output_fast_contracts", "ravet_au_synthetic_midi_output_contracts", "ravet_au_native_audio64_contracts", "ravet_au_native_audio64_fast_contracts", "ravet_au_synthetic_audio64_contracts", "ravet_au_performance64_contracts", "ravet_au_performance_precision_contracts", "ravet_au_native_precision_schema_contracts", "ravet_au_native_precision_schema_fast_contracts")
         definitions = [f"-DRAVET_VST3_SDK={context.vst3.sdk}",
                        f"-DRAVET_GAIN_LIBRARY={vst3.target / 'release/libravet_gain_native.a'}",
                        f"-DRAVET_PERFORMANCE_LIBRARY={vst3.target / 'release/libravet_performance_native.a'}"]

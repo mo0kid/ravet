@@ -11,12 +11,14 @@ workspace = true
 
 [features]
 default = []
+resampled-playback = ["dep:ravet-signal"]
 compressed = ["dep:symphonia"]
 flac-encode = ["dep:flacenc"]
 vorbis-encode = ["dep:vorbis_rs"]
 mp3-encode = ["dep:mp3lame-encoder", "dep:mp3lame-sys"]
 
 [dependencies]
+ravet-signal = { workspace = true, optional = true }
 mp3lame-encoder = { version = "=0.2.5", optional = true, default-features = false }
 mp3lame-sys = { version = "=0.1.11", optional = true, default-features = false }
 vorbis_rs = { version = "=0.5.6", optional = true, default-features = false }

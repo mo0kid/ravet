@@ -6,7 +6,7 @@ duplicate markers and output larger than 1 MiB reject. Preparation allocates on
 the UI thread; the page CSP must permit its inline script. This is a document
 assembly helper, with no remote content sanitization or implicit network bridge.
 
-The script exposes `window.RavetControls` with twelve components and `TextEditorError`:
+The script exposes `window.RavetControls` with seventeen components and `TextEditorError`:
 
 - `Slider(range, numberOrNull, {id, minimum, maximum, step}, post)` binds native
   range/optional number inputs to finite physical parameter values. Bounds must
@@ -72,6 +72,24 @@ The script exposes `window.RavetControls` with twelve components and `TextEditor
   labels and focus style; do not bind text-editing controls whose arrow keys are
   needed for editing. There is no modal trap, automatic layout direction, dynamic
   member discovery or screen-reader certification.
+- `SplitPane(root, first, separator, second, options)` supplies actual bounded
+  two-pane grid layout, a labelled separator, pixel minima, TooSmall suspension,
+  keyboard/pointer ownership and exact cleanup. See [local split-pane layout](split-pane.md).
+- `VirtualList(root, items, settings)` copies bounded fixed text models with
+  reusable viewport rows, active/pressed identity pins, guarded native pointer
+  selection and bounded single/multiple model selection. See
+  [fixed-model virtual text list](virtual-list.md).
+- `TableView(table, headers, rows, settings)` supplies bounded fixed readonly
+  cell navigation, explicit native column-header associations and separate row
+  selection with retained unavailable models and exact cleanup. See
+  [fixed readonly table grid](table-view.md).
+- `TreeView(root, entries, settings)` supplies bounded fixed hierarchical
+  expansion/navigation with separate virtual active focus, retained collapsed
+  selection, native toggle focus admission and exact cleanup. See
+  [fixed hierarchical tree selection](tree-view.md).
+- `ListBox(root, options, settings)` separates bounded single/multiple selection
+  from one root Tab stop and virtual active focus, with retained unavailable model
+  state, keyboard ranges and exact cleanup. See [fixed flat-list selection](listbox.md).
 - `ModalDialog(dialog, {label, initialFocus, onClose})` composes native browser
   modality, bounded completion and guarded close-drain ownership. See
   [local native modal dialogs](modal-dialogs.md).

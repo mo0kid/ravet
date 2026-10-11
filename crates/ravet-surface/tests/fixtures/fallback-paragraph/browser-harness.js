@@ -1,0 +1,82 @@
+(async()=>{'use strict';
+const paragraphApply=window.ravetUpdate;
+const states=await(await fetch('consumer-states.json')).json(),results=[],commands=[],trusted=[];
+let revision=0,delivery=0,current=null;
+const keys=['sample','mode','direction','width','size','alignment'];
+const stateMatches=(m,n)=>keys.every(k=>m[k]===n[k]);
+const apply=async m=>{current={...m,revision:++revision,delivery};await paragraphApply(current);const r=ravetParagraphReport();if(!r||r.revision!==revision||!r.exact||r.busy||r.payload!==m.payload||r.source!==m.source||JSON.stringify(r.geometry)!==JSON.stringify(m.geometry))throw Error('Rust data/image mismatch '+JSON.stringify({state:keys.map(k=>m[k]),expectedRevision:revision,actualRevision:r?.revision,exact:r?.exact,busy:r?.busy,payloadMatch:r?.payload===m.payload,sourceMatch:r?.source===m.source,geometryMatch:JSON.stringify(r?.geometry)===JSON.stringify(m.geometry),expectedSize:[m.imageWidth,m.imageHeight]}));return r;};
+const bridge=m=>{commands.push({...m});if(m.refresh===1&&Object.keys(m).length===1){current={...current,delivery:++delivery};void paragraphApply(current);return true;}if(!current||m.revision!==current.revision||Object.keys(m).length!==2)return;const key=Object.keys(m).find(k=>k!=='revision'),n={...current,[key]:m[key]},next=states.find(s=>stateMatches(s,n));if(next)void apply(next).catch(e=>{window.paragraphFixture.error=String(e)});};
+window.ravetSend=bridge;
+window.paragraphFixture={results,commands,trusted,ready:false,error:null,scope:'Prerecorded actual Rust authored-font states through exact consumer HTML; dynamic Rust native model separately qualified'};
+for(const type of ['click','keydown','change'])document.addEventListener(type,e=>{if(e.isTrusted)trusted.push({type,key:e.key||null,target:e.target.id});},true);
+try{
+ for(let sample=0;sample<8;++sample)for(let mode=0;mode<2;++mode)for(let direction=0;direction<2;++direction){const m=states.find(s=>s.sample===sample&&s.mode===mode&&s.direction===direction&&s.width===(sample%2?320:80));await apply(m);results.push({group:'prepared',sample,mode,direction,lines:m.lineCount,runs:m.runCount,exact:true});}
+ for(let size=0;size<3;++size)for(let alignment=0;alignment<3;++alignment)for(let mode=0;mode<2;++mode){const m=states.find(s=>s.sample===0&&s.mode===mode&&s.direction===0&&s.width===320&&s.size===size&&s.alignment===alignment);await apply(m);results.push({group:'size/alignment prepared',size,alignment,mode,exact:true});}
+ const start=states.find(s=>s.sample===0&&s.mode===0&&s.direction===0&&s.width===320);await apply(start);
+ const previous=ravetParagraphReport();await ravetUpdate({...current,revision:current.revision-1});if(ravetParagraphReport().revision!==previous.revision)throw Error('stale update');results.push({group:'stale update ignored'});
+ await ravetUpdate({...current,revision:current.revision+1,payload:'%%%'});if(ravetParagraphReport().revision!==previous.revision)throw Error('invalid image publication');results.push({group:'invalid payload ignored'});
+ await ravetUpdate({...current,revision:current.revision+1,geometry:[]});if(ravetParagraphReport().revision!==previous.revision)throw Error('invalid geometry');results.push({group:'invalid geometry ignored'});
+ await apply(start);if(ravetParagraphCommand('width',320))throw Error('noop command');results.push({group:'noop command ignored'});
+ // Accepted UI event acknowledges a separately prepared Rust model image through the exact HTML transport.
+ if(!ravetParagraphCommand('width',240)||!ravetParagraphReport().busy)throw Error('command busy ownership');
+ for(let i=0;i<50&&ravetParagraphReport().busy;++i)await new Promise(r=>setTimeout(r,10));
+ if(ravetParagraphReport().width!==240||ravetParagraphReport().busy||!ravetParagraphReport().exact)throw Error('command acknowledgement');results.push({group:'command prepared-state acknowledgement'});
+ await apply(start);
+ const retained=ravetParagraphReport();
+ window.ravetSend=()=>false;
+ if(ravetParagraphRefresh()||ravetParagraphReport().busy||!ravetParagraphReport().recovery||!document.getElementById('status').textContent.includes('could not'))throw Error('refused refresh diagnostic');
+ results.push({group:'explicit refusal releases ownership'});
+ window.ravetSend=bridge;
+ if(!ravetParagraphRefresh())throw Error('refresh admission');
+ for(let i=0;i<50&&ravetParagraphReport().refreshPending;++i)await new Promise(r=>setTimeout(r,10));
+ if(ravetParagraphReport().revision!==retained.revision||ravetParagraphReport().delivery<=retained.delivery||ravetParagraphReport().recovery||!ravetParagraphReport().exact)throw Error('same revision recovery');
+ results.push({group:'verified same revision refresh'});
+ window.ravetSend=()=>{};
+ if(!ravetParagraphCommand('width',640)||!ravetParagraphReport().busy)throw Error('stale command ownership setup');
+ if(!ravetParagraphRefresh()||ravetParagraphReport().busy||!ravetParagraphReport().refreshPending)throw Error('manual stale command recovery');
+ const beforeReplay=ravetParagraphReport();
+ await paragraphApply({...current});
+ await paragraphApply({...current,delivery:Math.max(0,current.delivery-1)});
+ if(!ravetParagraphReport().refreshPending||ravetParagraphReport().revision!==beforeReplay.revision)throw Error('duplicate delivery replay');
+ results.push({group:'stale duplicate delivery cannot acknowledge recovery'});
+ current={...current,delivery:++delivery};await paragraphApply(current);
+ if(ravetParagraphReport().recovery||ravetParagraphReport().busy||!ravetParagraphReport().exact)throw Error('fresh delivery recovery');
+ window.ravetSend=bridge;
+ results.push({group:'ignored stale command explicit recovery'});
+ const old=ravetParagraphReport();
+ const pending=paragraphApply({...current,revision:revision+1});
+ await paragraphApply({...current,revision:revision+2,payload:'AAAA'});
+ await pending;
+ if(ravetParagraphReport().revision!==old.revision||!ravetParagraphReport().recovery||ravetParagraphReport().busy||ravetParagraphReport().payload!==old.payload)throw Error('old decode publication after failure');
+ results.push({group:'rejected newer generation cancels previous decode'});
+ await apply(start);
+ // A separate exact-consumer document tests retirement/exhaustion without
+ // leaving the trusted-control fixture itself unusable.
+ const frame=document.createElement('iframe');frame.src='about:blank';
+ const loaded=new Promise(resolve=>frame.addEventListener('load',resolve,{once:true}));document.body.append(frame);await loaded;
+ frame.contentDocument.open();frame.contentDocument.write(window.ravetParagraphFixtureHTML);frame.contentDocument.close();
+ const child=frame.contentWindow;await child.ravetUpdate({...current,delivery:4294967295});
+ if(child.ravetParagraphRefresh()||!child.document.getElementById('status').textContent.includes('exhausted'))throw Error('refresh exhaustion diagnostic');
+ results.push({group:'delivery exhaustion visible refusal'});
+ const childRevision=child.ravetParagraphReport().revision;child.dispatchEvent(new Event('pagehide'));
+ await child.ravetUpdate({...current,revision:current.revision+1,delivery:4294967295});
+ if(child.ravetParagraphCommand('width',640)||child.ravetParagraphRefresh()||child.ravetParagraphReport().revision!==childRevision)throw Error('disposed recovery publication');
+ frame.remove();results.push({group:'disposed document cannot refresh or publish'});
+ const terminalFrame=document.createElement('iframe');terminalFrame.src='about:blank';const terminalLoaded=new Promise(r=>terminalFrame.addEventListener('load',r,{once:true}));document.body.append(terminalFrame);await terminalLoaded;
+ terminalFrame.contentDocument.open();terminalFrame.contentDocument.write(window.ravetParagraphFixtureHTML);terminalFrame.contentDocument.close();
+ const t=terminalFrame.contentWindow;await t.ravetUpdate(current);const prior=t.ravetParagraphReport();
+ await t.ravetUpdate({...current,delivery:4294967295,refreshExhausted:true});
+ if(t.ravetParagraphReport().terminal)throw Error('unsolicited terminal acknowledgement');results.push({group:'unsolicited terminal acknowledgement ignored'});
+ t.ravetSend=()=>{};if(!t.ravetParagraphRefresh())throw Error('initial MAX refresh request');
+ await t.ravetUpdate({...current,delivery:4294967295,payload:'AAAA'});
+ if(!t.ravetParagraphReport().recovery||t.ravetParagraphReport().busy)throw Error('missed MAX rejection');
+ t.ravetSend=()=>{void t.ravetUpdate({...current,delivery:4294967295,refreshExhausted:true});return true;};
+ if(!t.ravetParagraphRefresh())throw Error('missed MAX refresh request');
+ for(let i=0;i<50&&!t.ravetParagraphReport().terminal;++i)await new Promise(r=>setTimeout(r,10));
+ if(!t.ravetParagraphReport().terminal||t.ravetParagraphReport().payload!==prior.payload||t.ravetParagraphReport().revision!==prior.revision||t.ravetParagraphReport().busy||t.ravetParagraphReport().refreshPending||!t.document.getElementById('refresh').disabled)throw Error('terminal acknowledgement publication');
+ results.push({group:'missed MAX terminal acknowledgement retains prior image'});
+ await t.ravetUpdate({...current,delivery:4294967295,refreshExhausted:true});
+ if(t.ravetParagraphRefresh()||t.ravetParagraphCommand('width',640)||t.ravetParagraphReport().payload!==prior.payload)throw Error('terminal replay or edit');terminalFrame.remove();results.push({group:'terminal replay and further edits refused'});
+ await apply(start);window.paragraphFixture.ready=true;document.title='RAVET paragraph fixture PASS '+results.length;
+}catch(e){window.paragraphFixture.error=String(e);document.title='RAVET paragraph fixture FAIL';window.webkit?.messageHandlers?.ravet.postMessage({paragraphFixtureDiagnostic:String(e),groups:results.length});}
+})();

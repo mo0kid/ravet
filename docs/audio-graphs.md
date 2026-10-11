@@ -104,6 +104,73 @@ in callbacks; 10,000 graph-reuse/render/reset iterations and 100 synchronized
 control/audio-thread transfers report zero callback heap operations. Scheduler
 deadlines and native host/device use remain unvalidated.
 
+## Live convolution transitions
+
+Enable `ravet-graph`'s default-disabled `convolution-transitions` feature for
+`convolution_transition(initial, maximum_frames, TransitionOptions)`. It works with
+`ravet-signal`'s `Convolver32/64` and `ConvolutionBank32/64`. Construction on CONTROL
+returns a `Send` control endpoint for a worker and an audio endpoint. Construction creates
+a one-slot handoff, a four-slot returned-engine queue, a 16-slot report queue, one channel
+of sample scratch and per-frame gain scratch. This uses the same boxed-owner `rtrb`
+handoff and deferred retirement as graph replacement.
+
+The worker prepares an engine or bank, for example from `prepare_impulse_response`, and
+calls `offer`. Channel count, maximum frames and, under `LatencyPolicy::RequireEqual`,
+latency are checked there; a refused engine is returned unchanged. `Ok` means the engine
+was queued, not that it will play. Audio `process` admits the whole call before any
+change, then handles at most one proposal per block boundary (including zero-frame calls).
+A `CrossfadePolicy { frames, law }` runs old and new engines together for `frames` frames:
+`y = S(g_old) * y_old + S(g_new) * y_new` with `t = (k + 1) / frames`. `EqualGain` uses
+`(1 - t, t)` and `EqualPower` uses `(cos, sin)(t * pi / 2)`, computed once per frame and
+equal to (0, 1) at the end to rounding. Setting `frames = 0` is an explicit cut.
+
+The new engine starts from its own prepared (empty) history. For a response longer than
+the fade, its output still lacks the tail from earlier input, so for stationary input the
+blend dips in level by up to `1 - (energy of the first frames taps / total energy)`. It
+recovers as the history fills. Engines with different latencies are not aligned.
+
+When a fade ends, the old engine returns through the returned queue, or through one
+deferred slot while that queue is full. If neither has room, it stays as a silent,
+unprocessed outgoing owner and is retried at the next boundary. Further starts wait
+(`retirement_blocked`) until the worker calls `take_returned` or `reclaim`, which drop
+engines on that thread. Returned engines keep their history; call their `reset` before
+reuse. Mid-fade proposals follow `MidFadePolicy`:
+
+- `Refuse` returns a proposal that arrives during a transition unused. If the returned
+  queue is full, it stays marked refused in the handoff and is returned as soon as a slot
+  frees, even after the fade. It never starts.
+- `QueueOne` keeps the proposal in the one-slot handoff (further offers get `Full`). It
+  starts at the first boundary after the fade.
+- `LatestWins` keeps one waiting proposal and returns older ones as `Superseded`. At the
+  first boundary after the fade, a proposal offered after the last mid-fade boundary
+  supersedes the waiting one, and the newest starts.
+
+`LatencyPolicy::Report` accepts latency changes and reports `TransitionEvent::Started {
+previous_latency, latency, fade_frames }` with absolute frames. The consumer applies its
+host's latency change; during a fade the output mixes both latencies. Per-call
+`TransitionStatus` is authoritative, while reports are best-effort with loss counts.
+`reset` clears both engines' histories and keeps the fade position.
+
+Audio-side `process` and `reset` do not allocate, free, lock or panic. Construct and drop
+both endpoints outside the callback:
+
+- Dropping the audio endpoint frees its current, outgoing, waiting and deferred engines on
+  the dropping thread.
+- The queues, with any engines still queued in them, are freed by whichever endpoint is
+  dropped last.
+- If control is dropped first, audio keeps processing without freeing anything until its
+  own endpoint is dropped.
+
+Tests show bit-exact blends against independently computed references for f32 and f64.
+They cover both laws, three partition pairs and block sizes 64, 1, 7, random and zero.
+They also cover each mid-fade policy, latest-wins after the fade, refuse under
+backpressure, latency refusal and reporting, refused calls and offers leaving state
+unchanged, and zero audio-side allocations and frees through handoff, fade, retirement,
+backpressure and shutdown. Debug and release runs include a three-seed worker/audio
+stress test of each policy. The transition is not a `Processor`, and offline tests make
+no deadline claim. See
+[decision 0272](decisions/0272-impulse-response-preparation-and-live-convolution-transitions.md).
+
 ## Explicit event graphs
 
 While inactive, `set_event_routes` replaces default input broadcast with up to
@@ -229,3 +296,137 @@ publish, with explicit swap progress and historical handoff outcome on errors.
 Main retirement remains separate from worker lifecycle. See
 [the device guide](audio-devices.md#live-replacement-in-buffered-graph-workers) and
 [decision 0126](decisions/0126-buffered-live-graph-workers.md).
+
+## Typed serial stages and shared-control mono histories
+
+`TypedChain<S, T>` owns a sealed heterogeneous tuple of one through eight concrete
+`Processor<S> + Send + 'static` stages and uses the existing `Graph` scheduler for
+execution. Both native sample precisions are available. `stage::<I>()` preserves
+the concrete type; invalid static indices fail to compile. The initial profile is
+an effect with equal nonzero main input/output channel counts (1..64), at most
+65,536 frames and 1,024 input events at construction. Construction admits sizes
+that `prepare` can still refuse because of the existing 64 MiB Graph scratch cap
+(for example 64 channels, 65,536 frames and eight stages). Auxiliary buses and
+generated output events are rejected. Accepted input events broadcast through the
+canonical graph policy. The facade supplies no parallel topology, instruments or
+channel conversion.
+
+`stage_mut_stopped::<I>()` returns an exclusive concrete processor after control
+thread deactivation and invalidates rendering until successful reprepare. Readonly
+getter borrows exclude concurrent rendering/mutation.
+
+### Audio sessions: prefer the guard
+
+`start_audio()` returns the canonical non-Send audio guard with typed readonly
+access and bypass flags. Prefer it: it stops every stage in reverse order on the
+starting thread when it is finished or dropped, and its borrow keeps control
+mutation, extraction and transfer out of reach until then. A forgotten guard
+(`mem::forget`, a leak) is misuse, not valid use: the audio owner stays live and the
+object that would have stopped it is gone.
+
+### Manual `Processor` hooks are a caller obligation
+
+Consumers may instead call the `Processor` hooks directly. `Processor::start_audio`
+must then be paired with `Processor::stop_audio` on the thread that started it,
+before transfer to another thread, deactivation, extraction or drop. Unlike the
+guard, this is a caller obligation: the facade adds no automatic stop, no owner-thread
+cleanup and no thread check while rendering, and a manually started chain is `Send`.
+While a manual owner (or a forgotten guard) is live:
+
+- `prepare` and `stage_mut_stopped` **refuse** with `AudioSessionActive`;
+- `deactivate` (inherent and `Processor`), `into_stages` and drop do **not** refuse;
+  they **panic** through the canonical Graph assertion;
+- `stop_audio` on a different thread panics and leaves the owner live;
+- rendering, reset, readonly getters and bypass flags keep working.
+
+A caught `deactivate` panic changes nothing: the chain stays prepared with the owner
+live and can still be stopped on its owner thread. A panic from `into_stages` or drop
+destroys the facade during the unwind: each stage is dropped exactly once, without
+`stop_audio` or `deactivate`, and the original tuple is not returned. If that panic
+happens while the thread is already unwinding, the second panic aborts the process;
+no safeguard against this is provided. `into_stages` only drops the internal graph;
+it never stops audio. Foreign lifecycle panics remain exceptional and cannot
+manufacture a successful recovery receipt.
+
+### Bypass, faults, storage
+
+Per-stage bypass copies corresponding dry channels and skips processing and input
+event delivery, freezing child histories. Reset still reaches bypassed children.
+Prepared child latency/tail declarations are retained: the dry bypass signal is
+**not latency compensated**, and consumer/host alignment is separate policy.
+Canonical whole-block preflight refuses before child execution. A child fault can
+follow committed earlier histories; the original first `GraphStatus` remains
+available through `first_fault()`, including after a failed start. The `Processor`
+facade maps executed-child faults and poisoned render retries to `BackendFailure`,
+with complete output/event silence. A start retried on a faulted graph returns
+`NotPrepared` and keeps the original fault. Reset/reprepare/deactivation clears the
+fault; no history rollback occurs.
+
+Stable private storage consists of exactly one `UnsafeCell` record per stage. All
+wrapper and getter pointers derive from that cell, and owner/session borrowing
+excludes overlapping references. The internal graph drops before the records,
+including during unwind; extraction drops the graph before safely recovering the
+original tuple. Sealed internal helpers require a private-construction permit,
+preventing safe external generation of duplicate wrappers or exposed storage.
+The private wrapper is transferable only when its processor is `Send`; it makes
+no `Sync` promise. Record-Vec payload is checked against 4 MiB before/after fallible
+reservation. Ordinary constructor refusals recover the exact original tuple.
+Existing Graph allocations and caller-owned processor storage have separate
+limits; allocation aborts and foreign panics are not recoverable refusal receipts.
+The `SAFETY` comments in the module state the validity, provenance and exclusivity
+argument per access; it is reasoning, and no Miri run supports it.
+
+### Shared-control mono histories
+
+`MonoDuplicator<S, C, K>` owns one control object, shared by reference with 1..64
+separate histories implementing `SharedMonoKernel<S, C>`. The explicit control
+thread factory must return inactive kernels. Its failure returns original
+controls/factory, exact constructed prefix and original error; prior factory side
+effects do not roll back. Checked kernel-Vec payload is at most 4 MiB; kernel-owned
+and control-object memory remain caller obligations. Every kernel reads the same
+control object during a call, with no framework control clones, mutexes or callback
+reference-count operations. The framework never mutates the object while kernels
+are prepared, but sharing a reference does not make it immutable: keeping the object
+effectively immutable while prepared (or making interior mutation deterministic and
+real-time safe) is an implementor obligation, as are kernel work, callback
+allocation/locking behavior and nonfinite/denormal policy. The framework does not
+filter or reject nonfinite samples and bypass forwards them unchanged.
+
+Preparation accepts exact equal main channels with no events, auxiliary buses or
+generated events. Failed kernel preparation is inactive and deactivates earlier
+successful kernels in reverse exactly once; `prepare_failure()` records index and
+original error and is cleared by the next `prepare` only. A refused or failed
+`prepare` leaves the duplicator unprepared. Dropping an active duplicator
+deactivates its prepared kernels once, in reverse. Latency and tail are the
+maximum across kernels while prepared. Scalar/frame/planar/in-place rendering
+preflights complete shape and frame capacities before histories or outputs change;
+`Processor::process` additionally silences active output frames on refusal; empty
+prefixes/suffixes are preserved. Bypass returns dry samples and freezes histories.
+Mutable stopped control access invalidates readiness and requires reprepare.
+`into_parts()` returns original controls and kernel owners after once-only control
+thread deactivation. There is no hidden coefficient migration, smoothing, state
+crossfade or native sample conversion.
+
+### Qualification status
+
+The test sources cover every tuple arity/index, both precisions/all 64 mono counts,
+typed chains up to 64 channels, constructor/prepare/factory refusal ownership,
+start-failure payload and retry mapping, reverse audio rollback and reverse stop for
+eight stages, ordinary and unwinding drop/extraction including manual-owner panics
+and owner-thread recovery, discriminating getter/session compile-fail examples,
+real sample-timed Gain nodes, shared-control stopped mutation through the typed
+getter, and shared TPT/ladder histories through the typed chain, canonical Graph and
+existing FIR. The f32 consumer deliberately bridges to the existing f64 FIR.
+Independent difference-equation, four-dimensional nodal Newton and convolution
+oracles cover six selected nonlinear profiles; allocation-counter windows cover the
+guard render loop, bypass, the `Processor` facade and the getters, and direct mono
+render/bypass paths. These tests do not establish a hardware deadline or foreign
+processor behavior.
+
+The revised isolated package passes 74 runtime tests and 21 doctests, strict
+all-target lint, strict Rustdoc and formatting. Root checked all 295 declared
+source inputs and command-log hashes. A moved test-fixture address assumption and
+a test-only lint failure were preserved before correction; executable production
+behavior is unchanged. These results do not establish public integration. No Miri
+pass is claimed; the cell provenance proof remains a review argument. See
+[ADR 0260](decisions/0260-typed-chain-shared-mono-ownership.md).

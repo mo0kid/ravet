@@ -5,6 +5,9 @@ use std::io::{Read, Seek, Write};
 /// Progress from one bounded read-ahead pump. EOF means the reader is exhausted;
 /// pending and queued audio may still need playback after EOF becomes true.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// One bounded pump in queue-source coordinates at ReadAheadPump::sample_rate.
+/// Native readers count original frames; explicit converted sources count
+/// generated output frames and expose original input progress separately.
 pub struct ReadAheadProgress {
     pub read_frames: usize,
     pub queued_frames: usize,

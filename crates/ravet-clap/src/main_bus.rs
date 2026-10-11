@@ -14,7 +14,7 @@ use clack_plugin::{
 };
 use ravet_foundation::{
     AudioBuffer, Event, EventData, MAXIMUM_CHANNELS, ParameterId, ProcessBlock, ProcessConfig,
-    ProcessStatus, Processor, Sample, Transport,
+    ProcessError, ProcessStatus, Processor, Sample, Transport,
 };
 
 /// Sealed native sample dispatch for f32/f64 CLAP buffers. No conversion occurs.
@@ -194,6 +194,7 @@ pub struct MainBusBridge<P, S: ClapSample = f32> {
     note_end_output_port: Option<u16>,
     output_events: Vec<Event>,
     previous: Option<(Transport, usize)>,
+    reset_error: Option<ProcessError>,
 }
 impl<P: Processor<S>, S: ClapSample> MainBusBridge<P, S> {
     pub fn prepare(
@@ -264,6 +265,7 @@ impl<P: Processor<S>, S: ClapSample> MainBusBridge<P, S> {
                 config.maximum_output_events()
             ],
             previous: None,
+            reset_error: None,
         })
     }
     /// Select explicit native CLAP note/expression input (0..256), independent
@@ -331,8 +333,25 @@ impl<P: Processor<S>, S: ClapSample> MainBusBridge<P, S> {
         &self.processor
     }
     pub fn reset(&mut self) {
-        self.processor.reset();
-        self.previous = None;
+        let _ = self.try_reset();
+    }
+    /// Preserve refused history reset and stop subsequent DSP dispatch.
+    pub fn try_reset(&mut self) -> Result<(), ProcessError> {
+        match self.processor.try_reset() {
+            Ok(()) => {
+                self.reset_error = None;
+                self.previous = None;
+                Ok(())
+            }
+            Err(error) => {
+                self.reset_error.get_or_insert(error);
+                Err(error)
+            }
+        }
+    }
+    /// Original refused reset, until a complete successful reset.
+    pub fn reset_error(&self) -> Option<ProcessError> {
+        self.reset_error
     }
     pub fn deactivate(&mut self) {
         self.processor.deactivate();
@@ -449,6 +468,9 @@ impl<P: Processor<S>, S: ClapSample> MainBusBridge<P, S> {
         frames: usize,
         transport: Transport,
     ) -> Result<(ProcessStatus, usize), BridgeError> {
+        if let Some(error) = self.reset_error {
+            return Err(BridgeError::Processor(error));
+        }
         let inputs = self.inputs.each_ref().map(|c| &c[..frames.min(c.len())]);
         let mut outputs = self.outputs.each_mut().map(|c| {
             let len = frames.min(c.len());

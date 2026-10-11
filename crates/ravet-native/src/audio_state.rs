@@ -63,7 +63,13 @@ impl<
     /// Validate immutable consumer metadata on control. Provider panic/invalid
     /// metadata returns None, without touching any existing cache or processor.
     pub fn entry() -> Option<&'static NativeAudioStateEntryV1> {
-        NativeCachedParameters::<P, S, N>::entry().map(|_| &Self::ENTRY)
+        NativeCachedParameters::<P, S, N>::entry().map(|_| Self::canonical_entry())
+    }
+    // Keep one address-bearing body per concrete companion, across exports and
+    // cross-codegen companion chains. Runtime metadata validation remains above.
+    #[inline(never)]
+    fn canonical_entry() -> &'static NativeAudioStateEntryV1 {
+        &Self::ENTRY
     }
     extern "C" fn cached_entry() -> *const NativeCachedParameterEntryV1 {
         NativeCachedParameters::<P, S, N>::entry().map_or(ptr::null(), |table| table as *const _)

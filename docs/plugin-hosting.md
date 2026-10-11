@@ -1,5 +1,8 @@
 # Explicit CLAP discovery and trusted loading
 
+For the separate optional external-SDK VST3 catalogue owner, see
+[trusted VST3 catalogues](vst3-hosting.md). Instance/audio hosting below is CLAP.
+
 The optional `ravet-host` crate supplies reusable explicit candidate discovery,
 bounded owned plugin catalogues and loaded-entry lifetime access through pinned
 Clack 0.2.0. It stays outside the portable umbrella. These are hosting mechanisms,

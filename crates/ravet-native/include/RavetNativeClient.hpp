@@ -5,7 +5,9 @@
 namespace ravet::native {
 // Optional SDK-independent C++17 owner for exact native v1 processor companions.
 // Construct/prepare/deactivate/retire on CONTROL after callbacks stop; retain
-// table/library externally for the complete lifetime. No copy/move or hidden
+// tables/library externally for the complete lifetime. Companion processor_entry
+// must return the exact supplied core address; callback-equivalent copies reject
+// before resource acquisition. No copy/move or hidden
 // mailbox/state/codec. Every DSP callback requires exclusive serialized owner;
 // cached info permits shared reads. Foreign ranges obey the paired native APIs.
 // Normal forwarding uses no C++ heap/locks/I/O; native/consumer obligations apply.
@@ -17,28 +19,36 @@ public:
                                    const RavetNativeAudioStateEntryV1 *state = nullptr,
                                    const RavetNativeTelemetryEntryV1 *telemetry = nullptr)
         : core_(core), state_(state), telemetry_(telemetry) {
-        if (!validCore(core)) return;
-        if (state) {
-            if (state->version != 1 || state->byte_size != sizeof(*state) ||
-                state->sample_bits != core->sample_bits || state->parameter_count > 1024 ||
-                !state->cached_parameters_entry || !state->apply || !state->snapshot) return;
-            parameters_ = state->cached_parameters_entry();
-            if (!parameters_ || parameters_->version != 1 || parameters_->byte_size != sizeof(*parameters_) ||
-                parameters_->sample_bits != core->sample_bits || parameters_->parameter_count != state->parameter_count ||
-                !parameters_->parameters_entry || !parameters_->create || !parameters_->destroy ||
-                !parameters_->info || !parameters_->normalize || !parameters_->denormalize || !parameters_->convert_events) return;
-            const auto *schema = parameters_->parameters_entry();
-            if (!schema || schema->version != 1 || schema->byte_size != sizeof(*schema) ||
-                schema->sample_bits != core->sample_bits || schema->parameter_count != state->parameter_count ||
-                !schema->processor_entry || !matchingCore(schema->processor_entry(), core)) return;
+        try {
+            if (!validCore(core)) return;
+            if (state) {
+                if (state->version != 1 || state->byte_size != sizeof(*state) ||
+                    state->sample_bits != core->sample_bits || state->parameter_count > 1024 ||
+                    !state->cached_parameters_entry || !state->apply || !state->snapshot) return;
+                parameters_ = state->cached_parameters_entry();
+                if (!parameters_ || parameters_->version != 1 || parameters_->byte_size != sizeof(*parameters_) ||
+                    parameters_->sample_bits != core->sample_bits || parameters_->parameter_count != state->parameter_count ||
+                    !parameters_->parameters_entry || !parameters_->create || !parameters_->destroy ||
+                    !parameters_->info || !parameters_->normalize || !parameters_->denormalize || !parameters_->convert_events) return;
+                const auto *schema = parameters_->parameters_entry();
+                if (!schema || schema->version != 1 || schema->byte_size != sizeof(*schema) ||
+                    schema->sample_bits != core->sample_bits || schema->parameter_count != state->parameter_count ||
+                    !schema->processor_entry || !matchingCore(schema->processor_entry(), core)) return;
+            }
+            if (telemetry && (telemetry->version != 1 || telemetry->byte_size != sizeof(*telemetry) ||
+                telemetry->sample_bits != core->sample_bits || telemetry->telemetry_count > 1024 ||
+                !telemetry->processor_entry || !telemetry->create_cache || !telemetry->destroy_cache ||
+                !telemetry->info || !telemetry->snapshot || !matchingCore(telemetry->processor_entry(), core))) return;
+            if (state) { parameterCache_ = parameters_->create(); if (!parameterCache_) return; }
+            if (telemetry) { telemetryCache_ = telemetry->create_cache(); if (!telemetryCache_) return; }
+            processor_ = core->create();
+        } catch (...) {
+            // Defensive CONTROL acquisition boundary. Native ABI callbacks must
+            // not unwind; a violating create/query cannot leak earlier ownership.
+            if(processor_){auto *owned=processor_;processor_=nullptr;try{core_->destroy(owned);}catch(...){}}
+            if(telemetryCache_){auto *owned=telemetryCache_;telemetryCache_=nullptr;try{telemetry_->destroy_cache(owned);}catch(...){}}
+            if(parameterCache_){auto *owned=parameterCache_;parameterCache_=nullptr;try{parameters_->destroy(owned);}catch(...){}}
         }
-        if (telemetry && (telemetry->version != 1 || telemetry->byte_size != sizeof(*telemetry) ||
-            telemetry->sample_bits != core->sample_bits || telemetry->telemetry_count > 1024 ||
-            !telemetry->processor_entry || !telemetry->create_cache || !telemetry->destroy_cache ||
-            !telemetry->info || !telemetry->snapshot || !matchingCore(telemetry->processor_entry(), core))) return;
-        if (state) { parameterCache_ = parameters_->create(); if (!parameterCache_) return; }
-        if (telemetry) { telemetryCache_ = telemetry->create_cache(); if (!telemetryCache_) return; }
-        processor_ = core->create();
     }
     ~NativeProcessorClient() {
         if (processor_) core_->destroy(processor_);
@@ -89,17 +99,12 @@ private:
     const RavetNativeTelemetryEntryV1 *telemetry_ = nullptr;
     const RavetNativeCachedParameterEntryV1 *parameters_ = nullptr;
     void *processor_ = nullptr, *parameterCache_ = nullptr, *telemetryCache_ = nullptr;
-    // Rust constant promotion may yield equivalent tables at distinct addresses.
-    // Compare callback profiles, not table addresses. These checks do not
-    // authenticate arbitrary foreign code; exact type/library pairing is still
-    // the caller's obligation. Callback identities are required by this profile.
+    // Exact originating companion identity is required. Equivalent copied
+    // callback tables are not an alternative origin; canonical runtime native
+    // table acquisition supplies a stable paired address per family/precision.
     static bool matchingCore(const RavetNativeProcessorEntryV1 *left,
                              const RavetNativeProcessorEntryV1 *right) {
-        return validCore(left) && left->sample_bits == right->sample_bits &&
-            left->create == right->create && left->destroy == right->destroy &&
-            left->prepare == right->prepare && left->reset == right->reset &&
-            left->deactivate == right->deactivate && left->process == right->process &&
-            left->timing == right->timing;
+        return left == right && validCore(left);
     }
     static bool validCore(const RavetNativeProcessorEntryV1 *core) {
         return core && core->version == 1 && core->byte_size == sizeof(*core) &&

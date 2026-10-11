@@ -188,6 +188,11 @@ impl Biquad {
     pub fn reset(&mut self) {
         self.state = [0.; 2];
     }
+    /// Copy of both actual transposed delay memories, without changing history.
+    /// These are recurrence memories, not an independently sanitised audio signal.
+    pub fn delay_state(&self) -> [f64; 2] {
+        self.state
+    }
     pub fn process_sample(&mut self, sample: f64) -> f64 {
         let coefficients = self.coefficients;
         let output = coefficients.b[0] * sample + self.state[0];

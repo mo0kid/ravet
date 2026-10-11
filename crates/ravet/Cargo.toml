@@ -13,7 +13,9 @@ workspace = true
 default = []
 image = ["ravet-surface/image"]
 jpeg-encode = ["ravet-surface/jpeg-encode"]
+gif-image = ["ravet-surface/gif-image"]
 raster = ["ravet-surface/raster"]
+svg-image = ["ravet-surface/svg-image"]
 text = ["ravet-surface/text"]
 
 [dependencies]

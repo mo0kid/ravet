@@ -2,6 +2,8 @@
 
 Enable default-disabled `ravet-surface/raster` (or `ravet/raster`) for owned CPU
 pixel canvases. It pins tiny-skia 0.12.0 with defaults disabled and `std` only.
+The independent [SVG image importer](svg-images.md) unifies tiny-skia std/SIMD/PNG
+when both features are selected; the raster-only configuration remains std only.
 Geometry is prepared from typed `PathCommand` values, with an explicit finite
 affine transform applied before f32 quantization. Device-space control coordinates
 must remain within 65536 magnitude; each path accepts 1..4096 commands. New
@@ -58,3 +60,7 @@ against independently extracted glyph bounds; winding holes, curves, caps,
 antialiasing, rejected budgets and prepared font ownership are covered separately.
 Backend notices are retained in [the raster notice file](../crates/ravet-surface/third-party/raster.md)
 and [licensing](../LICENSING.md). See [decision 0187](decisions/0187-optional-cpu-raster.md).
+
+`RasterText::from_fallback` prepares whole matched-face geometry from the optional
+[local font stack](font-fallback.md), with the same finite/aggregate path limits.
+The output retains no inferred system font or paragraph layout policy.

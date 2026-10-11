@@ -19,12 +19,16 @@ class PluginProfile:
 
 
 PROFILES = {
+    "note-routing": PluginProfile("note-routing", ("ravet-gain-native", "ravet-bus-routing-native"), "note-routing-lv2", "ravet_note_routing_lv2",
+                                 ("manifest.ttl", "routing.ttl"), ("ravet_lv2_output_contracts", "ravet_lv2_output_fast_contracts",
+                                 "ravet_lv2_processor_output_contracts", "ravet_lv2_processor_output_fast_contracts", "ravet_lv2_routing_contracts", "ravet_lv2_origin_contracts")),
     "gain": PluginProfile("gain", ("ravet-gain-native",), "gain-lv2", "ravet_gain_lv2",
-                          ("manifest.ttl", "gain.ttl"), ("ravet_lv2_contracts", "ravet_lv2_state_contracts")),
+                          ("manifest.ttl", "gain.ttl"), ("ravet_lv2_contracts", "ravet_lv2_state_contracts", "ravet_lv2_origin_contracts")),
     "performance": PluginProfile("performance", ("ravet-gain-native", "ravet-performance-native"),
                                  "performance-lv2", "ravet_performance_lv2", ("manifest.ttl", "performance.ttl"),
                                  ("ravet_lv2_performance_contracts", "ravet_lv2_transport_contracts",
-                                  "ravet_lv2_transport_fast_contracts", "ravet_lv2_processor_transport_contracts")),
+                                  "ravet_lv2_transport_fast_contracts", "ravet_lv2_processor_transport_contracts",
+                                  "ravet_lv2_origin_contracts")),
 }
 
 
@@ -63,7 +67,7 @@ def prepare_context(root, sdk, plugin, *, platform=None, runner=None):
         raise ValueError("current binary loading fixture supports macOS/Linux only")
     root, sdk = pathlib.Path(root).resolve(), pathlib.Path(sdk).resolve()
     if plugin not in PROFILES:
-        raise ValueError("select gain or performance")
+        raise ValueError("select gain, performance or note-routing")
     for relative in ("include/lv2/core/lv2.h", "include/lv2/atom/atom.h", "include/lv2/state/state.h",
                      "include/lv2/urid/urid.h", "include/lv2/midi/midi.h", "include/lv2/time/time.h", "COPYING"):
         if not (sdk / relative).is_file():
@@ -85,7 +89,8 @@ def build_reference(context):
     context.runner.run(["cmake", "-S", context.root / "examples/gain-lv2", "-B", build,
                         "-DCMAKE_BUILD_TYPE=Release", f"-DRAVET_LV2_SDK={context.sdk}",
                         f"-DRAVET_GAIN_LIBRARY={target / 'release/libravet_gain_native.a'}",
-                        f"-DRAVET_PERFORMANCE_LIBRARY={performance}"])
+                        f"-DRAVET_PERFORMANCE_LIBRARY={performance}",
+                        f"-DRAVET_ROUTING_LIBRARY={target / 'release/libravet_bus_routing_native.a' if context.profile.name == 'note-routing' else ''}"])
     context.runner.run(["cmake", "--build", build, "--target", context.profile.binary,
                         *context.profile.validators, "--parallel", "2"])
     return BuiltReference(context, target, build)

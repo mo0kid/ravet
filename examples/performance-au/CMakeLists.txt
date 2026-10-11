@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ravet_performance_au VERSION 0.0.1 LANGUAGES C CXX OBJCXX)
+project(ravet_performance_au VERSION 0.1.0 LANGUAGES C CXX OBJCXX)
 if(NOT APPLE OR NOT EXISTS "${RAVET_AUDIOUNIT_SDK}/include/AudioUnitSDK/MusicDeviceBase.h" OR NOT EXISTS "${RAVET_AUDIOUNIT_LIBRARY}" OR NOT EXISTS "${RAVET_PERFORMANCE_LIBRARY}")
     message(FATAL_ERROR "Supply macOS, external AudioUnitSDK/library and public performance native archive")
 endif()
@@ -64,7 +64,7 @@ target_link_libraries(ravet_au_synthetic_midi_output_contracts PRIVATE "${RAVET_
     "-framework CoreAudio" "-framework Security" "-framework SystemConfiguration" iconv)
 add_test(NAME ravet_au_synthetic_midi_output_contracts COMMAND ravet_au_synthetic_midi_output_contracts)
 
-# Separate precision fixtures do not change the distributed f32 AU factory.
+# Separate generic precision fixtures remain independent of the distributed factory.
 foreach(target ravet_au_native_audio64_contracts ravet_au_native_audio64_fast_contracts)
   add_executable(${target} ../../tools/au-validation/audio64.cpp)
   target_compile_features(${target} PRIVATE cxx_std_17)
@@ -80,3 +80,25 @@ target_include_directories(ravet_au_synthetic_audio64_contracts PRIVATE ../../cr
 target_link_libraries(ravet_au_synthetic_audio64_contracts PRIVATE "${RAVET_AUDIOUNIT_LIBRARY}" "${RAVET_PERFORMANCE_LIBRARY}"
   "-framework AudioToolbox" "-framework CoreMIDI" "-framework CoreFoundation" "-framework Security" "-framework SystemConfiguration" "-liconv")
 add_test(NAME ravet_au_synthetic_audio64_contracts COMMAND ravet_au_synthetic_audio64_contracts)
+
+# Actual distributed component precision/lifecycle and explicit native schema provenance.
+foreach(target ravet_au_performance64_contracts ravet_au_performance_precision_contracts)
+  if(target STREQUAL "ravet_au_performance64_contracts")
+    set(contract_source performance64.mm)
+  else()
+    set(contract_source performance-precision.mm)
+  endif()
+  add_executable(${target} ../../tools/au-validation/${contract_source})
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  target_link_libraries(${target} PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
+  add_test(NAME ${target} COMMAND ${target} "${CMAKE_BINARY_DIR}/AU/ravet_performance_au.component")
+endforeach()
+foreach(target ravet_au_native_precision_schema_contracts ravet_au_native_precision_schema_fast_contracts)
+  add_executable(${target} ../../tools/au-validation/native-precision-schema.cpp)
+  target_compile_features(${target} PRIVATE cxx_std_17)
+  target_include_directories(${target} PRIVATE ../../crates/ravet-native/include ../performance-native/include)
+  target_link_libraries(${target} PRIVATE "${RAVET_PERFORMANCE_LIBRARY}" "-framework AudioToolbox"
+    "-framework CoreFoundation" "-framework Security" "-framework SystemConfiguration" iconv)
+  add_test(NAME ${target} COMMAND ${target})
+endforeach()
+target_compile_options(ravet_au_native_precision_schema_fast_contracts PRIVATE -O3 -ffast-math)

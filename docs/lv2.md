@@ -5,6 +5,16 @@ and block-start physical gain/bypass controls. It uses reusable native processor
 cached schema and coherent complete-state tables through the external-SDK C++17
 [NativeLv2Processor helper](../crates/ravet-native/include/RavetLv2Processor.hpp).
 Consumer factories still own plugin URIs, Turtle metadata and product identity.
+The helper now requires the exact originating core pointer returned by cached
+schema metadata and the exact shared parameter-schema pointer returned by the
+cache and state companions. Callback-equivalent copied cores and separately
+copied schema tables refuse before any resource creator. Metadata accessors are
+queried once on CONTROL; a violating query exception invalidates the helper
+before acquisition. The native ABI remains nonthrowing. Existing constructor,
+port and lifecycle contracts are unchanged. Cache/state top-level table addresses
+have no additional authoritative accessor in this ABI; a copied top-level view
+that retains the exact actual core/schema provenance is not falsely rejected.
+See [decision 0261](decisions/0261-lv2-exact-origin-admission.md).
 No LV2 SDK source is included in RAVET.
 
 ```sh
@@ -66,8 +76,9 @@ blocks. Another probe checks 4,000 run/save cycles without C++ heap operations o
 URI mapper calls and coherent saves concurrent with 20,000 audio blocks. This
 probe does not measure Rust allocations, physical devices or audio deadlines.
 
-Atom ports, sample-timed automation, MIDI/instruments, custom UI, programs, f64 and
-auxiliary buses remain pending. No `hardRTCapable` declaration is made. LV2 host
+The Gain profile has no Atom port, sample-timed automation, MIDI input, custom UI,
+programs, f64 or auxiliary buses; the separate instrument profile is described
+below. No `hardRTCapable` declaration is made. LV2 host
 discovery, metadata validation and actual DAW session recall need separate
 evidence. See [decision 0167](decisions/0167-lv2-native-schema-state.md) and the
 [native processing guide](native-processing.md).
@@ -227,3 +238,46 @@ heap actions or URI maps. Gain actual-module regressions remain required. These
 local macOS arm64 checks establish no Linux runtime, DAW discovery/session timeline,
 metadata validator, device, complete backend allocation or real-time deadline
 support. See [decision 0191](decisions/0191-lv2-block-start-time-position.md).
+
+
+## Exact-origin qualification
+
+Both bundling profiles require the maintained origin-admission validator in
+addition to their actual selected-module contracts. Synthetic coherent native
+facades exercise byte-identical copied core and cache/state copied-schema refusal,
+null/throwing metadata getters, zero resource creators on every refusal, unchanged
+invalid-helper callback storage, exact one-time balanced acquisition/retirement and
+real Gain processing. A top-level cache/state copy retaining actual origins is an
+explicit positive case, reflecting the existing ABI's provenance limits.
+
+Gain and Performance actual modules exercise the same corrected helper with
+canonical exported tables and retain their audio/control/state/MIDI/transport
+regressions. Local isolated qualification and fresh public archive acceptance are
+recorded separately; no LV2 DAW, other-platform or deadline claim follows.
+
+The focused isolated composition passes all seven maintained CMake tests and the
+self-contained Gain (three validators) and Performance (five validators) bundles.
+Four bundler Python tests include mandatory origin-gate refusal propagation.
+These receipts use recorded canonical isolated native archives; fresh public
+archive/reference and shared programme acceptance remain separate pending gates.
+
+
+## Optional native generated output
+
+The explicit `--plugin note-routing` profile consumes the canonical reusable native
+NoteRouting processor, with timed mono/stereo short MIDI output, Level state and
+silent audio. `NativeLv2Processor` appends default-zero generated capacity, leaving
+Gain and Performance ports unchanged. The reusable `Lv2MidiOutput` stager admits
+the whole configured Chunk body capacity before native state/DSP, validates the
+complete prefix, publishes once and writes only independently admitted safe empty
+Sequences after failure. It rejects processing reentry before active buffers or
+diagnostics mutate. CONTROL retains stopped/joined caller exclusion.
+
+See [generated output](lv2-output.md) for exact body/total sizes, caller lifetimes,
+status provenance, no replay, late-failure history limits and the scoped reference.
+Target-only CMake12, packaged mandatory6 and Python6 receipts use the recorded
+canonical native archives. A separate root replay rebuilds all three canonical
+Rust native archives, passes all twelve actual-native profiles and packages and
+validates NoteRouting through the maintained pipeline with actual Cargo and strict
+ad-hoc signature verification. Public workspace acceptance remains separate; no
+LV2 DAW, SysEx, UMP/MIDI2, auxiliary host routing or editor is inferred.

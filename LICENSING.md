@@ -162,6 +162,30 @@ and bidi tables retain their earlier Unicode versions. The tiny synthetic
 only first-party rectangular glyphs and a test substitution; no external font
 outlines or product assets are included. This is a scoped dependency check.
 
+The default-disabled `ravet-surface/postscript-outlines` feature (selected by
+`ravet-webview/postscript-fonts` consumers and the tutorial `postscript-fonts`
+feature) pins skrifa 0.48.0 (MIT OR Apache-2.0) with default features off and
+`std` on. Its downloaded manifest and complete MIT (Fontations Developers) and
+Apache-2.0 licence texts were reviewed. Its selected runtime dependencies are the
+already reviewed read-fonts 0.45.0 and bytemuck; the optional core_maths dependency
+is not selected, and offline lock resolution adds only skrifa. The 31 OTF/TTF
+fixtures under [the PostScript fixture directory](crates/ravet-surface/tests/fixtures/postscript/README.md)
+are first-party authored test data; no installed or proprietary font bytes are
+included. See [the skrifa notice](crates/ravet-surface/third-party/skrifa.md).
+Preserve applicable notices in both distribution routes. This is a scoped
+dependency check, not a release-wide licence audit.
+
+## Loudness calibration provenance
+
+The prepared calibrated loudness profile expresses its rational filter equations
+independently using mathematical calibration parameter facts attributed to Brecht
+De Man's author reference (MIT, copyright 2018 Brecht De Man). No external
+implementation body, dependency, coefficient table or programme fixture is copied.
+The complete author reference notice is retained in
+[the Signal third-party notices](crates/ravet-signal/third-party/loudness-calibration-brecht-de-man.txt)
+for provenance; standards documents are linked as mathematical references, not
+redistributed.
+
 ## Embedded parameter math
 
 Foundation pins pure-Rust libm 0.2.16 (MIT) for parameter mappings without std.
@@ -169,6 +193,11 @@ Its downloaded Cargo manifest and upstream licence were reviewed; preserve its
 MIT notice when distributing embedded or desktop dependencies. Default desktop
 math still uses std. This scoped dependency review does not replace the complete
 release dependency audit or grant hardware compatibility.
+
+`ravet-native-dsp` depends directly on the same locked libm 0.2.16 for no_std
+Scalar square root, with default features disabled exactly as in Foundation. Its
+downloaded manifest declares MIT only, and its `LICENSE.txt` is the MIT licence.
+No new package is resolved; preserve the same MIT notice.
 
 ## Optional Ogg Vorbis encoding
 
@@ -204,7 +233,7 @@ WebView2/WebKitGTK dependencies retain their own platform distribution terms.
 
 The default-disabled `ravet-surface/raster` feature pins tiny-skia and
 tiny-skia-path 0.12.0 (BSD-3-Clause), arrayref 0.3.9 (BSD-2-Clause) and
-strict-num 0.1.1 (MIT). Only tiny-skia's `std` feature is selected; PNG loading,
+strict-num 0.1.1 (MIT). With `raster` alone, only tiny-skia's `std` feature is selected; PNG loading,
 SIMD feature and native Skia are disabled. Preserve the complete
 [upstream notices](crates/ravet-surface/third-party/raster.md) in source and binary
 distribution. Existing transitive components remain part of the release-wide
@@ -224,6 +253,14 @@ relinking compliance or patent clearance. Consumers must review their own
 distribution route and retain applicable notices/source rights.
 
 ## Optional worker image codecs
+
+The separate default-disabled `gif-image` feature pins gif 0.14.2 and weezl
+0.1.10, both independently MIT OR Apache-2.0, with defaults disabled and only
+std. The configuration selects no color_quant or native C. Complete original
+copyright and licence texts, archive hashes and reviewed commits are preserved
+in [GIF notices](crates/ravet-surface/third-party/gif.md). Runtime library
+obligations remain independent of RAVET's commercial terms; Pillow is only a
+first-party fixture-generation tool.
 
 The default-disabled Surface image feature pins png0.18.1 (MIT OR Apache-2.0)
 and zune-jpeg0.5.15/core0.5.3 (MIT OR Apache-2.0 OR Zlib). Reviewed exact archive
@@ -245,3 +282,39 @@ original Lane/Commander DCT attribution and required executable acknowledgement:
 "this software is based in part on the work of the Independent JPEG Group".
 These obligations remain independent of RAVET's commercial licence. This scoped
 review does not replace the release-wide dependency and distribution review.
+
+The optional external-SDK VST3 hosting provider links caller-owned SDK hosting
+implementation. Its CMake build copies the complete external SDK `LICENSE.txt`
+into the build directory; retain that MIT notice in linked distributions. Cargo
+only supplies the Rust provider ABI/owner and does not fetch or vendor the SDK.
+See [VST3 hosting](docs/vst3-hosting.md).
+
+## Optional SVG image import
+
+Default-disabled `svg-image` pins resvg/usvg0.48.1, direct roxmltree0.21.1,
+svgtypes0.16.1 and simplecss0.2.2 with direct defaults disabled. Effective tiny-skia
+std/SIMD/PNG and roxmltree positions/std remain enabled through transitive
+feature unification. Font/system-font/memmap/SVGZ/writer/raster-image defaults
+remain off. Complete independent selected and lock-only
+[notices](crates/ravet-surface/third-party/svg.md) preserve exact published
+MIT/Apache-2.0/BSD/Zlib alternatives and attribution. The
+[first-party fixtures](crates/ravet-surface/tests/fixtures/svg/README.md) contain
+no downloaded art or font; the existing outlined RAVET logo remains first-party.
+
+The optional SVG graph under all workspace features also retains notices for
+bytemuck derive and its proc-macro tooling, numeric traits/euclid and zlib-rs
+selected through feature unification. Exact resolved versions and complete
+licence files appear in the [SVG notices](crates/ravet-surface/third-party/svg.md).
+This dependency evidence does not replace release-wide legal review.
+
+The new primitive local fallback fonts are first-party reusable test assets under
+the repository source licensing policy; their [complete generator and hashes](crates/ravet-surface/tests/fixtures/fallback/README.md)
+are retained. No new runtime dependency is added for caller-owned font fallback.
+The separate unchanged Noto Arabic fixture retains its existing OFL notice.
+
+The [authored two-axis variation fixture](crates/ravet-surface/tests/fixtures/variation/README.md)
+contains only primitive first-party rectangles and deliberate cmap aliases under
+the repository source licence. Its optional fontTools/HarfBuzz generation/oracle
+tools add no runtime dependency. System font catalogue metadata and checked bytes
+remain consumer-owned in memory; no installed font asset is redistributed or
+licence/embedding permission granted by the native loader.

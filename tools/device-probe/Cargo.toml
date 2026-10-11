@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 description = "Explicit standalone and offline audio device/graph validation for RAVET"
 
+[features]
+default = []
+resampled-playback = ["ravet-device/resampled-playback", "ravet-audio-file/resampled-playback"]
+
 [dependencies]
 ravet-device = { path = "../../crates/ravet-device" }
 ravet-foundation.workspace = true

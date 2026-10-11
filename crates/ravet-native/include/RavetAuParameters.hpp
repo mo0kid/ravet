@@ -16,19 +16,21 @@ namespace ravet::au {
 // Cached scalar preflight may run during serialized prepared callbacks without
 // consumer-provider calls, allocation, DSP access or SDK queue/storage mutation.
 // AU global values are explicitly normalized f32; text uses physical f32 values.
+// expectedBits defaults32; explicit32/64 requires matching native cache/parameter
+// provenance, independently of AU scalar width. This does not select SDK audio.
 // Foreign outputs/CF objects must be live, aligned and disjoint from the helper.
 // No AU registration, groups, schedules, notifications or bypass routing implied.
 template <size_t MaximumParameters = 1024>
 class NativeAuParameters final {
     static_assert(MaximumParameters > 0 && MaximumParameters <= 1024);
 public:
-    explicit NativeAuParameters(const RavetNativeCachedParameterEntryV1 *cache) : cache_(cache) {
-        if (!cache || cache->version != 1 || cache->byte_size != sizeof(*cache) || cache->sample_bits != 32 ||
+    explicit NativeAuParameters(const RavetNativeCachedParameterEntryV1 *cache, uint32_t expectedBits = 32) : cache_(cache) {
+        if ((expectedBits != 32 && expectedBits != 64) || !cache || cache->version != 1 || cache->byte_size != sizeof(*cache) || cache->sample_bits != expectedBits ||
             !cache->parameter_count || cache->parameter_count > MaximumParameters || !cache->parameters_entry ||
             !cache->create || !cache->destroy || !cache->info || !cache->normalize || !cache->denormalize) return;
         parameters_ = cache->parameters_entry();
         if (!parameters_ || parameters_->version != 1 || parameters_->byte_size != sizeof(*parameters_) ||
-            parameters_->sample_bits != 32 || parameters_->parameter_count != cache->parameter_count) return;
+            parameters_->sample_bits != expectedBits || parameters_->parameter_count != cache->parameter_count) return;
         handle_ = cache->create();
         if (!handle_) return;
         for (uint32_t i = 0; i < cache->parameter_count; ++i) {

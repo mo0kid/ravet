@@ -80,6 +80,7 @@ impl core::error::Error for BlockError {}
 pub struct FixedBlockAdapter<P, const INPUTS: usize, const OUTPUTS: usize, const FRAMES: usize> {
     processor: P,
     config: Option<ProcessConfig>,
+    reset_error: Option<ProcessError>,
     input: [[f32; FRAMES]; INPUTS],
     output: [[f32; FRAMES]; OUTPUTS],
 }
@@ -89,6 +90,7 @@ impl<P: Processor, const I: usize, const O: usize, const F: usize> FixedBlockAda
         Self {
             processor,
             config: None,
+            reset_error: None,
             input: [[0.0; F]; I],
             output: [[0.0; F]; O],
         }
@@ -110,6 +112,7 @@ impl<P: Processor, const I: usize, const O: usize, const F: usize> FixedBlockAda
         }
         self.processor.prepare(config)?;
         self.config = Some(config);
+        self.reset_error = None;
         Ok(())
     }
     /// Forward an optional explicit audio-owner session hook on the callback owner.
@@ -124,7 +127,23 @@ impl<P: Processor, const I: usize, const O: usize, const F: usize> FixedBlockAda
         self.processor.stop_audio();
     }
     pub fn reset(&mut self) {
-        self.processor.reset();
+        let _ = self.try_reset();
+    }
+    /// Forward checked reset; refused histories remain unavailable to processing.
+    pub fn try_reset(&mut self) -> Result<(), ProcessError> {
+        match self.processor.try_reset() {
+            Ok(()) => {
+                self.reset_error = None;
+                Ok(())
+            }
+            Err(error) => {
+                self.reset_error.get_or_insert(error);
+                Err(error)
+            }
+        }
+    }
+    pub fn reset_error(&self) -> Option<ProcessError> {
+        self.reset_error
     }
     pub fn deactivate(&mut self) {
         self.config = None;
@@ -184,6 +203,9 @@ impl<P: Processor, const I: usize, const O: usize, const F: usize> FixedBlockAda
         let audio = AudioBuffer::separate(&inputs, &mut outputs, frames).expect("checked capacity");
         let block = ProcessBlock::new(audio, events, transport);
         config.validate_block(&block).map_err(BlockError::Process)?;
+        if let Some(error) = self.reset_error {
+            return Err(BlockError::Process(error));
+        }
         // End the preflight borrows before copying input. No DSP/event mutation yet.
         for frame in 0..frames {
             for channel in 0..I {

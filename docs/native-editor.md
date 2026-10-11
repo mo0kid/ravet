@@ -295,10 +295,38 @@ fixtures check actual browser viewport dimensions before testing layout bounds.
 Set `StandaloneOptions::lock_aspect_ratio: true` to preserve the initial content
 width/height ratio during native user resizing. The default is false, allowing
 other applications to choose their layout policy. Programmatic `set_size` fits
-the largest matching rectangle inside a request when locked; native minimum
-window dimensions still apply. The interactive examples enable the lock and
+the largest matching rectangle inside a request when locked; native user-resize
+minima do not guarantee clamping a programmatic request. The synth/effect examples
+enable the lock and
 uniformly scale their entire design canvas, while the standard popup retains
 its own native-size layout.
+
+`StandaloneWindow::content_size()` measures the owned content view in logical
+points, returning finite positive width/height or `None`. Sample after pumping
+rather than treating a size request as measured extent; native aspect fitting and
+rounding may change it, while small programmatic requests can remain undersized.
+This read uses the existing main-thread owner without
+resizing or emitting callbacks. The [grid workspace](grid-layout.md) consumes
+measured sizes with explicit Rust row/column tracks and ordinary labelled HTML,
+retains one latest snapshot until WebKit's viewport agrees, and preserves the
+default popup. Its explicit hidden-window fixture validates actual dimensions;
+no audio/MIDI devices are opened.
+
+`ContentConstraints` adds a portable finite min/max value and free/aspect size
+resolver. The existing standalone owner installs it explicitly with
+`set_content_constraints(Some(policy))`, immediately fits current content, and
+rejects synchronous resize/policy reentry. `None` restores captured native user
+bounds without another size request. The [constraint guide](window-constraints.md)
+distinguishes native property/programmatic measurements from human drag and
+documents the exact-window fixture. The default window policy remains absent;
+the interactive grid workspace opts in.
+
+On macOS, copied `StandaloneWindowState` distinguishes a hidden live window from
+monotonic close admission. `request_close()` uses the exact owned native action
+with veto and synchronous reentry handling; borrowed editors remain alive until
+dropped before the parent. The [window lifecycle guide](window-lifecycle.md)
+documents notification-phase flags, retired-operation admission and an owned
+window validation command. It introduces no implicit showing or global focus.
 
 ```rust,ignore
 let window = ravet_webview::StandaloneWindow::new(
@@ -377,3 +405,11 @@ activation, default injection, full opt-out, popup/channel/rate/buffer/MIDI
 controls and all four example tabs without opening devices. The implementation
 is currently macOS 12+ with Xcode command-line tools. This is a standalone window
 prototype, not broader desktop/runtime or screen-reader support evidence.
+
+## Explicit custom-content native semantics
+
+The opt-in [native semantic companion](native-semantics.md) publishes checked copied
+button/slider/static-text nodes on the original macOS editor owner. Complete native
+getters/actions and shared Rust/WebKit acknowledgement are available; system AX
+client discovery and screenreader validation remain separate. None preserves normal
+WebKit traversal and the title-bar Audio/MIDI popup remains independent.

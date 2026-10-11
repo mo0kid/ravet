@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="96" viewBox="0 0 256 96">
+ <title>First-party SVG import geometry fixture</title>
+ <defs>
+  <linearGradient id="warm" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0" stop-color="#ff6020"/><stop offset="1" stop-color="#ffc040"/></linearGradient>
+  <radialGradient id="cool" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#40d0ff"/><stop offset="1" stop-color="#104080"/></radialGradient>
+  <clipPath id="cut"><circle cx="176" cy="48" r="31"/></clipPath>
+ </defs>
+ <rect x="1" y="1" width="254" height="94" rx="12" fill="#182438"/>
+ <g transform="translate(12 12)"><path d="M0 24 A24 24 0 0 1 48 24 L48 48 H0 Z" fill="url(#warm)"/><path d="M8 24 Q24 4 40 24 T48 32" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/></g>
+ <g opacity=".6"><circle cx="92" cy="42" r="21" fill="#e02080"/><circle cx="113" cy="54" r="21" fill="#20b080"/></g>
+ <rect x="140" y="15" width="72" height="66" fill="url(#cool)" clip-path="url(#cut)"/>
+ <g transform="translate(225 48) rotate(30)"><polygon points="-15,-15 15,-15 15,15 -15,15" fill="none" stroke="#ffe070" stroke-width="4" stroke-linejoin="round"/></g>
+</svg>

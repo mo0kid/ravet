@@ -6,7 +6,7 @@
 #include "RavetPerformance.h"
 #include "RavetAuParameters.hpp"
 #include "RavetAuState.hpp"
-#include "RavetAuAudio.hpp"
+#include "RavetAuAudioFormat.hpp"
 #include "RavetAuVst3Transport.hpp"
 #include <cmath>
 #include <limits>
@@ -16,31 +16,51 @@ namespace {
 class PerformanceAU final : public AUWrapper {
 public:
     explicit PerformanceAU(ComponentInstanceRecord *instance) : AUWrapper(instance),
-        schema_(ravet_performance_cached_parameters_v1(32)), state_(ravet_performance_state_v1(32), schema_.parametersEntry()) {
+        schema32_(ravet_performance_cached_parameters_v1(32)), schema64_(ravet_performance_cached_parameters_v1(64), 64),
+        state32_(ravet_performance_state_v1(32), schema32_.parametersEntry()), state64_(ravet_performance_state_v1(64), schema64_.parametersEntry(), 64) {
         eventList.setMaxSize(1024);
     }
     ComponentResult Initialize() override {
-        if (!schema_.valid() || !state_.valid()) return kAudioUnitErr_FailedInitialization;
-        const auto status = AUWrapper::Initialize();
-        if (status) return status;
+        // Guard before stock Initialize virtually reenters this method on main.
+        // Selected setup must occur once on that thread, not again on its caller.
+        __block ComponentResult dispatched = noErr;
+        if (executeOnMainThreadSync(GetMutex(), ^{ dispatched = this->Initialize(); })) return dispatched;
+        ready_ = false;
+        if (!schema32_.valid() || !schema64_.valid() || !state32_.valid() || !state64_.valid() || !audioProcessor) return kAudioUnitErr_FailedInitialization;
+        const auto format = Output(0).GetStreamFormat();
+        const auto size = format.mBitsPerChannel == 64 ? kSample64 : kSample32;
+        if (!ValidFormat(kAudioUnitScope_Output, 0, format) || audioProcessor->canProcessSampleSize(size) != kResultOk) return kAudioUnitErr_FormatNotSupported;
         RavetNativeProcessorConfigV1 layout{};
         layout.version = 1; layout.maximum_frames = GetMaxFramesPerSlice(); layout.maximum_events = 1024; layout.bus_count = 1;
-        layout.sample_rate = GetOutput(0)->GetStreamFormat().mSampleRate;
-        layout.buses[0].outputs = GetOutput(0)->GetStreamFormat().mChannelsPerFrame;
-        if (!audioMap_.configure(layout)) { AUWrapper::Cleanup(); return kAudioUnitErr_FailedInitialization; }
-        return noErr;
+        layout.sample_rate = format.mSampleRate; layout.buses[0].outputs = format.mChannelsPerFrame;
+        ravet::au::NativeAuAudioFormat next32;
+        ravet::au::NativeAuAudioFormat64 next64;
+        const auto *origin = schema().parametersEntry()->processor_entry();
+        if (size == kSample64 ? !next64.configure(origin, layout, nullptr, 0, &format, 1) : !next32.configure(origin, layout, nullptr, 0, &format, 1)) return kAudioUnitErr_FormatNotSupported;
+        const auto initialized = AUWrapper::Initialize();
+        if (initialized) return failSetup(initialized);
+        const auto selected = setupOwned(size, isOfflineRender);
+        if (selected) return selected;
+        format32_ = next32; format64_ = next64; return noErr;
+    }
+    ComponentResult GetPropertyInfo(AudioUnitPropertyID id, AudioUnitScope scope, AudioUnitElement element, UInt32 &size, bool &writable) override {
+        if (id == kAudioUnitProperty_OfflineRender) {
+            if (scope != kAudioUnitScope_Global || element) return kAudioUnitErr_InvalidScope;
+            size = sizeof(UInt32); writable = true; return noErr;
+        }
+        return AUWrapper::GetPropertyInfo(id, scope, element, size, writable);
     }
     ComponentResult GetParameterList(AudioUnitScope scope, AudioUnitParameterID *ids, UInt32 &count) override {
         if (scope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
-        return schema_.list(ids, ids ? schema_.count() : 0, count) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameter;
+        return schema().list(ids, ids ? schema().count() : 0, count) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameter;
     }
     ComponentResult GetParameterInfo(AudioUnitScope scope, AudioUnitParameterID id, AudioUnitParameterInfo &output) override {
         if (scope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
-        return schema_.info(id, output) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameter;
+        return schema().info(id, output) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameter;
     }
     ComponentResult GetParameter(AudioUnitParameterID id, AudioUnitScope scope, AudioUnitElement element, AudioUnitParameterValue &output) override {
         if (scope != kAudioUnitScope_Global || element) return kAudioUnitErr_InvalidScope;
-        if (!schema_.contains(id)) return kAudioUnitErr_InvalidParameter;
+        if (!schema().contains(id)) return kAudioUnitErr_InvalidParameter;
         AudioUnitParameterValue next = 0.f;
         const auto status = AUWrapper::GetParameter(id, scope, element, next);
         if (status) return status;
@@ -48,12 +68,10 @@ public:
         output = next; return noErr;
     }
     bool ValidFormat(AudioUnitScope scope, AudioUnitElement element, const AudioStreamBasicDescription &format) override {
-        const auto flags = UInt32(kAudioFormatFlagsNativeFloatPacked) | UInt32(kAudioFormatFlagIsNonInterleaved);
-        return scope == kAudioUnitScope_Output && element == 0 && std::isfinite(format.mSampleRate) && format.mSampleRate > 0. &&
-            format.mFormatID == kAudioFormatLinearPCM && (format.mFormatFlags == flags ||
-            (format.mChannelsPerFrame == 1 && format.mFormatFlags == kAudioFormatFlagsNativeFloatPacked)) &&
-            format.mChannelsPerFrame >= 1 && format.mChannelsPerFrame <= 2 && format.mBitsPerChannel == 32 &&
-            format.mBytesPerFrame == 4 && format.mBytesPerPacket == 4 && format.mFramesPerPacket == 1;
+        if (scope != kAudioUnitScope_Output || element || !format.mChannelsPerFrame || format.mChannelsPerFrame > 2) return false;
+        if (format.mBitsPerChannel == 32) return ravet::au::NativeAuAudioFormat::format(format, format.mChannelsPerFrame, format.mSampleRate);
+        if (format.mBitsPerChannel == 64) return ravet::au::NativeAuAudioFormat64::format(format, format.mChannelsPerFrame, format.mSampleRate);
+        return false;
     }
     OSStatus MIDIEvent(UInt32 status, UInt32 data1, UInt32 data2, UInt32 offset) override {
         // The SDK narrows UInt32 MIDI words before its byte callbacks. Validate
@@ -109,6 +127,10 @@ public:
 #endif
     ComponentResult GetProperty(AudioUnitPropertyID id, AudioUnitScope scope, AudioUnitElement element, void *data) override {
         if (!data) return kAudioUnitErr_InvalidPropertyValue;
+        if (id == kAudioUnitProperty_OfflineRender) {
+            if (scope != kAudioUnitScope_Global || element) return kAudioUnitErr_InvalidScope;
+            *static_cast<UInt32 *>(data) = isOfflineRender ? 1u : 0u; return noErr;
+        }
         if (id == kAudioUnitProperty_ParameterStringFromValue || id == kAudioUnitProperty_ParameterValueFromString) {
             if (scope != kAudioUnitScope_Global || element) return kAudioUnitErr_InvalidScope;
             if (id == kAudioUnitProperty_ParameterStringFromValue) {
@@ -116,10 +138,10 @@ public:
                 AudioUnitParameterValue value = 0.f;
                 if (request.inValue) value = *request.inValue;
                 else { const auto status = GetParameter(request.inParamID, scope, element, value); if (status) return status; }
-                return schema_.format(request.inParamID, value, request.outString) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameterValue;
+                return schema().format(request.inParamID, value, request.outString) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameterValue;
             }
             auto &request = *static_cast<AudioUnitParameterValueFromString *>(data);
-            return schema_.parse(request.inParamID, request.inString, request.outValue) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameterValue;
+            return schema().parse(request.inParamID, request.inString, request.outValue) ? ComponentResult(noErr) : kAudioUnitErr_InvalidParameterValue;
         }
 #if AUSDK_MIDI2_AVAILABLE
         if (id == kAudioUnitProperty_AudioUnitMIDIProtocol && scope == kAudioUnitScope_Global && element == 0) {
@@ -131,7 +153,7 @@ public:
     ComponentResult SetParameter(AudioUnitParameterID id, AudioUnitScope scope, AudioUnitElement element,
                                   AudioUnitParameterValue value, UInt32 offset) override {
         AudioUnitParameterValue canonical = 0.f;
-        if (scope != kAudioUnitScope_Global || element || !schema_.control(id, value, offset, canonical) ||
+        if (scope != kAudioUnitScope_Global || element || !schema().control(id, value, offset, canonical) ||
             expandedNotes_ + parameterOperations_ + 2 > 1024)
             return kAudioUnitErr_InvalidParameterValue;
         const auto status = AUWrapper::SetParameter(id, scope, element, canonical, offset);
@@ -140,6 +162,20 @@ public:
     }
     ComponentResult SetProperty(AudioUnitPropertyID id, AudioUnitScope scope, AudioUnitElement element,
                                  const void *data, UInt32 size) override {
+        if (id == kAudioUnitProperty_OfflineRender) {
+            if (scope != kAudioUnitScope_Global || element || !data || size != sizeof(UInt32)) return kAudioUnitErr_InvalidPropertyValue;
+            UInt32 value; std::memcpy(&value, data, sizeof(value));
+            if (value > 1) return kAudioUnitErr_InvalidPropertyValue;
+            const bool next = value != 0;
+            if (next == isOfflineRender) return noErr;
+            if (!IsInitialized()) { isOfflineRender = next; return noErr; }
+            // Host serializes this CONTROL transition with all audio callbacks.
+            // Never use the stock setter's hardcoded sample32 setup.
+            if (!ready_) return kAudioUnitErr_CannotDoInCurrentContext;
+            const auto changed = setupOwned(selectedSize_, next);
+            if (!changed) isOfflineRender = next;
+            return changed;
+        }
         if (id == kAudioUnitProperty_ClassInfoFromDocument) {
             if (scope != kAudioUnitScope_Global || element || !data || size != sizeof(CFPropertyListRef)) return kAudioUnitErr_InvalidPropertyValue;
             auto state = *static_cast<const CFPropertyListRef *>(data);
@@ -153,7 +189,7 @@ public:
         auto dictionary = static_cast<CFMutableDictionaryRef>(const_cast<void *>(*output));
         // The processor's complete Level is authoritative; do not persist a
         // stale asynchronous controller cache alongside a newer DSP snapshot.
-        return state_.cohere(dictionary) ? ComponentResult(noErr) : kAudioUnitErr_InvalidPropertyValue;
+        return state().cohere(dictionary) ? ComponentResult(noErr) : kAudioUnitErr_InvalidPropertyValue;
     }
     ComponentResult RestoreState(CFPropertyListRef state) override { return restoreComplete(state, false); }
     ComponentResult Render(AudioUnitRenderActionFlags &flags, const AudioTimeStamp &time, UInt32 frames) override {
@@ -168,14 +204,21 @@ public:
         // MusicDevice factory delegates normal AUBase render ownership here.
         // This explicit zero-input main-output profile checks native process
         // status instead of concealing processor rejection behind SDK noErr.
-        if (!audioProcessor || processData.numInputs != 0 || processData.numOutputs != 1) { clearPending(); return kAudioUnitErr_FailedInitialization; }
+        if (!ready_ || !audioProcessor || processData.symbolicSampleSize != selectedSize_ || processData.numInputs != 0 || processData.numOutputs != 1) { clearPending(); return kAudioUnitErr_FailedInitialization; }
         auto *output = GetOutput(0);
         AudioBufferList *lists[]{&output->GetBufferList()};
-        if (!audioMap_.map(nullptr, 0, lists, 1, frames, audioBlock_)) { clearPending(); return kAudioUnitErr_InvalidParameterValue; }
-        const auto &nativeBus = audioBlock_.buses()[0];
-        const auto channels = nativeBus.output_channels;
-        const auto pointers = static_cast<float *const *>(nativeBus.outputs);
-        for (uint32_t c = 0; c < channels; ++c) processData.outputs[0].channelBuffers32[c] = frames ? pointers[c] : nullptr;
+        uint32_t channels = 0;
+        if (selectedSize_ == kSample64) {
+            if (!format64_.map(nullptr, 0, lists, 1, frames, audioBlock64_)) { clearPending(); return kAudioUnitErr_InvalidParameterValue; }
+            const auto &nativeBus = audioBlock64_.buses()[0]; channels = nativeBus.output_channels;
+            const auto pointers = static_cast<double *const *>(nativeBus.outputs);
+            for (uint32_t c = 0; c < channels; ++c) processData.outputs[0].channelBuffers64[c] = frames ? pointers[c] : nullptr;
+        } else {
+            if (!format32_.map(nullptr, 0, lists, 1, frames, audioBlock_)) { clearPending(); return kAudioUnitErr_InvalidParameterValue; }
+            const auto &nativeBus = audioBlock_.buses()[0]; channels = nativeBus.output_channels;
+            const auto pointers = static_cast<float *const *>(nativeBus.outputs);
+            for (uint32_t c = 0; c < channels; ++c) processData.outputs[0].channelBuffers32[c] = frames ? pointers[c] : nullptr;
+        }
         processData.outputs[0].numChannels = channels;
         processData.outputs[0].silenceFlags = 0;
         ravet::au::NativeAuTransportSnapshot transport;
@@ -191,7 +234,7 @@ public:
         else flags &= ~kAudioUnitRenderAction_OutputIsSilence;
         return noErr;
     }
-    void Cleanup() override { clearPending(); audioBlock_ = {}; callerBlock_ = {}; audioMap_ = {}; AUWrapper::Cleanup(); }
+    void Cleanup() override { ready_ = false; clearPending(); audioBlock_ = {}; audioBlock64_ = {}; callerBlock_ = {}; callerBlock64_ = {}; format32_ = {}; format64_ = {}; AUWrapper::Cleanup(); }
     OSStatus renderCaller(AudioUnitRenderActionFlags *flags, const AudioTimeStamp *time, UInt32 bus, UInt32 frames, AudioBufferList *buffers) noexcept {
         if (!time || !buffers) return kAudio_ParamError;
         AudioUnitRenderActionFlags temporary{};
@@ -200,45 +243,70 @@ public:
         // after virtual DSP. Check the actual supported caller ranges first so
         // malformed output aliases cannot advance voices or consume notes.
         AudioBufferList *caller[]{buffers};
-        const bool rejectCaller = audioMap_.valid() && bus == 0 && frames <= audioMap_.maximumFrames() &&
-            !audioMap_.map(nullptr, 0, caller, 1, frames, callerBlock_);
+        const bool wide = Output(0).GetStreamFormat().mBitsPerChannel == 64;
+        const auto maximum = wide ? format64_.mapper().maximumFrames() : format32_.mapper().maximumFrames();
+        const bool configured = wide ? format64_.valid() : format32_.valid();
+        const bool rejectCaller = configured && bus == 0 && frames <= maximum &&
+            (wide ? !format64_.map(nullptr, 0, caller, 1, frames, callerBlock64_) : !format32_.map(nullptr, 0, caller, 1, frames, callerBlock_));
         const auto status = rejectCaller ? OSStatus(kAudioUnitErr_InvalidParameterValue) : DoRender(actualFlags, *time, bus, frames, *buffers);
         if (status) {
-            // AUBase may reject before our virtual Render or skip its final
-            // buffer copy. Clear only exact supported caller shapes/prefixes.
-            const auto channels = GetOutput(0)->GetStreamFormat().mChannelsPerFrame;
-            if (bus == 0 && channels >= 1 && channels <= 2 && buffers->mNumberBuffers == channels) {
-                const auto count = std::min({frames, GetMaxFramesPerSlice(), UInt32(65536)});
-                bool complete = count == frames;
-                for (uint32_t c = 0; c < channels; ++c) {
-                    const auto &buffer = buffers->mBuffers[c];
-                    const auto begin = reinterpret_cast<uintptr_t>(buffer.mData);
-                    const auto available = std::min(count, buffer.mDataByteSize / UInt32(sizeof(float)));
-                    if (buffer.mNumberChannels == 1 && begin && begin % alignof(float) == 0 &&
-                        uint64_t(available) * sizeof(float) <= std::numeric_limits<uintptr_t>::max() - begin) {
-                        std::fill_n(static_cast<float *>(buffer.mData), available, 0.f);
-                        complete = complete && available == frames;
-                    } else complete = false;
-                }
-                if (complete) actualFlags |= kAudioUnitRenderAction_OutputIsSilence;
-            }
+            if (wide) silenceCaller<double>(actualFlags, bus, frames, buffers);
+            else silenceCaller<float>(actualFlags, bus, frames, buffers);
         }
         return status;
     }
     ComponentResult Reset(AudioUnitScope scope, AudioUnitElement element) override {
         clearPending();
-        if (audioProcessor) { audioProcessor->setProcessing(false); audioProcessor->setProcessing(true); }
+        if (audioProcessor && ready_) {
+            if (audioProcessor->setProcessing(false) != kResultOk || audioProcessor->setProcessing(true) != kResultOk) return failSetup(kAudioUnitErr_CannotDoInCurrentContext);
+        }
         return AUWrapper::Reset(scope, element);
     }
 private:
     uint32_t nextIdentity_ = 1, expandedNotes_ = 0, parameterOperations_ = 0;
-    ravet::au::NativeAuParameters<1> schema_;
-    ravet::au::NativeAuState state_;
-    ravet::au::NativeAuAudioBusMap audioMap_;
-    ravet::au::NativeAuAudioBlock audioBlock_;
-    ravet::au::NativeAuAudioBlock callerBlock_;
+    bool ready_ = false;
+    int32 selectedSize_ = kSample32;
+    ravet::au::NativeAuParameters<1> schema32_, schema64_;
+    ravet::au::NativeAuState state32_, state64_;
+    ravet::au::NativeAuAudioFormat format32_;
+    ravet::au::NativeAuAudioFormat64 format64_;
+    ravet::au::NativeAuAudioBlock audioBlock_, callerBlock_;
+    ravet::au::NativeAuAudioBlock64 audioBlock64_, callerBlock64_;
+    ravet::au::NativeAuParameters<1> &schema() { return Output(0).GetStreamFormat().mBitsPerChannel == 64 ? schema64_ : schema32_; }
+    ravet::au::NativeAuState &state() { return Output(0).GetStreamFormat().mBitsPerChannel == 64 ? state64_ : state32_; }
+    ComponentResult failSetup(ComponentResult status) {
+        ready_ = false; clearPending();
+        processParamChanges.clearQueue(); outputParamChanges.clearQueue(); transferParamChanges.removeChanges(); outputParamTransfer.removeChanges();
+        format32_ = {}; format64_ = {}; audioBlock_ = {}; audioBlock64_ = {}; callerBlock_ = {}; callerBlock64_ = {};
+        if (audioProcessor) { audioProcessor->setProcessing(false); auto component = U::cast<IComponent>(audioProcessor); if (component) component->setActive(false); }
+        return status;
+    }
+    ComponentResult setupOwned(int32 size, bool offline) {
+        ready_ = false;
+        if (!audioProcessor || (size != kSample32 && size != kSample64) || audioProcessor->canProcessSampleSize(size) != kResultOk) return failSetup(kAudioUnitErr_FormatNotSupported);
+        auto component = U::cast<IComponent>(audioProcessor);
+        if (!component || audioProcessor->setProcessing(false) != kResultOk || component->setActive(false) != kResultOk) return failSetup(kAudioUnitErr_FailedInitialization);
+        if (!processData.prepare(*component, 0, size) || processData.symbolicSampleSize != size || processData.numInputs != 0 || processData.numOutputs != 1) return failSetup(kAudioUnitErr_FailedInitialization);
+        ProcessSetup setup{}; setup.sampleRate = Output(0).GetStreamFormat().mSampleRate; setup.maxSamplesPerBlock = GetMaxFramesPerSlice();
+        setup.symbolicSampleSize = size; setup.processMode = offline ? kOffline : kRealtime;
+        if (audioProcessor->setupProcessing(setup) != kResultOk || component->setActive(true) != kResultOk || audioProcessor->setProcessing(true) != kResultOk) return failSetup(kAudioUnitErr_FailedInitialization);
+        selectedSize_ = size; ready_ = true; return noErr;
+    }
+    template <typename Sample> void silenceCaller(AudioUnitRenderActionFlags &flags, UInt32 bus, UInt32 frames, AudioBufferList *buffers) {
+        const auto channels = Output(0).GetStreamFormat().mChannelsPerFrame;
+        if (bus != 0 || channels < 1 || channels > 2 || buffers->mNumberBuffers != channels) return;
+        const auto count = std::min({frames, GetMaxFramesPerSlice(), UInt32(65536)}); bool complete = count == frames;
+        for (uint32_t c = 0; c < channels; ++c) {
+            const auto &buffer = buffers->mBuffers[c]; const auto begin = reinterpret_cast<uintptr_t>(buffer.mData);
+            const auto available = std::min(count, buffer.mDataByteSize / UInt32(sizeof(Sample)));
+            if (buffer.mNumberChannels == 1 && begin && begin % alignof(Sample) == 0 && uint64_t(available) * sizeof(Sample) <= std::numeric_limits<uintptr_t>::max() - begin) {
+                std::fill_n(static_cast<Sample *>(buffer.mData), available, Sample(0)); complete = complete && available == frames;
+            } else complete = false;
+        }
+        if (complete) flags |= kAudioUnitRenderAction_OutputIsSilence;
+    }
     ComponentResult restoreComplete(CFPropertyListRef value, bool document) {
-        if (!state_.validate(value, GetComponentDescription())) return kAudioUnitErr_InvalidPropertyValue;
+        if (!state().validate(value, GetComponentDescription())) return kAudioUnitErr_InvalidPropertyValue;
         return AUWrapper::restoreState(value, document);
     }
     void clearPending() { eventList.clear(); expandedNotes_ = 0; parameterOperations_ = 0; }

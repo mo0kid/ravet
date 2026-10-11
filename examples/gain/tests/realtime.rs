@@ -5,7 +5,7 @@ use ravet::foundation::*;
 use ravet_gain::{GAIN_ID, GainProcessor};
 use std::hint::black_box;
 use std::sync::{
-    Arc, Barrier,
+    Arc,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -136,19 +136,23 @@ fn fault_and_inactive_paths_have_no_heap_activity() {
 #[test]
 fn concurrent_worker_allocations_are_not_attributed_to_processing() {
     let stop = Arc::new(AtomicBool::new(false));
-    let barrier = Arc::new(Barrier::new(2));
+    let started = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
-    let worker_barrier = Arc::clone(&barrier);
+    let worker_started = Arc::clone(&started);
     let worker = std::thread::spawn(move || {
         measure(|| {
             drop(black_box(Box::new([0_u8; 1024])));
-            worker_barrier.wait();
+            // Do not measure first-use blocking synchronisation: its retained
+            // thread runtime storage is unrelated to this worker's Box loop.
+            worker_started.store(true, Ordering::Release);
             while !worker_stop.load(Ordering::Relaxed) {
                 drop(black_box(Box::new([0_u8; 1024])));
             }
         })
     });
-    barrier.wait();
+    while !started.load(Ordering::Acquire) {
+        std::thread::yield_now();
+    }
     let info = measured_processing(false);
     stop.store(true, Ordering::Relaxed);
     let worker_info = worker.join().unwrap();

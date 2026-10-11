@@ -10,6 +10,7 @@ cargo run -p ravet-examples --bin midi-synth --locked
 cargo run -p ravet-examples --bin effect --locked
 cargo run -p ravet-examples --bin mpe --locked
 cargo run -p ravet-examples --bin midi2 --locked
+cargo run -p ravet-examples --bin layout_workspace --locked
 ```
 
 Each window includes tabs for all four examples. Click **Audio / MIDI…** in the
@@ -134,6 +135,24 @@ per processing block shared across up to 16 inputs. Full MIDI/control queues
 clear voices rather than leaving a dropped note-off stuck. No physical
 controller conformance or audio deadline is established by offline fixtures.
 
+## Resizable layout workspace
+
+The [workspace consumer](grid-layout.md) uses measured native standalone content
+size, explicit constrained Rust grid tracks/spans and five ordinary labelled HTML
+panels. Narrow windows move the inspector below the editor; fonts and controls
+retain their normal sizes. The default Audio/MIDI popup remains enabled with
+truthful unavailable-device state, and this example opens no devices. Its
+explicit `--fixture` validates owned hidden windows and actual WebKit geometry
+across small/aspect-fitted and rapid resize requests.
+
+```sh
+cargo run -p ravet-examples --bin layout_workspace --locked -- --fixture
+```
+
+See the [main owner](../examples/tutorials/src/bin/layout_workspace.rs),
+[geometry policy](../examples/tutorials/src/layout_workspace/geometry.rs) and
+[local document](../examples/tutorials/src/layout_workspace/index.html).
+
 ## MIDI 2.0 packet inspector
 
 The MIDI 2.0 tab provides editable group/channel/key, 16-bit velocity and 32-bit
@@ -194,3 +213,26 @@ unclipped content. Voice details scroll inside their
 bounded monitor panel. Shared semantic palette tokens cover controls, settings
 and piano keys; Amber is the selected RAVET default, with charcoal/plum surfaces
 and amber emphasis. Disabled piano keys remain opaque.
+
+## Color preparation workspace
+
+The [color workspace](color-preparation.md) consumes reusable Rust sRGB/linear-light
+image preparation through labelled opacity and white/amber controls. It retains
+ordinary window resizing and the default Audio/MIDI popup, with a hidden owned
+fixture and a portable JSON export. Pixel/profile limits and independent numeric
+validation are documented in the guide.
+
+The complete [SVG image workspace](svg-images.md) imports the outlined RAVET logo
+and authored gradient/arc/clip/opacity assets, prepares Rust pixels and presents
+labelled source/fit/size controls. `--export` creates no window; macOS native mode
+retains the standard Audio/MIDI settings popup.
+
+The `native_semantics` tutorial shares one Rust custom-control model between actual
+WebKit visual content and an explicit [native semantic companion](native-semantics.md),
+including checked geometry and guarded native intents. The standard Audio/MIDI
+settings popup remains enabled; native protocol evidence is separate from VoiceOver.
+
+The [local font fallback consumer](font-fallback.md) runs as
+`cargo run -p ravet-examples --bin font_fallback --features font-fallback --locked`.
+Its `--export` mode is headless; `--fixture` owns a hidden macOS window and checks
+actual Rust-selected fonts, native resize, the default settings popup and cleanup.

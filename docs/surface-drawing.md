@@ -14,6 +14,12 @@ make resizing deterministic. Invalid constraints, overflow, insufficient space
 or capacity reject before destination mutation. Layout does not wrap, round,
 clip or infer pixel scale, and performs no heap operations.
 
+`layout_grid` resolves explicit row/column tracks and checked nonzero area spans
+into atomic caller-owned rectangles. Each axis has 1..32 tracks and at most 256
+areas are accepted; overlapping areas are explicit. Both axes reuse the same
+shrink/growth rules above. The [grid and workspace guide](grid-layout.md) shows
+portable geometry and actual measured standalone-window consumption.
+
 `animation::Tween` samples a finite scalar with an explicit u64 clock, duration
 and linear/smooth-step/cubic easing. Units belong to the consumer; before-start
 and exact completion return exact endpoints. Retargeting starts at the current
@@ -51,7 +57,8 @@ font/asset loading, video, interactive animation scheduling or accessibility aud
 
 Enable `ravet-surface/text` (or `ravet/text`) for `surface::text`. `TextFont`
 copies caller-supplied local font bytes, at most 16 MiB, selecting a backend face
-index and its default variation instance. No system font discovery, global font
+index and its default variation instance; explicit `with_variations` selects an
+immutable instance from checked source fvar axes. No system font discovery, global font
 registration, file/network loading or fallback is implicit. Font parsing/cache
 work belongs on UI/worker threads and is not complete corruption validation.
 
@@ -95,6 +102,11 @@ python3 scripts/check-text-shaping.py --hb-shape /path/to/hb-shape
 This is the tested local-font/single-run profile, not every script/font/paragraph
 or render backend. See [decision 0092](decisions/0092-local-font-shaping.md).
 
+Optional [explicit local font fallback](font-fallback.md) supplies an ordered
+caller-owned stack, whole-grapheme contextual selection, source/matching-face
+ownership and complete SVG/CPU consumption. It does not change the independent
+single-font APIs or infer system/script/paragraph policy.
+
 ## Typed paths and local glyph outlines
 
 `PathCommand` supports move/line/quadratic/cubic/close geometry. `SvgDrawing::path`
@@ -103,7 +115,7 @@ open subpath, and start another subpath after Close. SVG's normal implicit fill
 closure applies. No arbitrary markup/URL/transform string is accepted. Existing
 4096 drawing-command/1 MiB document limits and atomic rejection remain.
 
-With `text` enabled, `TextFont::outline_glyph` extracts default-instance TrueType
+With `text` enabled, `TextFont::outline_glyph` extracts selected-instance TrueType
 `glyf` outlines into at most 4096 finite font-unit path commands. Empty outlines
 (e.g. spaces) yield nothing; invalid IDs reject. CFF/Type1/color/bitmap rendering
 is unsupported. Outline loading can allocate before output limits, so it belongs
@@ -115,7 +127,7 @@ and command count, even if earlier glyph paths succeeded.
 
 Consumers own headroom/layout, font permissions and meaningful accessible titles;
 outline paths themselves do not supply text semantics, selection or text input.
-These outline APIs do not provide hinted/native/GPU/bitmap/variable-instance
+These outline APIs do not provide hinted/native/GPU/bitmap
 rendering. The independent [CPU raster](cpu-raster.md) feature accepts prepared
 paths and local TrueType glyph outlines.
 The example uses public licensed local font bytes and needs no system fallback:
@@ -308,3 +320,17 @@ The independent default-disabled [image feature](image-assets.md) decodes static
 PNG/selected JPEG bytes into owned straight RGBA8 and encodes bounded PNG output.
 Consumers explicitly convert/adopt pixels for raster or Metal presentation;
 geometry/layout alone adds no codecs, files or color-management policy.
+
+Optional [explicit system fonts and immutable variations](system-fonts.md) keep
+main-thread macOS discovery separate from local Surface shaping. Selected instances
+retain exact caller coordinates through outlines, SVG, CPU and fallback consumption.
+
+## Exact-face font-stack paragraphs
+
+With `text`, `fallback_paragraph::FallbackParagraphLayout` composes original-source
+bidi, grapheme-safe caller script spans, wrapping and explicit font-stack coverage.
+`SvgDrawing::fallback_paragraph` and optional `RasterText::from_fallback_paragraph`
+consume exact selected faces transactionally. This is distinct from single-font
+paragraph caret/edit caches. See [font-stack paragraphs](fallback-paragraphs.md) for
+source/context policies, whole preparation bounds, renderer limits and the normal
+standalone workspace with measured width reflow.

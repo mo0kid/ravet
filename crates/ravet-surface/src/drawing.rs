@@ -252,11 +252,12 @@ impl SvgDrawing {
         write!(command, "\" fill=\"{}\"/>", color.paint()).unwrap();
         self.append(command)
     }
-    /// Render one shaped local TrueType glyf run as filled outline paths at a
+    /// Render one shaped local admitted outline run as filled outline paths at a
     /// caller baseline (SVG Y down). Whole-run failure restores the document.
     /// No text/font URL is emitted; accessible meaning remains the drawing title.
     /// Spaces/empty outlines draw nothing; missing glyph zero draws that font's
-    /// replacement outline. CFF/Type1/color/bitmap glyph rendering is unsupported.
+    /// replacement outline. Optional postscript-outlines admits CFF1/CFF2 at
+    /// selected coordinates; Type1/color/bitmap rendering remains unsupported.
     #[cfg(feature = "text")]
     pub fn shaped_text(
         &mut self,
@@ -279,7 +280,73 @@ impl SvgDrawing {
         }
         result
     }
-    /// Wrap and render a complete local TrueType paragraph as filled outline paths.
+    /// Render complete prepared fallback output with its exact borrowed faces.
+    /// Whole outline/command/byte failure restores the drawing. Selected-instance
+    /// Selected outline renderer limits apply; no implicit font resource is emitted.
+    #[cfg(feature = "text")]
+    pub fn fallback_text(
+        &mut self,
+        text: &crate::fallback::FallbackText<'_>,
+        baseline: (f64, f64),
+        color: Color,
+    ) -> Result<(), crate::text::TextError> {
+        use crate::text::TextError;
+        if !baseline.0.is_finite() || !baseline.1.is_finite() {
+            return Err(TextError::InvalidInput);
+        }
+        let saved = (self.document.len(), self.commands);
+        for run in text.runs() {
+            let origin = run.origin();
+            let placed = (baseline.0 + origin.0, baseline.1 - origin.1);
+            if let Err(error) =
+                self.outline_run(run.font(), run.shape(), text.size(), placed, color)
+            {
+                self.document.truncate(saved.0);
+                self.commands = saved.1;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+    /// Render complete prepared mixed-direction fallback paragraph output with
+    /// exact selected faces. Baseline uses SVG downward Y; whole outline/geometry/
+    /// byte/command failure restores the prior document and counters. No font URL.
+    #[cfg(feature = "text")]
+    pub fn fallback_paragraph(
+        &mut self,
+        layout: &crate::fallback_paragraph::FallbackParagraphLayout<'_>,
+        baseline: (f64, f64),
+        color: Color,
+    ) -> Result<(), crate::text::TextError> {
+        use crate::text::TextError;
+        if !baseline.0.is_finite() || !baseline.1.is_finite() {
+            return Err(TextError::InvalidInput);
+        }
+        let saved = (self.document.len(), self.commands);
+        let result = (|| {
+            for line in layout.lines() {
+                for run in line.runs() {
+                    self.outline_run(
+                        run.font(),
+                        run.shape(),
+                        layout.size(),
+                        (
+                            baseline.0 + line.baseline().0 + run.x(),
+                            baseline.1 + line.baseline().1,
+                        ),
+                        color,
+                    )?;
+                }
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.document.truncate(saved.0);
+            self.commands = saved.1;
+        }
+        result
+    }
+    /// Wrap and render a complete local admitted-outline paragraph as filled outline paths.
     /// Baseline is the first line's origin (SVG Y down); complete layout/drawing
     /// failure restores document bytes and command count. Returns the measured
     /// layout for caller inspection. Existing drawing/path limits still apply.

@@ -31,8 +31,8 @@ int main(int argc,char **argv){
    UInt32 inputs=99,size=sizeof(inputs);okay(AudioUnitGetProperty(unit,kAudioUnitProperty_ElementCount,kAudioUnitScope_Input,0,&inputs,&size),"query audio inputs");require(!inputs,"zero input instrument");
    AudioStreamBasicDescription format{};format.mSampleRate=48000.;format.mFormatID=kAudioFormatLinearPCM;format.mFormatFlags=kAudioFormatFlagsNativeFloatPacked|kAudioFormatFlagIsNonInterleaved;format.mBytesPerPacket=format.mBytesPerFrame=4;format.mFramesPerPacket=1;format.mChannelsPerFrame=channels;format.mBitsPerChannel=32;
    okay(AudioUnitSetProperty(unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,0,&format,sizeof(format)),"mono/stereo output format");
-   auto invalidFormat=format;invalidFormat.mBitsPerChannel=64;invalidFormat.mBytesPerPacket=invalidFormat.mBytesPerFrame=8;
-   require(AudioUnitSetProperty(unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,0,&invalidFormat,sizeof(invalidFormat))!=noErr,"f64 format rejected before configuration");
+   auto invalidFormat=format;invalidFormat.mBitsPerChannel=16;invalidFormat.mBytesPerPacket=invalidFormat.mBytesPerFrame=8;
+   require(AudioUnitSetProperty(unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,0,&invalidFormat,sizeof(invalidFormat))!=noErr,"unsupported sample bits rejected before configuration");
    invalidFormat=format;invalidFormat.mSampleRate=std::numeric_limits<double>::quiet_NaN();require(AudioUnitSetProperty(unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,0,&invalidFormat,sizeof(invalidFormat))!=noErr,"nonfinite rate rejected");
    if(channels==2){invalidFormat=format;invalidFormat.mFormatFlags=kAudioFormatFlagsNativeFloatPacked;invalidFormat.mBytesPerPacket=invalidFormat.mBytesPerFrame=8;require(AudioUnitSetProperty(unit,kAudioUnitProperty_StreamFormat,kAudioUnitScope_Output,0,&invalidFormat,sizeof(invalidFormat))!=noErr,"interleaved stereo rejected");}
    UInt32 previousMaximum=0;size=sizeof(previousMaximum);okay(AudioUnitGetProperty(unit,kAudioUnitProperty_MaximumFramesPerSlice,kAudioUnitScope_Global,0,&previousMaximum,&size),"initial preparation capacity");

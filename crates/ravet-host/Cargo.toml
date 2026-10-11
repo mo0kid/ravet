@@ -4,7 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Explicit CLAP discovery, trusted hosting and prepared native audio ownership"
+description = "Explicit CLAP hosting and optional VST3/AUv3 native ownership"
+
+[features]
+default = []
+vst3-catalogue = []
+vst3-hosted-audio = ["vst3-catalogue"]
+vst3-editor = ["vst3-catalogue"]
+au-hosting = []
 
 [lints.rust]
 unsafe_code = "deny"

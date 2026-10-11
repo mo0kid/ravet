@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RAVET color preparation</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#17151d;color:#f2ece2}body{margin:0;padding:24px;box-sizing:border-box;min-width:320px}main{max-width:1100px;margin:auto}h1{font-size:24px}p{line-height:1.5;color:#b3a7bc}label{display:block;margin:14px 0}input,select{font:inherit;vertical-align:middle}input{width:min(65vw,400px)}select{margin-left:8px}.samples{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px}figure{margin:0;padding:18px;background:#25212d;border-radius:8px}canvas{display:block;width:100%;height:160px;image-rendering:pixelated}figcaption{margin-top:12px}output{color:#f3b65d}#diagnostic:empty{display:none}
+</style>
+<body><main><h1>Explicit color preparation</h1><p>The same overlay is prepared in Rust using numeric components and linear-light source-over. Both images are presented as straight sRGB bytes.</p>
+<label for="opacity">Overlay opacity <input id="opacity" type="range" min="0" max="255" value="128"><output id="alpha" for="opacity">128 / 255</output></label>
+<label for="palette">Overlay color <select id="palette"><option value="white">White</option><option value="amber">Amber</option></select></label>
+<div class="samples"><figure><canvas id="numeric" width="32" height="8" role="img" aria-label="Numeric component composite"></canvas><figcaption>Numeric components: <output id="numeric-pixel"></output></figcaption></figure><figure><canvas id="linear" width="32" height="8" role="img" aria-label="Linear light composite"></canvas><figcaption>Linear light: <output id="linear-pixel"></output></figcaption></figure></div>
+<p id="diagnostic" role="status"></p><p>No monitor profile is inferred. Linear-light preparation leaves existing renderers unchanged.</p></main>
+<script>
+(()=>{'use strict';let applied=null;const opacity=document.getElementById('opacity'),palette=document.getElementById('palette'),diagnostic=document.getElementById('diagnostic');
+const send=value=>{if(window.ravetSend)window.ravetSend(value);else if(window.webkit?.messageHandlers?.ravet)window.webkit.messageHandlers.ravet.postMessage(value);else diagnostic.textContent='Native consumer transport unavailable.';};
+opacity.addEventListener('input',()=>send({opacity:Number(opacity.value)}));palette.addEventListener('change',()=>send({palette:palette.value}));
+window.ravetUpdate=model=>{if(!model||model.width!==32||model.height!==8||!Number.isInteger(model.opacity)||model.opacity<0||model.opacity>255||!['white','amber'].includes(model.palette)||!Number.isInteger(model.revision)||model.revision<0||model.revision>4294967295)return;
+for(const name of ['numeric','linear']){if(!Array.isArray(model[name])||model[name].length!==1024)return;for(let i=0;i<1024;i++)if(!Object.hasOwn(model[name],i)||!Number.isInteger(model[name][i])||model[name][i]<0||model[name][i]>255)return;}
+for(const name of ['numeric','linear']){const canvas=document.getElementById(name),context=canvas.getContext('2d');if(!context)return;context.putImageData(new ImageData(Uint8ClampedArray.from(model[name]),32,8),0,0);document.getElementById(name+'-pixel').textContent=model[name].slice(0,4).join(', ');}
+opacity.value=String(model.opacity);palette.value=model.palette;document.getElementById('alpha').textContent=model.opacity+' / 255';diagnostic.textContent='';applied={opacity:model.opacity,palette:model.palette,revision:model.revision};};
+window.ravetColorReport=()=>({applied,viewport:[innerWidth,innerHeight],numeric:Array.from(document.getElementById('numeric').getContext('2d').getImageData(0,0,32,8).data),linear:Array.from(document.getElementById('linear').getContext('2d').getImageData(0,0,32,8).data),opacity:opacity.value,palette:palette.value,focus:document.activeElement?.id});
+})();
+</script></body></html>

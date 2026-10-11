@@ -7,7 +7,12 @@ publish.workspace = true
 description = "Interactive subtractive synth, effect, MPE and MIDI 2.0 examples"
 
 [features]
+paragraph-workspace = ["system-fonts", "ravet-surface/image"]
+postscript-fonts = ["system-fonts", "ravet-webview/postscript-fonts", "ravet-surface/postscript-outlines"]
+system-fonts = ["dep:ravet-webview", "ravet-webview/system-fonts", "ravet-surface/text", "ravet-surface/raster"]
+font-fallback = ["ravet-surface/text", "ravet-surface/raster"]
 default = ["live-ui"]
+svg-image = ["ravet-surface/svg-image"]
 live-ui = ["dep:ravet-webview", "dep:serde_json", "dep:ravet-device", "dep:ravet-midi-device", "dep:rtrb"]
 
 [dependencies]
@@ -29,3 +34,31 @@ allocation-counter = "=0.8.1"
 
 [lints.rust]
 unsafe_code = "deny"
+
+[[bin]]
+name = "svg_workspace"
+required-features = ["svg-image"]
+
+[[bin]]
+name = "native_semantics"
+path = "src/bin/native_semantics.rs"
+
+[[bin]]
+name = "font_fallback"
+path = "src/bin/font_fallback.rs"
+required-features = ["font-fallback"]
+
+[[bin]]
+name = "system_fonts"
+path = "src/bin/system_fonts.rs"
+required-features = ["system-fonts"]
+
+[[bin]]
+name = "paragraph_workspace"
+path = "src/bin/paragraph_workspace.rs"
+required-features = ["paragraph-workspace"]
+
+[[bin]]
+name = "postscript_fonts"
+path = "src/bin/postscript_fonts.rs"
+required-features = ["postscript-fonts"]

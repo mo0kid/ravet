@@ -29,14 +29,50 @@ Gain. [au_bundle.py](../scripts/au_bundle.py) shares the selected VST3 runtime a
 keeps AU SDK/component packaging and validation in one focused layer.
 
 The component identity is instrument `aumu`, subtype `RvPS`, manufacturer `Ravt`.
-It has zero audio inputs, mono/stereo noninterleaved f32 output, 16 native voices
+It has zero audio inputs, mono/stereo noninterleaved f32 or f64 output, 16 native voices
 and normalized Level parameter ID 1 spanning 0..1 with default 0.2. The output
 profile and native DSP bounds come from the public
 [performance reference](../examples/performance-native/README.md). Voices, phase,
 envelopes and transient expression are not persisted. Stream-format configuration
-rejects f64, interleaved stereo and nonfinite sample rates; maximum-frames
+defaults to f32 and accepts explicit stopped f32/f64 negotiation. It rejects other
+precisions, interleaved stereo and nonfinite sample rates; maximum-frames
 configuration accepts 1..65,536 and rejects invalid values before SDK allocation
 or capacity mutation.
+
+Precision changes require stopped, serialized host control. The owned adapter
+preflights the complete format with its matching native parameter companion's
+processor origin, then explicitly prepares typed VST3 process views and checks
+selected setup, activation and processing results. Its outer main-thread guard
+precedes stock SDK initialization, including initialization invoked from a worker
+thread. Render and rejected-buffer silence use matching float or double views.
+The stock SDK's intermediate sample32 setup remains part of initialization;
+RAVET's checked selected setup must complete before rendering is ready. Cleanup
+retires both prepared maps, and reset checks processing transitions without
+changing accepted audio precision.
+
+`kAudioUnitProperty_OfflineRender` is an owned global-element-0 UInt32 Boolean
+property. While stopped it records the desired mode for the next initialization;
+while initialized a serialized mode change uses the same selected-precision
+setup. An unchanged mode succeeds without reprepare. Successful changed setup
+resets transient native voice history and preserves complete Level publication
+and already accepted pending timed notes/Level intent for the next render. The
+actual lifecycle probe verifies both directions with pending operations and exact
+new-voice output, including the timed Level change. Reset retains the stock SDK
+scope/element behavior; it adds no strict selector preflight.
+Malformed mode values reject before mutation. Setup/activation failure marks the
+adapter unready, clears pending note/control transfer queues and prepared maps,
+and attempts stop/deactivation; rendering then fails with supported-buffer
+silence. The host must uninitialize and initialize again to recover. This is
+fail-closed handling, with no rollback of arbitrary earlier SDK/backend effects.
+Hosts must serialize these CONTROL transitions with every audio/MIDI callback.
+
+AU Level metadata, normalized values, physical text and complete state remain f32
+in either audio precision. The two schema/state helpers require exact explicit
+32/64 native provenance and do not infer DSP support from an exported f64 symbol.
+The public Level codec is the same in both precisions; coherent stopped ClassInfo
+recall across 32↔64 is validated. Live precision changes or persisted voice history
+are outside this profile. Apple facade ASBD copying and unchanged-format no-op
+behavior retain the [native format guide's limits](native-au.md).
 
 Legacy `MusicDeviceMIDIEvent` NoteOn/NoteOff callbacks preserve channel/key and
 exact widened f32 velocity fractions `byte/127`. NoteOn velocity 0 means MIDI
@@ -102,9 +138,16 @@ identity/controller-type rejection, capacity rejection, invalid-offset recovery,
 oversized-prefix silence/tails, typed initialized host callbacks, State2/legacy
 precedence, malformed sample/signature rejection before queued MIDI/Level
 consumption and exact negative sample-boundary recovery,
-SysEx rejection and 200 synthetic render/release cycles. The nested VST3 module
+SysEx rejection and 200 synthetic render/release cycles in each precision.
+A separate actual-component lifecycle probe verifies worker/main initialization,
+stopped and initialized offline modes, reset and coherent Level recall through
+32→64→32 reinitialization. Native provenance/control/codec fixtures also pass
+under optimized fast-math; this does not claim the entire SDK wrapper supports
+fast-math. The actual reference does not fault-inject arbitrary setup/activation
+backend failures; those fail-closed branches remain source-reviewed. The nested VST3 module
 also passes its own contracts and SDK validator. Boundary tests verify profile
 selection, packaging ownership, preserved Gain options and failure propagation.
 This establishes no REAPER/AUv2 discovery or session recall, auval, sandbox,
 physical-device, other-architecture/platform, UI/accessibility or production
-support. See [decision 0174](decisions/0174-auv2-native-performance-instrument.md).
+support. See [decision 0174](decisions/0174-auv2-native-performance-instrument.md) and
+[decision 0203](decisions/0203-auv2-performance-audio-precision.md).

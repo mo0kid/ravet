@@ -203,10 +203,16 @@ impl<
         }
         catch_unwind(|| {
             NativeTelemetryCache::new(P::telemetry_descriptors()).ok()?;
-            Some(&Self::ENTRY)
+            Some(Self::canonical_entry())
         })
         .ok()
         .flatten()
+    }
+    // Keep one address-bearing body per concrete companion, across exports and
+    // cross-codegen companion chains. Runtime metadata validation remains above.
+    #[inline(never)]
+    fn canonical_entry() -> &'static NativeTelemetryEntryV1 {
+        &Self::ENTRY
     }
     extern "C" fn processor_entry() -> *const NativeProcessorEntryV1 {
         NativeProcessor::<P, S>::entry()

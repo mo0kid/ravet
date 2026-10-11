@@ -1228,6 +1228,10 @@ macro_rules! node_processor {
             fn reset(&mut self) {
                 self.inner.reset();
             }
+            /// Forwards the inner checked reset; never masks a refusal.
+            fn try_reset(&mut self) -> Result<(), ProcessError> {
+                self.inner.try_reset()
+            }
             fn deactivate(&mut self) {
                 self.inner.deactivate();
             }

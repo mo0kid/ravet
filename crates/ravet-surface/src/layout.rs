@@ -1,4 +1,4 @@
-//! Deterministic bounded single-axis UI layout without a native window dependency.
+//! Deterministic bounded axis and explicit-grid UI layout without a native window dependency.
 
 /// A finite rectangle with nonnegative extent and finite right/bottom edges.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -203,5 +203,99 @@ pub fn layout_axis(
         position += size + gap;
     }
     output.copy_from_slice(&result[..items.len()]);
+    Ok(())
+}
+
+/// Explicit placement into a bounded grid's zero-based row and column tracks.
+/// Spans are nonzero and must fit entirely inside their corresponding tracks.
+/// Areas may overlap; their output order is the caller's order, not paint order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GridArea {
+    pub row: usize,
+    pub column: usize,
+    pub row_span: usize,
+    pub column_span: usize,
+}
+
+/// Lay out explicit areas using independently constrained rows and columns.
+///
+/// Each axis has 1..=32 tracks; at most 256 areas are accepted, and `output`
+/// must have exactly that length. Track growth, shrink, caps and trailing unused
+/// space follow [`layout_axis`]. Gaps are finite and nonnegative. A spanning area
+/// includes all covered tracks and their internal gaps. Overlap is intentional
+/// and permitted. Empty area lists still validate and resolve both track axes.
+///
+/// There is no automatic placement, intrinsic measurement, wrapping, rounding,
+/// clipping or pixel scaling. All failures preserve the entire destination.
+/// Fixed stack scratch is used without allocation, I/O or window access; this
+/// geometry contract does not certify any real-time deadline.
+#[allow(clippy::too_many_arguments)] // Explicit independent axes and caller-owned output.
+pub fn layout_grid(
+    bounds: Rect,
+    columns: &[LayoutItem],
+    rows: &[LayoutItem],
+    column_gap: f64,
+    row_gap: f64,
+    areas: &[GridArea],
+    output: &mut [Rect],
+) -> Result<(), LayoutError> {
+    if columns.len() > 32 || rows.len() > 32 || areas.len() > 256 || output.len() != areas.len() {
+        return Err(LayoutError::Capacity);
+    }
+    if columns.is_empty() || rows.is_empty() {
+        return Err(LayoutError::InvalidInput);
+    }
+    for area in areas {
+        if area.row_span == 0
+            || area.column_span == 0
+            || area
+                .row
+                .checked_add(area.row_span)
+                .is_none_or(|end| end > rows.len())
+            || area
+                .column
+                .checked_add(area.column_span)
+                .is_none_or(|end| end > columns.len())
+        {
+            return Err(LayoutError::InvalidInput);
+        }
+    }
+    let mut column_bounds = [bounds; 32];
+    let mut row_bounds = [bounds; 32];
+    layout_axis(
+        bounds,
+        Axis::Horizontal,
+        column_gap,
+        columns,
+        &mut column_bounds[..columns.len()],
+    )?;
+    layout_axis(
+        bounds,
+        Axis::Vertical,
+        row_gap,
+        rows,
+        &mut row_bounds[..rows.len()],
+    )?;
+    let mut result = [bounds; 256];
+    for (index, area) in areas.iter().enumerate() {
+        let width = column_bounds[area.column..area.column + area.column_span]
+            .iter()
+            .map(|track| track.width)
+            .sum::<f64>()
+            + column_gap * (area.column_span - 1) as f64;
+        let height = row_bounds[area.row..area.row + area.row_span]
+            .iter()
+            .map(|track| track.height)
+            .sum::<f64>()
+            + row_gap * (area.row_span - 1) as f64;
+        result[index] = Rect::new(
+            column_bounds[area.column].x,
+            row_bounds[area.row].y,
+            width,
+            height,
+        )
+        .ok_or(LayoutError::Arithmetic)?;
+    }
+    output.copy_from_slice(&result[..areas.len()]);
     Ok(())
 }

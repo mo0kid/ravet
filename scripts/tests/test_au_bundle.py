@@ -64,7 +64,7 @@ class AuBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             context, vst3, nested = self.fixture(temporary)
             reference = self.build(context, vst3, nested)
-            self.assertEqual(reference.validators, ("ravet_au_performance_contracts", "ravet_au_native_parameters_contracts", "ravet_au_native_audio_contracts", "ravet_au_native_transport_contracts", "ravet_au_native_transport_fast_contracts", "ravet_au_native_midi_output_contracts", "ravet_au_native_midi_output_fast_contracts", "ravet_au_synthetic_midi_output_contracts", "ravet_au_native_audio64_contracts", "ravet_au_native_audio64_fast_contracts", "ravet_au_synthetic_audio64_contracts"))
+            self.assertEqual(reference.validators, ("ravet_au_performance_contracts", "ravet_au_native_parameters_contracts", "ravet_au_native_audio_contracts", "ravet_au_native_transport_contracts", "ravet_au_native_transport_fast_contracts", "ravet_au_native_midi_output_contracts", "ravet_au_native_midi_output_fast_contracts", "ravet_au_synthetic_midi_output_contracts", "ravet_au_native_audio64_contracts", "ravet_au_native_audio64_fast_contracts", "ravet_au_synthetic_audio64_contracts", "ravet_au_performance64_contracts", "ravet_au_performance_precision_contracts", "ravet_au_native_precision_schema_contracts", "ravet_au_native_precision_schema_fast_contracts"))
             artifact = bundle.package_reference(reference)
             bundle.validate_reference(reference)
             self.assertEqual(artifact, context.root / "target/au-performance/release/AU/ravet_performance_au.component")

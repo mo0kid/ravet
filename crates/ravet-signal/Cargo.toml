@@ -7,6 +7,8 @@ publish.workspace = true
 description = "Audio processing building blocks for RAVET"
 
 [dev-dependencies]
+ravet-foundation = { path = "../ravet-foundation" }
+ravet-graph = { path = "../ravet-graph" }
 allocation-counter = "=0.8.1"
 
 [lints]

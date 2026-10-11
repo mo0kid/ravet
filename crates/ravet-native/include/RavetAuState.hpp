@@ -8,17 +8,19 @@ namespace ravet::au {
 // CONTROL-only, serialized, isolated complete-state validator. Never borrow the
 // live processor: native publication decoding changes only this owned validator.
 // Exact originating parameter/state tables and loaded library must outlive it.
+// expectedBits defaults32; explicit32/64 requires matching table provenance.
+// This codec validator does not select or prove a wrapped SDK audio precision.
 // Creation/destruction/publication may allocate according to native CONTROL
 // contracts. This object is not a publication consumed by audio callbacks.
 // SDK restore/notifications/host bypass policy remain explicit consumer concerns;
 // preflight cannot roll back later backend failures. Foreign CF objects are live.
 class NativeAuState final {
 public:
-    NativeAuState(const RavetNativeStateEntryV1 *state, const RavetNativeParameterEntryV1 *parameters) : state_(state) {
-        if (!state || !parameters || state->version != 1 || state->byte_size != sizeof(*state) || state->sample_bits != 32 ||
+    NativeAuState(const RavetNativeStateEntryV1 *state, const RavetNativeParameterEntryV1 *parameters, uint32_t expectedBits = 32) : state_(state) {
+        if ((expectedBits != 32 && expectedBits != 64) || !state || !parameters || state->version != 1 || state->byte_size != sizeof(*state) || state->sample_bits != expectedBits ||
             !state->parameter_count || state->parameter_count > 1024 || !state->parameters_entry || !state->create ||
             !state->destroy || !state->publish || state->parameters_entry() != parameters ||
-            parameters->version != 1 || parameters->byte_size != sizeof(*parameters) || parameters->sample_bits != 32 ||
+            parameters->version != 1 || parameters->byte_size != sizeof(*parameters) || parameters->sample_bits != expectedBits ||
             parameters->parameter_count != state->parameter_count || !parameters->state_bytes || parameters->state_bytes > 8208) return;
         publication_ = state->create(nullptr, 0);
     }

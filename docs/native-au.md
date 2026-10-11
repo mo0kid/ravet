@@ -39,8 +39,11 @@ physical mapping and renormalization to canonicalize native log/step/ties-up
 intent. It preserves output on failure and does not allocate, call consumer
 providers, borrow DSP or mutate SDK storage/queues. Consumer active-frame timing,
 shared event capacity, notifications and final setter mutation remain explicit.
-These helpers currently require 32-bit native companions. AU parameter f32 values
-do not acquire double precision from separate framework f64 DSP support.
+The optional constructor `expectedBits` defaults to 32 and accepts only 32 or 64.
+An explicit 64 requires exact matching cache/parameter/state precision and origin;
+passing a 64-bit companion to the default constructor still rejects. This selects
+helper provenance, not consumer audio setup. AU parameter f32 values do not acquire
+double precision from f64 DSP support.
 
 CONTROL-only `format` uses canonical physical f32 text with shortest round-trip
 numeric formatting; bypass uses On/Off. `parse` accepts complete <=128 ASCII code
@@ -364,8 +367,30 @@ Level state recall. Its complete Level remains f32, voices/history are excluded,
 and it adds no normalized AU parameter UI or cross-precision migration. These
 fixtures do not register main/aux host routing or create a distributed f64 factory.
 
-The public Steinberg-based Performance AU still prepares `kSample32` and uses
-`channelBuffers32`; it remains f32. Migrating that wrapper requires explicit
-precision-aware setup/render/state changes. No DAW/device, production host,
+The public Steinberg-based Performance AU now accepts stopped f32/f64 output
+negotiation with f32 defaults. Its owned adapter checks selected sample-size
+support, complete-format provenance, typed HostProcessData preparation,
+setup/activation/processing returns and matching render/silence pointers. An outer
+main-thread guard handles stock initialization's virtual reentry. The stock SDK
+still performs an intermediate sample32 setup; the owned selected setup must
+complete before rendering is ready. Serialized offline mode changes retain the
+selected precision and native Level publication while resetting voice history;
+already accepted queued notes and timed Level intent survive successful transitions
+and are delivered by the next render. Actual mode-transition tests verify this
+with exact new-voice output and coherent timed Level publication.
+Reset retains precision and stock SDK selector behavior; cleanup retires both
+mapped profiles. Failed selected
+setup marks rendering unready and clears pending queues/maps; recovery requires
+uninitialize/initialize rather than assuming arbitrary SDK rollback.
+
+Its normalized Level schema/text/state remain f32 with explicit matching native
+companions; the same complete Level codec supports stopped 32↔64 recall. Actual
+bundled-component tests exercise both precisions with exact phase/decay and
+accepted-note retention after caller faults, worker/main initialization,
+offline/reset and cross-precision recall. Actual native schema/control/isolated
+codec tests also pass under optimized fast-math; they do not prove fast-math
+support for the entire stock wrapper. Arbitrary backend setup/activation failures
+are not fault-injected in that public reference. No DAW/device, production host,
 architecture beyond local macOS arm64, all-backend heap or deadline support follows
-from these offline tests. See [ADR 0199](decisions/0199-auv2-native-f64-formats.md).
+from these offline tests. See [ADR 0199](decisions/0199-auv2-native-f64-formats.md)
+and [ADR 0203](decisions/0203-auv2-performance-audio-precision.md).

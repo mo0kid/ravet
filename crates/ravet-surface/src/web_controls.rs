@@ -1,6 +1,6 @@
 //! Local DOM controls for consumer-owned WebKit/WebView-style documents.
 
-/// Reusable slider/number, rotary knob, piano keyboard, toggle, choice, action-button, meter, roving-focus, bounded textarea, popup-menu, tabbed-panel and native modal-dialog JavaScript.
+/// Reusable slider/number, rotary knob, piano keyboard, toggle, choice, action-button, meter, roving-focus, bounded textarea, popup-menu, tabbed-panel, native modal-dialog, split-pane, fixed-list, hierarchical-tree, readonly table-grid and fixed-model virtual-list JavaScript.
 /// Native inputs and knob ARIA slider roles supply keyboard/focus semantics;
 /// consumers provide meaningful labels and knob theme CSS.
 /// Consumers own markup, layout, theme, transport and actual platform validation.
@@ -31,6 +31,31 @@
 /// scalar completion values of at most 128 UTF-16 code units. Queued trusted close
 /// retains lifecycle ownership; disposed nodes retain a tombstone until native drain,
 /// while different nodes become usable after synchronous closure/callback unwinding.
+/// Split panes own three-track physical grid layout with measured pixel minima,
+/// TooSmall input suspension, original-document pointer/keyboard lifecycle and exact
+/// owned style/attribute restoration. Unsupported transforms and anonymous/generated
+/// grid items cannot silently displace the fixed profile.
+/// Fixed listboxes separate one root Tab stop/virtual active focus from bounded
+/// single/multiple selection and Shift ranges. Eligibility changes retain selected
+/// unavailable IDs; explicit replacements remove them without newly selecting others.
+/// Both components guard consumer reentry/retirement and bound caller-visible snapshots.
+/// Fixed trees bound entries to 256, depth to 32 and descendant profile scans to
+/// 8192 elements, with one virtual root focus and separate branch expansion/selection.
+/// Collapsed descendants retain selected model state; active fallback stays quiet.
+/// Direct native toggles require successful original-document root focus before
+/// user expansion, and synchronous custom-element disposal stops later owned writes.
+/// Readonly native table grids separate active cell navigation from selected rows,
+/// with up to 256 rows, 32 columns, 4096 body cells and 16384 scanned descendants.
+/// Fixed explicit column-header associations participate in cell eligibility;
+/// unavailable row selections survive refresh, and quiet fallback is deterministic.
+/// Directional boundaries do not install or extend a selection range.
+/// Fixed virtual text lists copy 1..65536 items, with model extent at most 1000000px,
+/// 12..256px fixed rows, 0..32 overscan, at most 512 mounted/free rows and 256 selected
+/// indices. Original active/pressed identities pin exact rows through native clicks;
+/// consumed Capacity clicks retain their pin, while accepted keyboard/programmatic
+/// intent cancels an abandoned press even at a no-movement navigation boundary.
+/// Selection arrays are dense. Local list/tree/table/virtual-list retirement cleans
+/// original nodes/documents without removing listeners on a replacement WindowProxy.
 /// These DOM contracts are not assistive-technology or visual-focus certification.
 /// Controls do not transmit data by themselves. Their explicit transport receives
 /// physical parameter edits/gestures or action messages. Host adapters remain

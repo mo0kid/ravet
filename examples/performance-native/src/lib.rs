@@ -118,3 +118,6 @@ pub use exports::{
     ravet_performance_audio_state_v1, ravet_performance_cached_parameters_v1,
     ravet_performance_parameters_v1, ravet_performance_processor_v1,
 };
+
+/// Distinct all-short-MIDI synthesis reference, separate from identified Performance.
+pub mod midi;

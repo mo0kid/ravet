@@ -4,8 +4,10 @@ The explicit `ravet-device` crate adapts CPAL f32 output, input capture and
 bounded duplex effect streams to portable processors. It is outside `ravet`'s
 dependency graph. Explicit MIDI connections/handoff are provided separately by
 `ravet-midi-device`; file worker adapters and prepared event/graph handoff have
-their own guides and bounds. Recovery is caller-scheduled. Automatic hotplug,
-integrated standalone transport and physical recording validation remain pending.
+their own guides and bounds. Recovery is caller-scheduled. Explicit complete-file
+output-rate preparation and memory transport are available through FilePlaybackOutput
+below. Automatic hotplug, device-clocked transport scheduling and physical recording
+validation remain separate work.
 
 ## Control thread
 
@@ -107,8 +109,8 @@ resampling or compensation. Even on one interface, this FIFO path does not claim
 sample-exact capture/output alignment or round-trip latency. Reopen to clear FIFO
 or recover errors. Use the separate prepared worker/ring recording controllers
 for WAV, AIFF, FLAC, Vorbis or MP3 described in [audio files](audio-files.md). Physical
-recording and shutdown timing still require device validation; integrated transport
-and record scheduling remain pending.
+recording and shutdown timing still require device validation; device-clocked transport
+and record scheduling remain separate work.
 
 ```sh
 CARGO_BUILD_JOBS=2 cargo run -p ravet-device-probe --locked -- --list-input
@@ -556,3 +558,247 @@ CARGO_BUILD_JOBS=2 cargo run --release -p ravet-device-probe --bin graph-live --
 
 It opens no device/GUI/DAW and establishes no physical timing/deadline/recovery
 claim. See [decision 0126](decisions/0126-buffered-live-graph-workers.md).
+
+## Prepared file output
+
+Enable `ravet-device/resampled-playback` explicitly for `FilePlaybackOutput`, an
+output-only processor owning the complete output-rate clip prepared by
+`ravet-audio-file::prepare_file_playback`. Configure its exclusive memory transport
+before moving it into `PreparedOutput`/`open_output`. Preparation rejects mismatched
+rate/channel/event/auxiliary/render configurations before callbacks and allocates
+bounded scratch; valid processing only renders memory and copies planar output.
+Reset pauses at zero/configured loop start; deactivate retires processing while
+preserving clip/cursor. No cross-thread transport mailbox is added. Stop callbacks
+before recovering/dropping clip storage. Retained causal filter delay/tail, complete
+file budgets and failure-owned reader semantics are documented in
+[audio files](audio-files.md#prepared-file-playback-at-a-selected-output-rate).
+Actual `PreparedOutput` tests establish variable-buffer/sample/heap/lifecycle
+behavior; physical output, deadlines, live buffered conversion, drift and device
+clocked transport still require their separate implementation/validation.
+
+### Prepared buffered file output
+
+The default-disabled `resampled-playback` feature also exposes
+`BufferedPlaybackOutput`. It owns `BufferedPlayback` from a native or explicitly
+converted `ReadAheadWorker` and implements the existing actual `PreparedOutput` /
+`open_output` processor path with preallocated planar bridging. Prepare rejects
+sample-rate, channel and render-capacity mismatches before rendering. Callback
+processing renders the prepared unique consumer, updates atomic monitor counters
+and copies samples; it performs no file read, conversion, allocation or wait.
+
+Configure play/pause through the exclusively owned endpoint before handing the
+processor to an output owner. Reset pauses while retaining queue/cursor; deactivate
+and prepare retain transport. A directly owned stopped processor can reclaim its
+playback endpoint and perform matching stopped worker seeks. `open_output` keeps
+its processor in a native closure; this API does not reclaim that inaccessible
+endpoint or promise live physical seek/recovery. `BufferedPlaybackOutputMonitor`
+returns relaxed snapshots that may span adjacent callbacks; counters wrap and
+count converted output frames. Worker status distinguishes Failed/Stopped from
+verified EOF; ended requires EOF and complete queue drain. Source-worker failures
+retain previously queued audio for one exact drain and preserve their original error in worker shutdown.
+
+Prepared adapter evidence covers exact conversion/tail, arbitrary callback sizes,
+allocation-free callback execution, paused consumption, failed-worker prefix,
+configuration and exclusive reset/deactivate/reprepare/seek/reclaim. It does not
+establish physical-device support, clock mapping/drift control, device scheduling,
+a cross-thread command mailbox or a callback deadline.
+
+### Explicit stopped native output recovery
+
+`PreparedOutput::new_owned` returns the original processor on ordinary preparation
+failure. It preflights configuration and fallibly allocates scratch before calling
+`Processor::prepare`; a failing processor must satisfy the trait's inactive
+contract. The existing `new` keeps its consuming failure signature.
+`into_processor` consumes a directly owned stopped renderer on control, deactivates
+once and returns its processor for explicit preparation/reopening. It performs no
+hidden source seek, reset or read-ahead shutdown.
+
+`open_reclaimable_output` adds a native f32 output owner with a dedicated control
+retirement worker. `ReclaimableOutput::stop` drops the native stream on control and
+returns `OutputRetirement`. Poll `try_reclaim` without waiting or explicitly block
+with `wait` on control. The pending proof has no deadline or cancellation guarantee:
+CPAL may destroy callback captures asynchronously. Ordinary stream/receiver Drop
+also leaves the worker retaining framework captures until retirement is safe.
+
+`ReclaimedOutput` distinguishes normal stopped ownership from a caught retirement
+worker fault that still returns the original owner. Processing panics permanently
+silence the data callback; recovered ownership does not restore correct DSP history.
+Original opening errors are returned with either `FailedOutputOwner::Immediate`
+(preflight/preparation/spawn) or `Pending` (backend ownership may remain). No error
+is replaced by a successful owner or file EOF claim. A foreign deactivation panic
+after callback retirement can lose owner recovery and reports an exceptional worker
+error. Calls and joins belong to control; no automatic retry or recovery occurs.
+
+The framework's data/error closure captures only unique guards and primitive
+state. Each guard Drop publishes its retirement flag and releases a non-last Arc.
+The worker extracts renderer/scratch/counters only after both Acquire flags and
+sole strong ownership prove that callback borrows and Arc fields are gone. An early
+receiver drop or a caught polling panic cannot move final framework destruction
+onto a callback. This narrowly audited shared-cell access is an explicit unsafe
+boundary; native CPAL/OS closure allocation, locking and destruction are separate
+backend limits. Panic handlers/runtime costs are exceptional.
+
+A recovered `BufferedPlaybackOutput` retains its original unique consumer. Stop
+its native callbacks first, obtain the processor, then use the matching worker's
+`seek_stopped` and explicitly prepare/reopen the recovered owner. Failed candidate
+seeks preserve the prior cursor and queue. This ownership integration does not
+provide a live seek mailbox, clock/drift correction, arbitrary endpoint reclamation,
+physical-device support or a teardown/callback deadline.
+
+The reusable silent probe opens the exact default f32 profile without channel or
+sample-format fallback:
+
+```sh
+cargo run -p ravet-device-probe --bin reclaimable-output --locked
+cargo run -p ravet-device-probe --bin reclaimable-output --features resampled-playback --locked -- --converted
+```
+
+The default mode checks two native silent stop/recover/reopen cycles. The explicit
+converted mode uses a 257-frame zero-valued Float32 WAV at 44.1kHz in every device
+channel, bounded Sinc16 conversion and an independent retained-output integer
+count. It drains through the actual native callback, reclaims the unique file
+consumer, checks a failed stopped seek, seeks to output frame17 and explicitly
+reopens/drains again. It checks exact consumed output coordinates/EOF and original
+worker errors. It rejects unsupported default layouts/rates/formats. Underflow is
+reported without advancing the source cursor and is not a scheduling guarantee.
+Five-second control observation windows are local probe limits; they do not
+establish callback or teardown deadlines. These zero-PCM receipts establish
+environment-specific ownership/conversion composition, not audible quality,
+clock alignment/drift or broad physical-device support.
+
+## Output-clock buffered file and captured-input processing
+
+With `resampled-playback`, `BufferedFileDuplexProcessor<P>` owns a unique
+`BufferedPlayback` and a downstream f32 `Processor`. It accepts captured input
+that `PreparedClockedDuplex` has already converted into the output clock. Child
+inputs are ordered file channels first, captured channels second; the child owns
+its mixing/routing. Every file queue and child rate equals the output rate. Outer
+input/output counts are 1..64 and file+capture inputs must fit 64, with zero events,
+output events and auxiliary buses. Preparation reserves all scratch before child
+preparation, caps its arrays at 32 MiB and respects the file render bound. Existing
+file, converter, FIFO and allocator storage is additional. No default or dependency
+changes.
+
+The ordinary composition is `PreparedClockedDuplex::new(
+BufferedFileDuplexProcessor::new(file, dsp), raw_capture_consumer, input_rate,
+output_rate, output_channels, options)`. Existing `ClockedDuplexOptions`, sinc/FIFO
+feedback, capture priming/underflow/reset and explicit recovery policies remain.
+A file read-ahead queue has no independent clock; its disk/worker availability
+never drives a drift estimator. File and capture starts are not sample-synchronized;
+capture priming can supply zero input while file playback already advances.
+
+Each valid nonzero block renders file PCM once and makes at most two downstream
+calls: its consumed file prefix, then zero-file PCM while paused, underrunning or
+finished. Live capture and DSP continue in both segments. Child transport carries
+file queue output-frame positions and `playing=true` only for the consumed prefix,
+with `playing=false` and a stationary file position on the suffix. Positions above
+i64::MAX become unavailable in `Transport`; typed u64 counters remain. No original
+decoder, beat/tempo or hardware timestamp is inferred. A fresh preparation and
+observed stopped position jump mark the next child call discontinuous; zero blocks
+preserve that indication.
+
+`statistics` and the relaxed `monitor` distinguish file consumption/position,
+file underruns/worker state/verified drained EOF, logical device-render frames and
+child calls/faults. Device frames include valid fault-silenced/poisoned callbacks;
+malformed outer blocks reject before source consumption or child execution. Monitor
+fields can span adjacent callbacks and counters wrap. File EOF is not downstream
+DSP-tail or audible completion. Child latency/tail exclude worker, converter and
+FIFO buffering. A failed source drains its queued prefix, leaves `ended=false` and
+allows capture/DSP to continue; its original error belongs to worker shutdown.
+
+A downstream fault silences the complete outer block, retains its original error
+in `first_error` and returns outer `BackendFailure` because file consumption or an
+earlier child's history may already have advanced. Poisoned retries consume no
+more file PCM and make no child call until reset or successful preparation. Reset
+pauses file playback without rewinding cursor/queue, resets the child and clears
+poison. Preparation alone does not reset or consume file PCM. The directly owned
+stopped wrapper's `into_parts` deactivates its prepared child once and returns
+original playback/DSP owners; it performs no drain, seek or worker join. Optional
+audio-owner hooks forward the existing caller-managed session contract. Foreign
+lifecycle panics remain exceptional and do not imply a successful ownership receipt.
+
+A native clocked stream still hides its consumer. This adapter does not create a
+live seek mailbox, reclaim that native closure or migrate old file/DSP state.
+Control recovery factories must explicitly create fresh worker/queue/DSP histories
+and select restored file state; ordinary child faults require caller reset/reopen
+rather than automatic recovery. Physical callback teardown, timestamp origins,
+independent-clock alignment, long-session drift, latency and deadline evidence
+remain separate. Scoped acceptance uses actual PCM/indexed workers and the actual
+prepared clocked duplex consumer with simulated ±500 ppm capture schedules, not
+a new physical-device validation claim.
+
+## Reclaimable paired clocked streams and original-owner recovery
+
+`open_reclaimable_clocked_duplex` adds an explicit f32 input/output pair with a
+control retirement worker. Its nominal rates, corrected sinc/FIFO profile,
+channel/ring/frame bounds and initial capture priming are the existing clocked
+profile. No device/rate/format fallback or default changes. Opening retains the
+original processor on ordinary preflight/preparation/spawn errors. A native build
+failure may have handed callback owners to the backend and returns pending
+ownership with the original error. `PreparedDuplex::new_owned` and
+`PreparedClockedDuplex::new_owned` likewise retain the original processor/raw
+capture consumer on normal failure; their legacy `new` signatures are preserved.
+Fallible scratch reserves precede child preparation; failed child prepare must
+leave it inactive. Foreign lifecycle panics remain exceptional.
+
+A unique input data guard borrows the prepared capture field and a unique output
+data guard borrows the disjoint prepared clocked renderer field. Two error guards
+access atomic telemetry. All captures retain a preallocated shared cell; the
+control worker retains its permanent owner. Guard Drop only publishes its Release
+flag and drops a non-last reference. Reclamation requires all **four** callback
+retirement flags acquired and stable sole strong ownership, including actual guard
+field destruction. It does not infer retirement from pause, stream Drop returning,
+flags alone or a retirement receiver being dropped early. No producer, consumer,
+DSP, scratch or counter storage is disposed by a framework callback capture.
+Native CPAL/OS callback/destructor internals retain their separate limits.
+
+`stop` drops both native streams on control and returns `ClockedDuplexRetirement`.
+`try_reclaim` never waits; `wait` is explicitly blocking control work without a
+shutdown deadline. Dropping the receiver detaches the worker, which retains both
+prepared owners until proof and disposes the result there if nobody receives it.
+Normal completion and caught worker-poll fault are distinct outcomes, each with
+exclusive stopped ownership and input/output/clock/panic statistics. Processing
+panic permanently disables that data guard and makes histories exceptional; no
+valid-history or audible-delivery guarantee follows.
+
+The stopped wrapper exposes no rendering or mutable processor. `into_parts`
+deactivates the original prepared processor once and returns it together with the
+original matching raw consumer and prepared capture producer. Transient converted
+queue/scratch and prefetched capture are disposed on control; actual remaining
+queued raw frames retain their position. No hidden reset, seek, worker join, source
+rollback or migration occurs. The recovered W215 wrapper can be consumed into its
+original buffered file and child processor, then used for stopped failed/successful
+indexed seeks and explicit fresh preparation. Original file counts/generation
+remain authoritative. A live seek mailbox remains a separate capability.
+
+`RecoveringReclaimableClockedDuplex` is an explicit caller-serviced selected-ID
+coordinator over `Owned`, `Live`, `Retiring` and `Disabled` ownership states. Fault,
+removal, `request_reopen` or disable stops both streams. Pending and disabled
+service only polls retirement and never opens or invokes restoration. Known live
+backend/capture/output panic faults retire before ID enumeration; repeated enumeration
+errors cannot keep a known faulted pair live. A healthy pair retains its owners and
+returns the original enumeration error without treating failure as device absence. After proof,
+the original processor and stopped receipt are retained; the next available
+service invokes the caller restoration hook before fresh preparation. A normal
+hook error keeps the same, possibly advanced/mutated processor and receipt for
+explicit retry. A successful hook consumes that receipt once; later ordinary open
+failure retains immediate or pending ownership without rerunning successful
+restoration. Start failure returns its original error and enters retirement.
+Successful started opens advance generation; failed attempts do not. Disable may
+still poll old retirement into a retained owner, and re-enable resumes the explicit
+sequence. `into_owner` returns the original processor or pending proof, never
+extracting from live callbacks. Exceptional failed retirement is `Lost`, with no
+false ownership receipt.
+
+Restoration belongs to the caller: reset/rebuild file/DSP histories, select a
+stopped seek and decide how to handle worker-poll or processing panic evidence.
+Device recovery watches backend/panic telemetry, while ordinary child DSP faults
+keep their existing explicit reset/reopen policy. No background polling timer,
+hotplug subscription, automatic fallback/state migration, synchronized stream
+starts, timestamp alignment, latency, long-session drift or native deadline claim.
+Focused acceptance includes guarded callback composition, synthetic asynchronous
+backend/recovery behavior and two short silent paired CoreAudio cycles on one USB
+interface. These runs establish original-owner retirement and reopening only.
+Use `cargo run -p ravet-device-probe --bin reclaimable-clocked-duplex -- --list`
+for read-only inventory. The explicit `--validate-silent INPUT_ID OUTPUT_ID` mode
+opens the selected pair for two short silent cycles; it has no format/rate fallback.

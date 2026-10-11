@@ -1,7 +1,8 @@
 //! Optional local-font single-run shaping on UI/worker threads.
 //! Font loading/shaping allocates and may run backend work beyond output limits;
 //! neither belongs in an audio callback. No font discovery/network access,
-//! fallback or native UI is added by shaping. The separate `raster` feature can
+//! implicit fallback or native UI is added by single-font shaping. The explicit
+//! [`crate::fallback`] module selects from caller-supplied local fonts. The separate `raster` feature can
 //! explicitly render prepared local-font outlines. Independent runs do not wrap;
 //! [`crate::paragraph`] supplies explicit bounded wrapping. Single-line bidi
 //! ordering is available separately in [`crate::bidi`].
@@ -88,12 +89,64 @@ impl ShapedText {
         self.glyphs.iter().filter(|glyph| glyph.id == 0).count()
     }
 }
-/// Owned local font at its default variation instance. Parsing/caching may allocate.
+
+/// Maximum explicit OpenType variation axes/settings per immutable instance.
+pub const MAXIMUM_TEXT_VARIATIONS: usize = 32;
+/// Explicit user-space coordinate. Unknown/duplicate/out-of-range tags reject.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextVariation {
+    pub tag: [u8; 4],
+    pub value: f32,
+}
+/// Exact fvar 16.16 bounds represented in f64; hidden is a UI recommendation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextVariationAxis {
+    pub tag: [u8; 4],
+    pub minimum: f64,
+    pub default: f64,
+    pub maximum: f64,
+    pub hidden: bool,
+}
+/// Requested f32 user coordinate and actual backend normalized 2.14 coordinate.
+/// Backend user-space 16.16 rounding/avar mapping may change the latter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextVariationCoordinate {
+    pub tag: [u8; 4],
+    pub user: f32,
+    pub normalized: f32,
+}
+fn valid_variation_tag(tag: [u8; 4]) -> bool {
+    let mut trailing_space = false;
+    tag[0] != b' '
+        && tag.iter().all(|byte| {
+            if *byte == b' ' {
+                trailing_space = true;
+                true
+            } else {
+                !trailing_space && (0x21..=0x7e).contains(byte)
+            }
+        })
+}
+
+/// Selected scalable source table; metadata admission does not validate every glyph.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextOutlineFormat {
+    /// Existing TrueType glyf outlines.
+    TrueType,
+    /// OpenType CFF1 Type2 outlines; rendering requires postscript-outlines.
+    Cff,
+    /// OpenType CFF2 outlines at actual selected normalized coordinates.
+    Cff2,
+}
+mod postscript;
+
+/// Owned local font at an explicit immutable variation instance; from_bytes selects defaults. Parsing/caching may allocate.
 /// Backend-supported formats/faces only; parsing is not full corruption validation.
 /// The consumer owns font licensing, fallback selection and rendered font identity.
 #[derive(Clone)]
 pub struct TextFont {
     font: Font,
+    variations: Vec<TextVariation>,
 }
 impl TextFont {
     /// Copy at most 16 MiB of local font data and select its face index. No files,
@@ -109,12 +162,150 @@ impl TextFont {
         if font.units_per_em() == 0 || font.num_glyphs() == 0 {
             return Err(TextError::UnsupportedFont);
         }
-        Ok(Self { font })
+        Ok(Self {
+            font,
+            variations: Vec::new(),
+        })
     }
-    /// Extract one default-instance TrueType glyf outline as typed font-unit
-    /// paths, at most 4096 commands. Empty glyphs yield no commands. CFF/Type1/
-    /// color/bitmap rendering is unsupported; invalid IDs reject. Backend loads
+    /// Checked fvar axes, at most32. A non-variable font yields an empty list.
+    /// Only fvar1.0 with reserved2 and twenty-byte axes is admitted.
+    /// Malformed headers/duplicate tags/reserved flags reject; parsing is not whole-font validation.
+    pub fn variation_axes(&self) -> Result<Vec<TextVariationAxis>, TextError> {
+        use read_fonts::TableProvider;
+        let tables = self.font.tables();
+        let Some(data) = tables.fvar_data() else {
+            return Ok(Vec::new());
+        };
+        // The backend reads fixed twenty-byte records. Admit only the exact
+        // OpenType1.0 profile, rather than interpreting an extended stride.
+        if data.len() < 16
+            || data[0..4] != [0, 1, 0, 0]
+            || data[6..8] != [0, 2]
+            || data[10..12] != [0, 20]
+            || u16::from_be_bytes(data[4..6].try_into().unwrap()) < 16
+        {
+            return Err(TextError::UnsupportedFont);
+        }
+        let fvar = tables.fvar().map_err(|_| TextError::UnsupportedFont)?;
+        if fvar.axis_count() as usize > MAXIMUM_TEXT_VARIATIONS {
+            return Err(TextError::Capacity);
+        }
+        let raw = fvar.axes().map_err(|_| TextError::UnsupportedFont)?;
+        let mut axes = Vec::with_capacity(raw.len());
+        for axis in raw {
+            let tag = axis.axis_tag().to_be_bytes();
+            let minimum = axis.min_value().to_f64();
+            let default = axis.default_value().to_f64();
+            let maximum = axis.max_value().to_f64();
+            if !valid_variation_tag(tag)
+                || axes.iter().any(|a: &TextVariationAxis| a.tag == tag)
+                || minimum > default
+                || default > maximum
+                || axis.flags() & !1 != 0
+            {
+                return Err(TextError::UnsupportedFont);
+            }
+            axes.push(TextVariationAxis {
+                tag,
+                minimum,
+                default,
+                maximum,
+                hidden: axis.flags() & 1 != 0,
+            });
+        }
+        Ok(axes)
+    }
+    /// Create an immutable instance from the same owned source, resetting omitted
+    /// axes to defaults. At most32 settings; unsupported/duplicate tags and values
+    /// outside exact fvar bounds reject instead of backend clamping/ignoring.
+    /// User input is f32; read-fonts rounds to16.16, maps avar, then stores normalized
+    /// 2.14 values. Shape and glyf outlines consume these same actual coordinates.
+    pub fn with_variations(&self, settings: &[TextVariation]) -> Result<Self, TextError> {
+        if settings.len() > MAXIMUM_TEXT_VARIATIONS {
+            return Err(TextError::Capacity);
+        }
+        let axes = self.variation_axes()?;
+        for (index, setting) in settings.iter().enumerate() {
+            if !valid_variation_tag(setting.tag)
+                || !setting.value.is_finite()
+                || settings[..index].iter().any(|s| s.tag == setting.tag)
+            {
+                return Err(TextError::InvalidInput);
+            }
+            let axis = axes
+                .iter()
+                .find(|axis| axis.tag == setting.tag)
+                .ok_or(TextError::InvalidInput)?;
+            if (setting.value as f64) < axis.minimum || (setting.value as f64) > axis.maximum {
+                return Err(TextError::InvalidInput);
+            }
+        }
+        let font = self
+            .font
+            .instance_builder()
+            .variations(
+                settings
+                    .iter()
+                    .map(|s| read_fonts::model::Variation::new(Tag::new(&s.tag), s.value)),
+            )
+            .build();
+        Ok(Self {
+            font,
+            variations: settings.to_vec(),
+        })
+    }
+    /// Full axis order with supplied user coordinates/defaults and actual normalized
+    /// backend position. Defaults are converted to f32 for this informational field;
+    /// exact default/bounds remain available through variation_axes().
+    pub fn variation_coordinates(&self) -> Result<Vec<TextVariationCoordinate>, TextError> {
+        Ok(self
+            .variation_axes()?
+            .iter()
+            .enumerate()
+            .map(|(index, axis)| {
+                let user = self
+                    .variations
+                    .iter()
+                    .find(|s| s.tag == axis.tag)
+                    .map_or(axis.default as f32, |s| s.value);
+                let normalized = self
+                    .font
+                    .normalized_coords()
+                    .get(index)
+                    .map_or(0.0, |n| n.to_f32());
+                TextVariationCoordinate {
+                    tag: axis.tag,
+                    user,
+                    normalized,
+                }
+            })
+            .collect())
+    }
+    /// Inspect the selected scalable table profile, without drawing or font lookup.
+    /// CFF1/CFF2 require unambiguous tables, checked headers and metadata DICTs
+    /// (4096 bytes each, 256 font dictionaries, 48 effective stack operands; 64-character finite decimals). Unsupported
+    /// explicit matrices, duplicate/unknown operators and non-Type2 CFF1 reject.
+    /// Each DICT must decode identically with the source decoder and the backend
+    /// tokenizer. Real-number exponents above 1000 or with leading zeros, and a
+    /// CFF2 FDSelect over one font dictionary, are refused. RAVET's own checks
+    /// refuse malformed bytes with errors rather than panicking; complete panic
+    /// freedom also depends on the pinned read-fonts backend.
+    /// TrueType retains original precedence; complete glyph validation is separate.
+    pub fn outline_format(&self) -> Result<TextOutlineFormat, TextError> {
+        self.selected_outline_format()
+    }
+    /// Extract one selected-instance TrueType glyf outline as typed font-unit
+    /// paths, at most 4096 commands. Optional postscript-outlines also consumes
+    /// admitted CFF1/CFF2 at actual selected coordinates, unhinted in font units.
+    /// Empty glyphs yield no commands. Type1/color/bitmap rendering remains
+    /// unsupported; invalid IDs reject. PostScript outlines use the pinned
+    /// backend's signed integer font-unit flooring before normalized fixed-point
+    /// matrix multiplication, distinct from fractional native geometry/advances.
+    /// Tiny positive curves may remain explicit degenerate commands. Backend loads
     /// can allocate before output limits, so this belongs on UI/worker threads.
+    /// Each PostScript glyph call repeats the complete source-metadata admission of
+    /// [`outline_format`](Self::outline_format), up to 256 Font/Private DICTs, so
+    /// cache prepared drawings rather than re-extracting glyphs.
     pub fn outline_glyph(&self, id: u32) -> Result<Vec<crate::drawing::PathCommand>, TextError> {
         use read_fonts::{
             TableProvider,
@@ -124,6 +315,9 @@ impl TextFont {
             return Err(TextError::InvalidInput);
         }
         if self.font.tables().glyf().is_err() {
+            #[cfg(feature = "postscript-outlines")]
+            return self.outline_postscript(id);
+            #[cfg(not(feature = "postscript-outlines"))]
             return Err(TextError::UnsupportedFont);
         }
         let mut outline = Outline::<Unscaled>::new();
@@ -155,6 +349,24 @@ impl TextFont {
     /// ordinary spaces, combining marks and joiners remain permitted. The caller
     /// owns script/bidi segmentation/context and caches returned immutable runs.
     pub fn shape(&self, text: &str, options: TextOptions<'_>) -> Result<ShapedText, TextError> {
+        self.shape_contextual(text, 0..text.len(), options, false)
+    }
+    // Keep full logical source available for the backend's nearest five
+    // codepoint pre/post context. Returned clusters remain slice-relative.
+    pub(crate) fn shape_contextual(
+        &self,
+        text: &str,
+        range: std::ops::Range<usize>,
+        options: TextOptions<'_>,
+        remove_ignorables: bool,
+    ) -> Result<ShapedText, TextError> {
+        if range.start > range.end
+            || range.end > text.len()
+            || !text.is_char_boundary(range.start)
+            || !text.is_char_boundary(range.end)
+        {
+            return Err(TextError::InvalidInput);
+        }
         if text.len() > MAXIMUM_TEXT_BYTES || options.features.len() > 32 {
             return Err(TextError::Capacity);
         }
@@ -183,7 +395,9 @@ impl TextFont {
             .map(|tag| Script::from_iso15924_tag(Tag::new(&tag)).ok_or(TextError::InvalidInput))
             .transpose()?;
         let mut buffer = Buffer::new();
-        buffer.push_str(text);
+        buffer.push_str(&text[range.clone()]);
+        buffer.set_pre_context(&text[..range.start]);
+        buffer.set_post_context(&text[range.end..]);
         buffer.set_direction(match options.direction {
             TextDirection::LeftToRight => Direction::LeftToRight,
             TextDirection::RightToLeft => Direction::RightToLeft,
@@ -196,7 +410,17 @@ impl TextFont {
                     .map_err(|_| TextError::InvalidInput)?,
             ));
         }
-        buffer.set_flags(BufferFlags::BEGINNING_OF_TEXT | BufferFlags::END_OF_TEXT);
+        let mut flags = BufferFlags::empty();
+        if range.start == 0 {
+            flags |= BufferFlags::BEGINNING_OF_TEXT;
+        }
+        if range.end == text.len() {
+            flags |= BufferFlags::END_OF_TEXT;
+        }
+        if remove_ignorables {
+            flags |= BufferFlags::REMOVE_DEFAULT_IGNORABLES;
+        }
+        buffer.set_flags(flags);
         buffer.guess_segment_properties();
         let features: Vec<_> = options
             .features

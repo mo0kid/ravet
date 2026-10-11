@@ -134,8 +134,9 @@ read-ahead and differs from audible position. Failed reads remain retryable.
 
 `seek_stopped` requires the matching consumer exclusively borrowed after endpoint
 users stop. Ownership and frame bounds validate before mutation; success clears
-queued and pending old-generation samples. Live streamed seek/loops, transport clock/UI and automatic worker ownership
-remain pending. Prepared memory playback is available separately below.
+queued and pending old-generation samples. Live streamed seek/loops and transport
+clock/UI remain separate work. Automatic read-ahead ownership, prepared memory
+transport and explicit output-rate file preparation are documented separately below.
 
 `WaveRecorder` owns a consumer and prepared WAV writer. Worker `pump` drains at
 most scratch capacity; an empty queue does no I/O. Any recording error poisons
@@ -812,3 +813,272 @@ unvalidated. See [decision 0198](decisions/0198-worker-created-mp3-recording.md)
 cargo test -p ravet-audio-file --all-features --test mp3_recording --test vorbis_recording --locked
 cargo test -p ravet-device --features mp3-recording,vorbis-recording --test mp3_recording --test vorbis_recording --locked
 ```
+
+## Prepared file playback at a selected output rate
+
+Enable `ravet-audio-file/resampled-playback` explicitly to prepare a complete
+bounded file clip off the audio thread. `prepare_file_playback` accepts existing
+WAV and AIFF readers, optional `compressed` FLAC/MP3/Vorbis readers, or a
+`PlaybackReader` implementing the documented stable metadata/committed cursor
+contract. Preparation starts at source frame zero and consumes validated EOF.
+The resulting `PreparedFilePlayback` contains the existing `MemoryPlayback`
+transport at the caller's selected output rate, without a callback reader or
+converter.
+
+Select `PlaybackConversion::Copy` for an exact same-rate sample copy; differing
+rates reject before reads. Select `Sinc { taps }` for explicit causal filtering,
+including when input and output rates match. It uses `ravet-signal`'s existing
+1025-phase Blackman sinc profile with even 16..256 taps and fixed rate ratio
+1/16..16. It retains `(taps - 1) / 2` source-sample filter delay, including its
+half-sample fraction, and the finite filter tail. There is no hidden bypass,
+gain change, resampling of a differently labelled rate, delay compensation or
+additional compressed-codec trimming.
+
+For `N` validated source frames and `T` sinc taps, metadata reports nominal output
+duration `ceil(N * output_rate / source_rate)` and retained clip length
+`floor((N + T - 2) * output_rate / source_rate) + 1`, computed with exact integer
+arithmetic. Source frame counts preserve the reader's gapless decoder semantics.
+Padding submitted to the converter is a separate count, never source duration;
+at most `T` explicit zeros include one numerical boundary guard. Playback cursors,
+seeks and half-open loops use the complete output clip's frame coordinates,
+including its leading causal delay and tail. Loop/seek boundaries can click.
+
+All options and budgets are explicit: 1..64 channels, integer source/target rates
+1..768000 Hz, at most 16,777,216 source and output interleaved samples, 1..4096
+source read batches, and 1..65536 render frames. Output storage is at most 64MiB;
+converter coefficients/history/planar and source scratch are separately bounded
+to 32MiB before reads. The reader's own encoded-data/file/codec allocations retain
+its documented limits. Known source duration and required output capacity reject
+before any new source read. Unknown duration conservatively preflights/reserves
+for the caller's maximum source duration. No full second source PCM clip or second
+output copy is retained. Allocator/RSS recovery and callback deadlines are not
+promised.
+
+Failure returns `FilePlaybackFailure` owning the original reader/error, the
+incomplete interleaved output prefix and distinct committed reader, submitted
+source, padding and prepared-output counts. A source read error can advance its
+logical frame or underlying byte cursor before returning. A decoder EOF-integrity
+error can advance through a read whose output is discarded. There is no automatic
+seek rollback or retry, and the prefix is not a complete prepared clip. Inspect
+`into_parts` to decide whether to recover, reopen or discard the source.
+
+Enable `ravet-device/resampled-playback` to use `FilePlaybackOutput`. It owns the
+prepared clip and implements the existing output-only `Processor` path accepted by
+actual `PreparedOutput` and `open_output`. Prepare rejects mismatched sample rate,
+channel layout, events/auxiliary buses or render bounds before rendering, then
+allocates interleaved scratch. Valid callbacks only render the memory transport and
+copy to planar output; invalid/unprepared blocks silence output without advancing.
+Configure playback through its exclusive `playback_mut` before transferring the
+processor into output ownership. Reset pauses at frame zero/configured loop start;
+deactivation retires processing and preserves the clip/cursor. There is no new
+cross-thread command queue. Stop callbacks before dropping/recovering clip storage.
+
+This is complete-file preparation. Live buffered conversion/drift, clocked transport
+mapping, physical output, long-running callback deadlines and physical seek/recovery
+remain separate validation work.
+
+### Impulse-response files
+
+With `resampled-playback`, `prepare_impulse_response_file(&mut reader,
+ImpulseResponseFileOptions, &ImpulseResponseRequest)` reads a complete response through
+`PlaybackReader` (WAV, AIFF or optional compressed readers). It prepares the response with
+`ravet-signal`'s explicit `prepare_impulse_response` at the file's source rate. Before any
+read, it checks that the reader is at frame zero and that it has 1..=64 channels and a
+1..=768,000 Hz rate. It also checks source bounds (1..=4,194,304 frames, batch 1..=65,536)
+and the request plan. Planar f64 source plus scratch plus declared preparation bytes must
+fit the request's working budget. Decoded f32 samples are widened exactly. Reader errors,
+contract violations, nonfinite samples, declared-length mismatches and preparation
+refusals return `ImpulseResponseFileError` with the committed frames and no partial
+response. There is no reader rollback. This is worker-only work.
+
+### Bounded streaming playback at an explicit output rate
+
+With `resampled-playback`, `ConvertedReadAhead` converts original file frames into
+an explicitly selected queue/output rate without retaining a whole PCM clip. Supply
+a frame-zero `PlaybackReader`, a caller-selected factory that reproduces the same
+source/version from frame zero, and matching empty stopped ring endpoints.
+`ConvertedReadAheadOptions` selects equal-rate bit-exact `Copy`, floating `Sinc`,
+or exact-scheduled `IntegerSinc` filtering, source/output ceilings and
+source/conversion batch bounds. Preparation
+returns original reader/factory/producer ownership on failure and performs no
+source read or factory call; reader construction has its own I/O contract.
+
+The supported profile is 1..64 channels, rates 1..768,000Hz, ratio 1/16..16, even
+Sinc taps 16..256 and batches 1..4096. `Copy` and floating `Sinc` cap original
+duration at 16,777,216 source frames. Explicit `IntegerSinc` lifts only this stream
+source ceiling, subject to the checked finite duration/headroom constraints below.
+Compressed decoders' interleaved-sample limits remain separate. Explicit
+source/converter/output arrays are at most 32MiB; reader/backend and ring allocations
+are separately bounded. Unknown duration conservatively preflights the caller
+source maximum, then rejects actual over-limit reads. Replay candidates temporarily
+coexist with the old bounded state. These limits do not promise arbitrary-u64
+terminal transport, RF64 or unlimited container/decoder durations.
+
+Each worker pump performs at most one source read, one converter step per channel
+and one publication. Retained output suffixes survive partial queues. A full queue
+performs no fresh read or input consumption. A downsampling pump can consume source
+without generating an output frame; the bounded pure `ReadAheadPump::worker_progressed`
+hook observes that progress without changing native pumps' publication-based default.
+Use `ReadAheadWorker` and `BufferedPlayback` for automatic ownership, pause/resume,
+underrun position stalls and queue drain. Their cursors and generic progress use
+queue-source frames at the explicitly selected output rate.
+
+Typed converted progress distinguishes original input reads/submission, explicit
+zero padding, generated target-rate output and generation-specific publication.
+Sinc retains causal `(taps-1)/2` source-sample delay, including the half sample.
+Retained output count is `floor((N+taps-2)*output_rate/input_rate)+1`; nominal duration
+is distinct. Exact EOF requires decoder integrity, retained filter tail and suffix
+publication, followed by callback queue drain. No implicit trim, gain change,
+resampling choice or delay compensation occurs. The floating recurrence profile
+retains its accepted ceiling/impulse evidence; integer scheduling has separate
+long-stream evidence and finite coordinate limits below.
+
+Stopped seek uses absolute converted output frames. Matching endpoint ownership,
+generation increment and determinable bounds are checked before factory I/O. Replay
+an independent candidate from zero; only successful adoption clears the old queue.
+Failed factory/decode/metadata/EOF candidates preserve original reader position,
+phase, pending suffixes, queue and generation. The factory must reproduce the same
+content: matching metadata is not content authentication and external factory side
+effects cannot roll back. Replay is O(target) control work without cancellation or
+a deadline guarantee. First operational pump error belongs to its Result or worker
+exit; subsequent pumping is poisoned. `into_parts` recovers the advanced reader,
+factory, producer and exact counts without hidden read/seek/drain.
+
+## Integer-rate conversion for long streams
+
+`PlaybackConversion::IntegerSinc { taps }` explicitly selects the integer-rate
+schedule for complete-file preparation and `ConvertedReadAhead`. This adds an enum
+variant: downstream exhaustive matches must handle it. Existing `Copy` and `Sinc`
+retain their sample behavior and limits. At equal rates, IntegerSinc filters; it
+does not silently copy. Delay remains `(taps-1)/2` original input samples; retained
+finite output for a nonempty source is `floor((N+taps-2)*output_rate/input_rate)+1`. Explicit padding and
+initial zero history remain in the result; no hidden gapless trimming is added.
+
+Integer converted read-ahead accepts caller-selected original source bounds up to
+`usize::MAX`, with independently enforced reader/container/interleaved sample
+limits, source/converted batches 1..4096 and 32 MiB for source, converter and
+output arrays (including coefficient tables). Reader, queue and allocator overhead
+remain separate. Checked rational duration
+must fit the configured output budget and remain at most `u64::MAX-65536` frames,
+leaving the largest automatic callback render bound as terminal cursor headroom.
+This constraint checks computed retained duration; an oversized unused output
+budget does not by itself reject. This does not claim arbitrary-u64 terminal
+playback. Preparation rejects determinable duration/configuration limits before
+source reads or fresh-reader factory calls. Unknown readers remain subject to
+their caller bounds and verified EOF/integrity checks. Complete-file preparation
+keeps its existing PCM/clip memory ceilings; the long-stream mode does not allocate
+whole source or output audio.
+
+Absolute stopped output seeks still replay a fresh same-version reader from the
+beginning using bounded memory and exact scheduling. Replay costs O(target), has
+no cancellation/deadline guarantee and is not an indexed codec/container seek.
+Candidate errors retain their original error and preserve old generation, queue,
+phase, retained suffix and source cursor; factory side effects are not rolled back.
+The unique worker/playback/BufferedPlaybackOutput/reclaimable output ownership
+contracts still apply. Live seek mailboxes, clock mapping/drift, RF64, arbitrary
+long compressed readers, broad physical-device support and callback deadlines are
+separate capabilities. No native support claim follows from offline long fixtures.
+
+## Indexed integer PCM read-ahead
+
+With `resampled-playback`, `IndexedConvertedReadAhead` provides a separate
+known-duration `IntegerSinc` pump. It implements `ReadAheadPump`, so the existing
+worker and unique-consumer `BufferedPlaybackOutput` bridge can render it. Its
+`IndexedPlaybackReader` contract is implemented by `WaveReader<Read + Seek>` and
+`AiffReader<Read + Seek>`; their logical seeks defer physical repositioning to
+the next read. Copy, floating Sinc, unknown-duration and compressed readers have
+no indexed adapter here. Existing `ConvertedReadAhead` retains its stopped replay
+behavior and counters.
+
+`new` prepares frame zero without reads, seeks or factory calls and returns owned
+inputs on failure. `seek_indexed_stopped` requires the matching, exclusively
+stopped consumer. It preflights output bounds and generation before calling the
+fresh-reader factory, validates identical rate/channel/declared duration before
+seeking, and reads at most the taps-sized original source window needed for the
+requested output. It supplies explicit zero history before frame zero and after
+the declared source end, primes the exact integer phase, and commits one new
+generation only after validation succeeds. A failed candidate returns its original
+error and optional reader through `IndexedSeekFailure::into_parts`; its actual
+cursor may have advanced. The old reader, queue, retained suffix, phase, origin
+and generation remain intact. Factory side effects are not rolled back.
+
+The retained endpoint is a separate operation: seeking to the exact output total
+validates the last min(taps, source length) original frames and a zero EOF read,
+then installs an empty completed stream. Its receipt has
+`filter_input_coordinate = None` and `verified_end_point = true`; no unemitted
+next output or fictitious padding is primed. The new indexed pump accepts a known
+empty PCM source as zero retained output after an EOF check. The existing replay
+and complete-file preparation APIs still reject empty clips. Positive streams
+keep the existing causal delay and retained-tail policy.
+
+`IndexedSeekReceipt` reports the validated original window and its actual ending
+reader position separately from the u128 filter coordinate and leading/trailing
+zero history. `IndexedReadAheadCounts` reports original cursor movement and
+source/padding submitted after priming, absolute generated output, generated
+output since priming and queue publication. Cursor movement includes commits
+before reader errors and is not labelled validated decoded PCM; it is `None`
+if a contract-violating reader regresses. Skipped prefixes are never reported as
+read or submitted source. Generic worker `seek_stopped` preserves the original
+error but releases the failed candidate on control; use the richer direct
+method when the candidate reader must be recovered.
+
+A successful candidate reads at most min(taps, source length) original frames,
+with at most taps positive read calls when a custom reader supplies short reads,
+plus one bounded EOF probe when the window reaches EOF. The built-in full-read
+WAV/AIFF implementations use at most ceil(window frames / read batch) payload
+reads, plus that probe. Instrumented container tests measure payload bytes and
+physical read/seek calls after the fresh reader's metadata constructor; factory
+parsing, custom reader internals and filesystem latency remain separate.
+Temporary history scratch is at most 66 KiB in addition to each candidate's
+existing 32 MiB array ceiling; old and candidate states coexist until commit.
+Reader, ring and allocator memory are separate. Existing rate/channel/batch,
+reader/container and configured duration bounds remain, including retained output
+no greater than u64::MAX−65536.
+
+The factory must supply the same source version. Window/EOF validation does not
+authenticate skipped regions or detect every earlier malformed/changed byte.
+This adds no compressed indexing, RF64, clock/drift control, callback seek/wait,
+filesystem deadline or physical-device support claim. Stopped renderer reclamation
+and explicit preparation/reopening remain necessary for device composition.
+
+## File transport through clocked captured-input processing
+
+The optional device `BufferedFileDuplexProcessor` sends unique buffered file PCM
+and already output-clock-converted captured input to a caller's downstream f32
+processor. Its file-first/capture-second input grouping is explicit. The existing
+`PreparedClockedDuplex` supplies live-input drift correction; file worker queue
+occupancy is never treated as drift. File reads/conversion remain on their worker.
+
+Consumed file PCM and paused/underrun/EOF zero-file PCM form at most two child
+blocks. Capture processing continues while the file cursor stalls. Child transport
+positions are queue output frames, distinct from original decoded frames and the
+parent logical device-render frame count. Failed-source prefixes drain without
+claiming EOF; original source errors remain recoverable from worker shutdown.
+Downstream faults retain their original diagnostic, silence the entire output and
+stop further source consumption until explicit reset/reprepare, with already
+consumed file/child history reported rather than rolled back.
+
+Direct stopped extraction returns original file/DSP owners after once-only
+deactivation, permitting matching worker failed/successful indexed seek and
+explicit reprepare. A native clocked closure is still inaccessible; no live seek,
+state migration, physical clock alignment or callback deadline follows. See
+[audio devices](audio-devices.md) for the profile and [decision 0228](decisions/0228-output-clock-file-capture-processing.md) for the contract.
+
+## Stopped file ownership after paired clocked device retirement
+
+The device `open_reclaimable_clocked_duplex` route can reclaim a W215 buffered
+file/capture processor only after all four native callback guards have retired and
+the control worker owns their shared cell exclusively. A paused stream or pending
+retirement does not expose a file consumer. The stopped result can be consumed
+into the original processor and both matching raw capture endpoints; consuming the
+buffered wrapper then returns its original file/DSP owners after once-only
+deactivation. Control may perform the existing stopped worker indexed seek and
+explicitly prepare/open a fresh clocked pair. Failed seeks retain queue/cursor/
+generation as specified by the file worker; success adopts its exact suffix.
+
+Converted/prefetched capture histories are disposed on control, with no rollback,
+file state restoration or physical clock alignment inferred. The explicit recovery
+coordinator waits old callback proof before invoking the caller's restoration
+policy. No native live seek mailbox, automatic file-state migration or new device
+validation claim follows. See [audio devices](audio-devices.md) and
+[decision 0231](decisions/0231-reclaimable-clocked-duplex-ownership.md).

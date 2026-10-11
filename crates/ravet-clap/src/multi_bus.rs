@@ -12,7 +12,7 @@ use clack_plugin::{
 };
 use ravet_foundation::{
     AudioBuffer, Event, EventData, MAXIMUM_AUXILIARY_BUSES, MAXIMUM_CHANNELS, ParameterId,
-    ProcessBlock, ProcessConfig, ProcessStatus, Processor, Transport,
+    ProcessBlock, ProcessConfig, ProcessError, ProcessStatus, Processor, Transport,
 };
 const CHANNELS: usize = (MAXIMUM_AUXILIARY_BUSES + 1) * MAXIMUM_CHANNELS;
 const SCRATCH_BYTES: usize = 64 * 1024 * 1024;
@@ -44,6 +44,7 @@ pub struct MultiBusBridge<P, S: ClapSample = f32> {
     scoped_parameter_output_port: Option<u16>,
     note_end_output_port: Option<u16>,
     previous: Option<(Transport, usize)>,
+    reset_error: Option<ProcessError>,
 }
 impl<P: Processor<S>, S: ClapSample> MultiBusBridge<P, S> {
     /// Prepare the complete portable configuration. MIDI ports are selected
@@ -99,6 +100,7 @@ impl<P: Processor<S>, S: ClapSample> MultiBusBridge<P, S> {
             scoped_parameter_output_port: None,
             note_end_output_port: None,
             previous: None,
+            reset_error: None,
         })
     }
     /// Select explicit native CLAP note/expression input (0..256), independent
@@ -166,8 +168,25 @@ impl<P: Processor<S>, S: ClapSample> MultiBusBridge<P, S> {
         &self.processor
     }
     pub fn reset(&mut self) {
-        self.processor.reset();
-        self.previous = None;
+        let _ = self.try_reset();
+    }
+    /// Preserve refused history reset and stop subsequent DSP dispatch.
+    pub fn try_reset(&mut self) -> Result<(), ProcessError> {
+        match self.processor.try_reset() {
+            Ok(()) => {
+                self.reset_error = None;
+                self.previous = None;
+                Ok(())
+            }
+            Err(error) => {
+                self.reset_error.get_or_insert(error);
+                Err(error)
+            }
+        }
+    }
+    /// Original refused reset, until a complete successful reset.
+    pub fn reset_error(&self) -> Option<ProcessError> {
+        self.reset_error
     }
     pub fn deactivate(&mut self) {
         self.processor.deactivate();
@@ -303,6 +322,9 @@ impl<P: Processor<S>, S: ClapSample> MultiBusBridge<P, S> {
         frames: usize,
         transport: Transport,
     ) -> Result<(ProcessStatus, usize), BridgeError> {
+        if let Some(error) = self.reset_error {
+            return Err(BridgeError::Processor(error));
+        }
         let mut input_iter = self.inputs.iter();
         let inputs: [&[S]; CHANNELS] =
             std::array::from_fn(|_| input_iter.next().map_or(&[] as &[S], |v| &v[..frames]));

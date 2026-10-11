@@ -5048,3 +5048,1976 @@ diff checks pass. Packet target/w186-integration.md; no audio-file manifest or
 lock changes, only default-disabled device mp3-recording forwarding. Native CPAL
 capture/shutdown, drift, cancellation/deadlines and other targets remain outside
 these synthetic capture checks. Shared W186–189 workspace gates now follow.
+
+## W186–189: Shared workspace validation — completed locally
+
+The combined worker-created MP3 capture, typed AU precision helpers, local
+knob/meter semantics and optional opaque JPEG writer snapshot passes the complete
+workspace gate, including Foundry without exclusions. The all-feature test run
+reports 786 tests/doc-tests passed, zero failures and four ignored external
+oracles; the codec/Pillow oracle profiles were executed independently as recorded
+in their package evidence. Workspace all-target/all-feature warning-denied
+Clippy, default doc-tests, default and all-feature warning-denied Rustdoc,
+formatting, strict documentation checks, 43 script tests, four host-evidence
+Python tests and diff whitespace checks pass. Receipt
+target/w186-189-gates.log, exit 0. Builds used the serialized two-job programme
+runner; source was held through this snapshot. These are local compiler/test
+results and preserve the separately recorded limits on hardware, host,
+accessibility, external SDK and runtime deadline validation.
+
+## W191: Public AUv2 instrument audio precision — completed locally
+
+The actual Performance component now adopts selected planar float32/64 native
+audio with exact companion-table provenance, checked stopped initialization and
+serialized offline transitions. Controls/text/complete Level state remain f32;
+stopped cross-precision recall excludes voice history. Successful offline changes
+reset voices and preserve accepted queued timed MIDI/Level intent. Failed setup
+retires readiness/intent and requires uninitialize/initialize; arbitrary backend
+failures were reviewed, not fault-injected. Stock intermediate32 initialization
+and inherited Reset selector behavior remain explicit.
+
+The normal public package passes 47 SDK tests and all 15 AU validators, including
+actual f32/f64 analytic renders over 200 cycles, worker/main initialization,
+offline/reset/cross-precision state and normal/fastmath native schema checks.
+Existing Gain bundle and four bundler Python tests pass; strict docs/diff pass.
+Receipts target/w191-bundle.log, target/w191-gain-regression.log and
+target/w191-python.log; integration packet target/w191-integration.md. This is
+local macOS arm64 component evidence, without a DAW, auval, complete-wrapper
+fastmath, physical device, other-platform or deadline claim. See
+[decision0203](decisions/0203-auv2-performance-audio-precision.md).
+
+## W192/W195: Local split panes and fixed lists — completed locally
+
+SplitPane adds measured two-pane grid constraints and a labelled separator with
+axis/RTL keyboard input, owned pointer deltas, subpixel pixel minima and exact
+style/attribute retirement. Non-native/non-editable empty-element separator and
+bounded fixed member/ancestor profiles prevent child input or consumer layout
+from displacing owned tracks. Too-small/transformed layouts suspend input; they
+do not claim to satisfy infeasible minima or infer transformed coordinates.
+
+ListBox adds separate virtual active focus and bounded single/multiple selection
+over fixed options. Unavailable existing selection is retained; only explicit
+replacement removes it and new unavailable selection rejects. Root-only Tab,
+owned role/name/tabindex repair, range baseline retirement, focus/callback
+reentry and exact attribute restoration are explicit.
+
+Nine actual public Chromium fixtures and nine warning-clean CMake/native WebKit
+fixtures pass 265 groups (37 split-pane, 32 listbox and 196 prior groups).
+Existing owned AppKit knob/fader pointer regressions pass and their window closes.
+Fresh trusted Chromium separator Tab/Arrow/Home/End and list Tab/ArrowDown/Space
+receipts pass separately; preview hasFocus=false remains recorded. Receipt
+target/w192-w195-final-packet.md and public keyboard JSON files. Pointer/focus
+reentry contract fixtures remain synthetic and DOM semantics do not establish
+native AX/screen-reader support. Required shared Rustdoc/doc-tests follow.
+See [split panes](split-pane.md), [lists](listbox.md),
+[decision0204](decisions/0204-local-split-pane-layout.md) and
+[decision0208](decisions/0208-fixed-list-selection.md).
+
+## W193: Explicit static GIF assets — completed locally
+
+The separate default-disabled gif-image feature owns exactly one complete GIF
+image with explicit transparent/global-palette canvas fill. Whole bounded
+structural preflight and Indexed decoding validate palette/transparency entries,
+interlacing, descriptor extents and complete strict LZW, including extra decoded
+pixels after the required buffer. Animation/looping/plaintext/unknown extension
+profiles reject; bounded GIF89a comments and non-loop application bytes are
+ignored. No timing/disposal/color-management/file-I/O policy is implicit.
+
+Five tracked groups pass exact independently generated Pillow pixels, literal
+LZW partial canvases, every truncated prefix, invalid profile/end-code/palette
+faults and inclusive 8192-record limits. Reviewed isolated all-target Clippy and
+warning Rustdoc pass; public Linux/iOS ARM64 compiler-only checks pass and the
+image-only dependency graph excludes gif/weezl. Receipt target/w193-public-gates.log,
+exit 0, with target/w193-gif-draft/gates.log for isolated lint/doc evidence.
+Exact gif0.14.2/weezl0.1.10 add only those lock packages, remove none and change
+no existing versions; independent full MIT/Apache notices are retained. Shared
+workspace gates follow. See [image assets](image-assets.md) and
+[decision0206](decisions/0206-explicit-static-gif-assets.md).
+
+## W194: Prepared file playback at an output rate — completed locally
+
+Bounded off-audio preparation converts WAV/AIFF and optional FLAC/Vorbis/MP3 into
+the existing MemoryPlayback transport with explicit same-rate Copy or causal
+Sinc policy. Nominal duration, half-sample filter delay, retained finite tail and
+actual zero padding remain distinct. Failures recover the original advanced
+reader/error, committed read/submission/output progress and incomplete prefix;
+no seek rollback or implicit trimming occurs. FilePlaybackOutput integrates
+the complete clip with actual PreparedOutput using preallocated callback scratch
+and exclusive transport ownership before device handoff.
+
+Tracked focused checks pass ten file groups, three memory groups, five actual
+output-adapter groups and five doc-tests (23 passed), including independent
+analytic rate conversion, tiny/extreme-ratio partition identity, fractional
+impulses, actual compressed gapless frames, corrupt-FLAC EOF recovery and repeated
+output lifecycle with zero measured callback allocations. Audio/device
+all-target/all-feature warning Clippy and default-off dependency graph pass;
+isolated warning Rustdocs pass, shared workspace docs follow. Packet
+target/w194-integration.md. Only an optional own-crate signal dependency is added.
+Live read-ahead conversion, clock/drift mapping, cross-thread transport, physical
+device and deadline evidence remain separate work. See
+[decision0207](decisions/0207-prepared-output-rate-file-playback.md).
+
+## W191–W195: Shared integration validation — passed locally
+
+The source-held public snapshot passes 807 workspace tests and documentation
+tests, with four explicit external-oracle profiles ignored by this run. Their
+independent executions remain recorded under their work packages. Workspace
+all-target/all-feature warning Clippy, default documentation tests, default and
+all-feature warning-strict Rustdoc, formatting, generated documentation checks,
+43 packaging/tool Python tests, four REAPER evidence-check Python tests and
+diff checks pass. Foundry is included without exclusions.
+
+Receipt: target/w191-195-gates.log, exit 0. This accepts the shared source
+integration of the AU precision, split-pane/list selection, static GIF and
+prepared file-playback changes. It adds no device, DAW, native accessibility,
+other-platform runtime or real-time deadline evidence.
+
+## W196: Native AAX schema and registered controls — completed locally
+
+Reusable immutable native schema/control helpers stage real Avid SDK parameter
+objects, recover partial manager insertion through public ownership APIs and keep
+shared display metadata live through its last borrower. Exact public effect IDs
+select registered mono/stereo Gain factories independently of descriptor order.
+Uninitialize invalidates readiness before parameter retirement; stale callbacks
+reject and fresh initialization readopts. Native f32 canonical control semantics
+and exact IDs/text/read-only preflight apply; arbitrary SDK sideeffects have no
+rollback and stock last-variant registration status may mask earlier refusal.
+
+Normal public packaging passes14 native/underlying CTest contracts, actual bundled
+registered mono/stereo Gain/bypass processing at1024frames and export/SDK-version
+probes. Four packaging Python tests and strict documentation/diff checks pass.
+Receipt target/w196-public-bundle.log, exit0, plus target/w196-integration.md.
+Separate normal/fast helper fixtures include100000 allocation-counted cycles and
+actual SDK vector/map insertion faults. Ordinary initial stock realtime mono
+remains rejected/silent while stereo renders; positive mono/stereo fixtures use
+explicit offline/realtime reprepare. Checked backend initialization, full AAX
+state/other mappings and real ProTools/PACE acceptance remain separate work.
+See [decision0209](decisions/0209-aax-native-schema-control.md).
+
+## W198: Fixed hierarchical tree selection — completed locally
+
+TreeView owns a fixed bounded preorder tree, root virtual focus, separate branch
+expansion and single/multiple selection. Collapsed/unavailable selected descendants
+remain model state; new unavailable additions reject. Native toggle default focus
+precedes guarded root admission. Synchronous custom-element disposal after owned
+writes stops later presentation changes and restores exact attributes/styles.
+
+All309 integrated public contract groups pass in Chromium and actual hidden
+WebKit across ten warning-clean CMake fixtures (44 new tree groups). Fresh trusted
+Tab/Right/Down/Space, nested-label native button pointer and native Enter receipts
+show exact-once expansion/collapse, retained selection and restored root focus;
+subsequent Tab exits even with expanded descendants. Existing owned AppKit knob
+and fader drag regressions pass and windows close. Receipt
+ target/w198-final-packet.md and its public trusted/integrated files. Ordinary
+fixture completion hasFocus=false remains explicit; pointer delivery true is
+browser evidence only. Native OS focus/AX/screen-reader validation remains open.
+Shared Rustdoc/workspace gates follow. See
+[decision0211](decisions/0211-fixed-tree-expansion-selection.md).
+
+## W197: Explicit trusted VST3 catalogues — native composition passed locally
+
+The default-disabled ravet-host/vst3-catalogue ABI owns explicitly trusted native
+modules and whole bounded immutable metadata without exposing factories/handles.
+Rust provider/module owners are not Send/Sync; native context and exact factory
+identity reservations prevent independent live owners overwriting singleton
+contexts. Highest available class metadata is validated without clipped text or
+hidden extended-getter failures. Explicit retirement distinguishes consumed
+native-clear failure from rejected retirement that recovers the original owner.
+
+A clean external-SDK public CMake build passes strict owned-source compilation
+and both catalogue/provider CTest executables. Actual Gain and Performance
+modules load/query/retire three times each, with duplicate live ownership,
+wrong-thread retirement and unchanged rejected-output checks. Receipt
+ target/w197-public-build.log and target/w197-public-ctest.log, exit0. The isolated
+Rust draft passed four ownership/cache/retirement tests, two non-Send/non-Sync
+doc-tests, warning Clippy/Rustdoc and actual main-thread reference-module loads.
+Shared public Rust gates and the public Rust/native composition probe follow.
+Context fault/module-termination ordering injection remains additional validation.
+Component/controller/audio/state/editor/callback/graph hosting remains work;
+no third-party compatibility, DAW, other-platform runtime or deadline claim.
+See [decision0210](decisions/0210-trusted-vst3-catalogues.md).
+
+
+## W196–198: Shared workspace integration accepted locally
+
+The unchanged public AAX schema/control, optional trusted VST3 catalogue and
+fixed TreeView integration passes the complete shared gate, receipt
+ target/w196-198-gates.log, exit0: all-feature locked workspace tests813passed,
+0failed,4ignored; all-target/all-feature warning Clippy; default workspace
+doc-tests; default and all-feature no-dependency Rustdoc with warnings denied;
+workspace format check; strict generated/local-link documentation;47Python
+packaging/documentation tests;4REAPER-evidence Python checks; whitespace check.
+Foundry remains included. The four ignored external-oracle tests remain separate
+recorded receipts, not claimed as executed by this shared run. Cargo used two
+workers and the existing local executable runner. This accepts the named local
+integration, not whole format/hosting/UI completeness, real-time deadlines,
+additional DAW/device/platform support or release/signing acceptance. Follow-on
+native context fault fixes and table/audio/native-AAX packages remain separate.
+
+
+## W197 follow-on: Public VST3 context faults and Rust/native composition
+
+Controlled pointer-valid SDK factory/module fixtures reproduce two baseline
+faults: a failed query returning an acquired interface leaves a reference, and an
+exceptional setter preserves stale caller diagnostic123. The provider now owns
+query outputs before checking status and maps caught C++ exceptions to SDK
+InternalError. Eight cases verify absent/optional/failed/exceptional installation
+and clearing, malformed late metadata, exact clear once, final reference count,
+and host probes through factory release and module termination. The authored
+Module::create substitute is confined to this fixture; actual SDK loading remains
+separate. Baseline/query-only/fixed receipts target/w197-context-{baseline,
+query-only,fixed}.log have expected exits1,1,0.
+
+Public external-SDK CMake compilation and all three CTest executables pass after
+the fixes, receipt target/w197-context-public-fixture-build.log and
+ target/w197-context-public-ctest.log, exit0. Actual Gain/Performance loads and
+wrong-thread/duplicate/unchanged-output checks remain positive. The public Rust
+provider/owner composition passes against the rebuilt static native library,
+receipt target/w197-public-rust-native-fixed.log, exit0; the probe build watches
+that archive to force relinking. Shared813/0/4 gates cover the unchanged Rust API.
+No invalid-pointer/native-code isolation, third-party/DAW/instance/audio/state/
+editor/graph/other-platform/deadline claim follows.
+
+
+## W201: Fixed readonly table and tree navigation boundaries accepted locally
+
+The new TableView owns a bounded exact native readonly table profile with virtual
+cell navigation/header association and separate single/multiple row selection.
+Quiet eligibility fallback retains unavailable selected rows. Complete no-movement
+keyboard preflight cannot select an unselected active row or create a range; only
+genuine vertical Shift range boundaries preserve an established anchor. The same
+boundary correction adds two TreeView regressions; prior309 receipts remain
+historical. Bounds, cleanup/reentry and browser/layout limits are in the guides
+and [decision0214](decisions/0214-fixed-readonly-table-grid.md).
+
+Final public Chromium and actual hidden WebKit each pass349groups across eleven
+warning-clean native fixtures (Table38, correctedTree46). Existing owned AppKit
+knob/fader drag regressions pass and windows close. Fresh public trusted keyboard,
+Shift boundary and nested-span pointer receipts show changed-only exact selection,
+root-focus admission and Tab exit. Modal browser checks required foreground
+interaction to resume native-close scheduling; no timeout contract was changed.
+Receipts target/w201-final-packet.md and its integrated/trusted files. Ordinary
+inactive-document focus behavior and synthetic focus/setter fault tests remain
+explicit; no native OS focus/AX/screen-reader, sorting/editing/virtualization,
+other-platform or deadline claim. The following grouped Rustdoc/workspace gate
+will cover the sixteen-control overview and integration with other packages.
+
+
+## W200: Checked native AAX Gain model accepted locally
+
+The reusable authored SDK model/algorithm composes matching native processor,
+schema and complete state companions. The default public Gain reference checks
+actual SDK identity/rate/stems and native preparation before publishing its ready
+owner; first ordinary realtime mono/stereo1024 renders without an offline repair.
+Accepted queued global intent is included in complete native chunks, with checked
+source ordering, whole known-fault preflight, rejected-prefix silence/tails,
+stopped recovery and distinct exact lifecycle/latest AUDIO diagnostics. Public IDs
+remain; local native RvS1 including bypass deliberately changes the prototype
+stock chunk, without released-session migration or production compatibility.
+
+Normal public native bundler passes18/18 CMake contracts and actual registered
+factories/SDK Initialize/native algorithm/required exports/version0x20801345980,
+receipt target/w200-public-native.log, exit0. Explicit stock bundler passes14/14
+plus actual stock regression/exports/version, target/w200-public-stock.log, exit0;
+its initial mono rejection remains explicit before positive public reprepare.
+Six current Python packaging tests pass. Normal/fast-math helper/model fixtures
+and10000 allocation-counted prepared C++ cycles pass; separately initialized
+synthetic matching owner through the actual registered void algorithm proves
+retained original backend error2, distinct from normal Gain-provider evidence.
+Independent smoothing/history checks cover rejected late buffer maps. Registry
+ID aax-checked-native-processing and [decision0213](decisions/0213-aax-checked-native-lifecycle.md)
+record bounds and ownership. Grouped shared gates follow with other integrations.
+
+CONTROL serialization, one AUDIO consumer, stop/join and valid foreign storage
+remain required. SDK completed/exceptional notification effects have no rollback;
+foreign allocation/pointer validity is not proved. Read-only reflection, programs,
+aux/MIDI/transport/instrument/f64/editor/AudioSuite/latency/tail/output mappings,
+Pro Tools/PACE production signing, other platforms and deadlines remain work.
+
+
+## W199: Converted buffered playback implemented; public checks underway
+
+ConvertedReadAhead performs explicit bounded worker conversion into an output-rate
+queue with retained input/output suffixes, independent source/queue counts and
+fresh-candidate stopped replay. Failures preserve original reader/phase/queue/
+generation; previously verified unknown EOF rechecks actual input duration even
+when downsampled output totals coincide. A pure worker progress hook preserves
+input-only downsampling progress without changing native pump defaults. Actual
+BufferedPlaybackOutput owns the unique callback transport and exposes explicit
+worker Failed/Stopped/EOF status without reader/converter work on callback.
+
+Final isolated evidence totals42tests/docs:11library,13converted,3actual prepared
+output,2release full-ceiling phase,6existing automatic and7doctests. Both package
+all-target/all-feature warning Clippy and warning Rustdoc pass. Runtime receipt
+ target/w199-expanded-gates-before-docfix.log and final example/lint/docs receipt
+ target/w199-final-gates.log, exit0. Corrections to power-of-two test ring capacity
+and the Rustdoc RingError example changed fixtures only. Ceiling phase checks use
+independent rational checkpoints and actual16,777,216-frame terminal impulse;
+retained44.1k output15,414,081 from48k input agrees with the finite tail formula.
+
+Owned public source/tests/guides and [decision0212](decisions/0212-converted-buffered-file-playback.md)
+are integrated. Public focused and subsequent shared gates remain underway.
+Source duration16,777,216frames/arrays32MiB per state, causal fractional delay,
+explicit Copy/Sinc and O(target) stopped replay remain exact limits. No arbitrary
+long-file, native endpoint reclamation/live seek, clock/drift/mailbox, physical
+support or deadline claim. W203 output reclamation remains target-only.
+
+
+## W199 public acceptance and W199–201 shared gate underway
+
+The public converted-playback equivalents pass all42tests/docs, both package
+all-target/all-feature warning Clippy and warning Rustdoc, receipt
+ target/w199-public-gates.log, exit0. This completes the named public buffered
+conversion scope within its documented limits. W199/W200/W201 and the VST3
+context fixes are now held stable for the next full locked workspace gate,
+ target/w199-201-gates.log. All subsequent W202–205 prototypes remain target-only;
+no shared acceptance is claimed before the runner completes successfully.
+
+
+## W199–201 complete shared validation and next integration
+
+The serialized locked workspace runner completed successfully, receipt
+`target/w199-201-gates.log`:833passed/0failed/4ignored in the all-feature workspace
+test command, including its doctests and Foundry. All-target/all-feature warning
+Clippy, default workspace doctests, both default/all-feature warning Rustdoc,
+format check, strict documentation,49script tests,4REAPER evidence-check tests and
+Git whitespace checks passed. These Python REAPER checks validate evidence handling;
+they do not represent a new DAW session. Four ignored external-decoder fixtures
+retain their separately recorded historical receipts.
+
+Default doctest compilation exposed an unused private ring getter when
+resampled-playback is disabled; the getter now has its matching feature gate.
+Next shared validation will also run default all-target warning Clippy. The VST3
+context fixture now includes a valid retained interface pointer followed by a
+throw: ownership is acquired before the translated InternalError is checked,
+preventing a reference leak. The unchanged-provider counterexample and target
+fix passed before this narrow public correction; fresh public native checks follow.
+
+The public source hold is released. W204virtual-list and W205AAX short-note
+instrument sources, guides and decisions have been integrated. Target receipts
+remain distinct from pending final public native/browser/package and next shared
+workspace acceptance. W203reclaimable device output has passed its isolated
+canonical-sibling30tests/docs, warning Clippy/Rustdoc and a silent default CoreAudio
+two-cycle ownership probe:20channels/96000Hz, completed1536and1024frames, exactly
+two prepares/deactivations and no recorded panic/backend error. This is a local
+processor recovery/reopen observation, not audible quality, clock/drift, general
+device support or a callback/teardown deadline. Its public integration is underway.
+
+
+## W205 public AAX short-note instrument acceptance
+
+Normal serialized public bundles pass Performance4/4, native Gain18/18 and
+explicit stock Gain14/14 CMake contracts, receipts
+`target/w205-public-performance.log`, `target/w205-public-gain-native.log` and
+`target/w205-public-gain-stock.log`, all exit0. All three self-contained bundles
+pass applicable notices, local ad-hoc signatures, required exports and SDK
+version0x20801345980 checks plus mandatory actual registered algorithms.
+Performance factory→real SDK Initialize→declared MIDI-node callbacks validate
+analytic timing, Level state and independent voice-phase history after late
+malformed input, supported fault silence/tails and retirement.8Python packaging
+tests and strict documentation pass. These are local synthetic-host/bundle
+receipts; Pro Tools, production PACE signing and deadlines remain unproved.
+
+W206initialized transport sources/model/reference aliases, fixtures, guide and
+ADR0219 are now integrated after full source review. Fresh target eight normal/fast
+contracts, actual registered Gain/Performance forwarding and self-contained
+Performance package passed before promotion. Final public Gain22/Performance4/
+stock14 and next shared workspace gates remain pending.
+
+The narrow W197 retained-pointer-then-throw correction passes all3fresh public
+CMake tests including actual repeated Gain/Performance module loading, receipt
+`target/w197-public-query-throw-ctest.log`; no new instance-hosting claim follows.
+
+
+## W203–206 public focused acceptance
+
+Public W203device30tests/docs, all-feature/all-target warning Clippy and warning
+Rustdoc pass, receipt `target/w203-public-gates.log`. The reusable silent probe
+also has an explicit default-disabled resampled-playback feature for converted
+EOF/drain and recovered stopped seek; its native composition receipt follows
+separately when its own runner completes.
+
+W204public UI passes418groups in both actual Chromium and WKWebView:
+Virtual60/Table41/Tree49/List35 plus233unchanged groups. All12native fixtures and
+the separate own-window pointer fixture compile with Wall/Wextra/Werror and
+execute successfully. Final public trusted browser Tab/End/Space, boundary token
+cancellation and exact matching pointer lifecycle pass. Own-process AppKit events
+observe native Option release and Command-capacity identity in trusted WK
+PointerEvents; these are generated native events, not human hardware or global
+OS-focus/AX/screenreader evidence. Hidden DOM focus observations remain separate.
+Exact packet `target/w204-final-public-packet.md` links individual raw receipts.
+
+W206normal public native Gain22/22, Performance4/4 and preserved stock14/14
+contracts pass, receipts `target/w206-public-gain-native.log`,
+`target/w206-public-performance.log` and `target/w206-public-gain-stock.log`.
+All three packages pass notices, ad-hoc signature, required exports, SDK
+version0x20801345980 and mandatory actual registered callbacks. Native Gain and
+Performance prove initialized transport forwarding and accepted state/history
+retention after malformed late loop; original statuses, exact raw positions and
+rounded PPQ remain distinct.8Python packaging tests and strict documentation pass.
+No production signing/Pro Tools/platform/deadline claim follows.
+
+These focused receipts establish their named scopes. The next full shared gate
+will cover W203–206, default feature-warning regression and retained-query-pointer
+correction together, including Foundry and workspace Rustdoc.
+
+
+## W203 silent converted native EOF, recovery and seek composition
+
+The final public reusable probe passes both default-only warning Clippy and
+actual generic/converted native runs, receipt
+`target/w203-public-probe-gates.log`, exit0. Exact default CoreAudio profile is
+20channels/f32/96000Hz. Generic silent cycles complete1024and1536frames with
+prepare/deactivate counts2/2. Converted zeroWAV257frames at44100Hz with Sinc16
+retains590output frames from an independent integer oracle. Actual output drains
+590, recovers the exclusive processor, preserves cursor/queue after rejected
+stopped seek, seeks17, explicitly reopens and drains573remaining frames;
+cumulative consumption1163. Underflow observations3562and7145 remain reported;
+source cursor does not advance through underflow. Both cycles finish at worker
+EOF, with no recorded processor fault/backend error/panic and no reader worker
+error. This is a silent local ownership/EOF/seek composition receipt, not audible
+quality, clock/drift synchronization or a scheduling/teardown deadline guarantee.
+
+All W203–206 public source is held for the full shared acceptance runner
+`target/w203-206-gates.log`; future W207–209 implementation remains target-only.
+
+
+## W203–206 combined public acceptance — completed locally
+
+The final shared runner target/w203-206-gates.log exited0 after all11commands.
+All-feature workspace tests passed846/0failed/4ignored. Both all-target all-feature
+and default warning-Clippy configurations passed, including the default ring
+feature-warning correction. Default workspace doctests, both default/all-feature
+warning-denied Rustdoc builds, formatting, strict docs,51script unit tests,
+4REAPER evidence-checker tests and git diff --check passed. These commands include
+owner-maintained Foundry; they add no new DAW/device/deadline claim. The source
+hold has ended. Historical focused/physical receipts above retain their scope.
+
+## W202: Scoped trusted VST3 instances — source integrated
+
+Separate ABI-v2 provider retains main-owned component/controller lifecycles and
+lends a non-escaping audio capability from Rust parent/child ownership. V1table
+remains unchanged. Non-discardable pin precedes even failed first creation;
+consuming ProcessPinned facade close, exact retained context, canonical-path
+reopen and foreign control reentry exclusion are explicit. Provider executable
+code must also remain process-lifetime. Prepared main mono/stereo f32 slice
+processing preflights whole caller metadata/ranges and protects tails, accepts
+validated raw input/output alias via scratch and silences known DSP faults.
+Events/parameters/state/editor/graph/f64/aux/timing reconciliation remain work.
+
+Staged final-source external-SDK CMake9/9 passes, receipt
+ target/w202-promotion-cmake-final.log. Staged complete Rust/native consumer links
+those fresh archives and processes10000blocks per Gain/Performance mono/stereo
+profile with measured0Rust allocator/deallocator calls; native regular C++ heap
+measurements are independent. Joined panic/forget/main teardown,8negative compiler
+contracts, authored pointer-valid provider cleanup/retry/poison faults,
+5Rust unit groups/10doctests/warningClippy/warningRustdoc pass. Source now lives
+under crates/ravet-host plus explicit tools/vst3-validation, guide and ADR0215;
+fresh public Cargo/native composition and next combined shared gates are running.
+No arbitrary third-party/DAW/device/deadline/platform claim.
+
+## W207–208 source integration
+
+Reviewed explicit grid layout and measured standalone getter/workspace consumer
+are integrated with ADR0220, guides and stable capability records. Target/source
+acceptance covers5grid groups,10000zero-allocation resize transitions, actual owned
+hidden windows12measured transitions (2TooSmall exact-retention states), default
+popup/editor-before-parent teardown and actual Chromium Rust-derived geometry,
+transport and trusted text/checkbox focus/selection retained across resize.
+Programmatic requests demonstrably bypass Cocoa user minima; measurements and
+request sizes are distinguished. No AX/screenreader or human-drag claim.
+
+Reviewed IntegerSinc scheduling and long converted-stream profile are integrated
+with ADR0221 and explicit caller selection. Existing float/live paths and complete
+file memory caps remain. New exhaustive enum variant is documented; exact bounded
+integer phase and checkedu128retained counts allow usize-limited sources with
+u64::MAX-65536terminal callback headroom. Actual long16,777,249-frame WaveReader
+reaches exact1,048,579output/EOF; failed/successful replay preserves original-error
+ownership and correct queue/generation/impulse/tail. Stopped seek remains O(target).
+Target acceptance38signal/23audio/8adapter groups,9doctests and all three warning
+lint/doc builds pass; new common-rate numerical comparisons are explicit in the
+guide. Focused public final-source checks and next shared gate follow separately.
+W209multibus and W210content constraints remain isolated pending final review.
+
+
+## W202, W207 and W208 final public focused acceptance
+
+W202 public locked ravet-host with vst3-catalogue passes110tests/doctests,
+zero failed/ignored, receipt `target/w202-public-rust-tests.log` (terminal exit0).
+Fresh public external-SDK native build passes9/9CTest and the complete public
+Rust/native instance consumer, receipt `target/w202-public-native.log`, exit0.
+The actual consumer processes10000Gain/Performance mono/stereo blocks per profile
+with zero counted Rust allocations/deallocations and checks joined panic/forgotten
+audio capability cleanup. These are trusted local reference/SDK ownership and
+audio receipts; parameter/state/events/editor/graph adoption remains separate.
+Focused public warning lint/doc and combined workspace acceptance follow below.
+
+W207 final public grid passes5Cargo groups including10000allocation-free resize
+transitions. Surface/webview library and complete layout_workspace consumer
+warning-Clippy pass. Actual public Chromium geometry5groups plus trusted control
+value/caret/focus retention across4resizes pass. The public locked Cargo consumer
+fixture exits0 after12measured owned native window/grid transitions,2TooSmall
+exact-retention states and24rapid requests per window settling the latest geometry.
+Default popup, invalid-request retention and editor-before-parent cleanup pass.
+Exact packet `target/w207-public-packet.md` retains raw receipts and source hashes.
+No human drag, global focus, AX/screenreader, device or platform certification.
+
+W208 final public focused checks pass80tests/doctests:38signal,25audio-file,
+8device-adapter and9doctests; all three package all-feature/all-target
+warning-Clippy and warning-Rustdoc commands exit0. Receipt
+`target/w208-public-gates.log` uses one exclusively owned Cargo build directory.
+The actual long WaveReader/oracle, finite tail/EOF, compatibility and error-owned
+seek evidence above retain their named scope. Indexed integer PCM seeking is a
+separate implementation package; existing stopped conversion seek still replays
+O(target) frames. No additional physical device/DAW/deadline evidence follows.
+
+
+## W209 and W210 source adoption
+
+Reviewed W209 prepared native AAX main/aux mapper, existing default-context
+metadata guards and actual registered Rust bus-routing consumer are integrated.
+Workspace adds only ravet-bus-routing-native0.0.1 with existing foundation/native
+dependencies; offline lock resolution changes no existing package/version.
+Target14/14normal/fast native checks and5Rust groups/lint/docs pass; public
+Python8pass. NativeGain26/actual packaged module, Performance4/stock14 and focused
+public Rust/shared acceptance follow separately. Public references remain main-only;
+no Pro Tools/PACE/generated-output/f64 AAX/deadline claim. ADR0222 records scope.
+
+Reviewed W210 portable ContentConstraints, owned opt-in native installation and
+shared resize/policy reentry guard are integrated. The public reproducibility
+script builds exact Rust/Cocoa sources and exits0 after22measured own-window/grid
+transitions and4synchronous native callback rejection observations, receipt
+`target/w210-public-native-build-run.log`. Public webview11unit groups pass,
+including5new pure-policy groups; focused allocation/consumer lint follow. One
+locked allocation attempt occurred between member insertion and lock resolution
+and is preserved as exit101; it is not a validation success. Default popup/borrowed
+editor ownership and absent default policy remain; interactive workspace opts in.
+ADR0223 distinguishes measured per-dimension native rounding from human drag/AX.
+
+New W202/W207–210 public sources are stable for the next combined workspace gate.
+W211 indexed integer PCM seeks and follow-on window/AAX output work stay isolated.
+
+
+## W209 final public focused acceptance
+
+All format-owner public processes are terminal exit0. Native Gain26/26,
+Performance4/4 and stock Gain14/14CTest pass, plus each actual packaged module's
+required exports, SDK0x20801345980 and registered algorithm checks. Receipts are
+`target/w209-public-gain-native.log`, `target/w209-public-performance.log` and
+`target/w209-public-stock.log`; final packet `target/w209-integration.md`.
+The default authored Gain/Performance module callbacks protect common context/
+frame/owner metadata and preserve pending complete restore, Gain smoothing and
+Performance voice phase after late rejection. Actual registered eight-profile
+multibus fixture uses public Rust/native processing and exact independent audio,
+state/history/tail/source-order and alias oracles. Public references stay main-only.
+
+New public Rust bus-routing reference passes5tests/doctests, warning-Clippy and
+warning-Rustdoc;8Python packaging tests, strictdocs and diff checks pass. Native
+Gain requires the routing archive for mandatory validation; stock/Performance
+retain prior requirements. No SDK source/vendor licence or proprietary consumer
+was copied. Local ad-hoc signatures remain distinct from PACE/Pro Tools acceptance.
+Combined shared W202/W207–210 runner is live at
+`target/w202-207-210-gates.log`; final workspace acceptance is still pending.
+
+## W210 focused acceptance and next isolated work
+
+The final public W210 packet `target/w210-public-packet.md` confirms11webview
+unit groups,1tutorial allocation group/19998zero-allocation calls and exact public
+native22transition/4synchronous reentry fixture exit0. Redundant queued lint was
+retired only after its exact own wrapper was proven child-free/WAITING; shared
+warning-Clippy/default+allfeature warning-Rustdoc now supplies remaining coverage,
+which is pending until that runner exits0. No active compiler was terminated.
+
+W211 indexed IntegerSinc WAV/AIFF conversion seeks, W212 owned window closure
+lifecycle and W213 generated short-MIDI AAX output remain isolated implementation/
+design packages. Root W214 component/controller state IO has a reviewed design
+and actual public-SDK bounded IBStream primitive test (strict C++ build/run0):
+finite cursor/ranges, owned/frozen foreign AddRef retention, worker ref release
+without final payload deallocation, CONTROL keeper reclamation and16slot/64MiB
+exhaustion. It is not yet integrated instance-state hosting; compound restore
+failure poisoning, native-core pin and complete Rust/native consumer remain work.
+No new public state-hosting, DAW/device/deadline claim follows from that primitive.
+
+
+## W211–216 isolated implementation and review evidence
+
+Public runtime/Cargo snapshot remains held for shared W202/W207–210 runner39661.
+That exact live process has passed all-feature workspace tests, all-feature and
+default all-target warnings-denied Clippy, and is running default workspace
+Rustdoc tests; combined final acceptance is still pending. No active compiler was
+terminated and no shared runner was restarted. Target-only receipts below are
+not public feature adoption or broad platform/DAW/device support.
+
+W211 indexed IntegerSinc WAV/AIFF stopped seeking is implemented/reviewed for
+promotion:92unique tests/docs, original error/advanced candidate recovery,
+bounded original-history reads and exact complete-conversion suffixes including
+16,777,249-frame generated WaveReader fixture. Packet target/w211-integration.md.
+W212 owned standalone closure/state is implemented/reviewed:15own native lifecycle
+groups and constraint22transition/4callback regression, default popup and borrowed
+editor cleanup; packet target/w212-review-packet.md. W213 generated AAX short-MIDI
+output and actual initialized NoteRouting Rust consumer are implemented/reviewed:
+10Rust tests plus docs and8normal/fast native groups. Final late-throw status retains
+last returned SDK result, and lock-free processing admission removes a CONTROL/
+AUDIO plain-bool race; meaningful concurrent registered callback/control rejection
+and post-join acceptance pass. Packet target/w213-review.md. No packaged generated
+consumer/Pro Tools/PACE/f64/aux-output/physical MIDI claim follows.
+
+W214 now implements the complete stopped component/controller state transaction,
+not only the previously recorded stream primitive. Fresh exact native recipe
+passes13/13CTest, including all original nine instance/catalogue regressions;
+exact relative-path safe Rust owner links fresh archives and actual local Gain/
+Performance bundles, verifies complete state/connected controller order, explicit
+reprepare,10000mono/stereo blocks/profile with0Rust allocations/deallocations,
+real late controller refusal, poison/safe retirement and new-child recovery.
+Eight mocked Rust groups, twelve compile-fail examples, warning Clippy/Rustdoc pass.
+Independent review corrected QI known-alias writes and contradictory restore
+reports; fixed SDK stream tests include1000worker/freeze races and retained module/
+context/host pin through failed/throwing capture. Packet target/w214-review-packet.md.
+Opaque UID/bytes do not authenticate schema/version; no live restore, automatic
+restart/parameter/editor/event/graph, arbitrary third-party or DAW/deadline claim.
+
+W215 output-clock file/capture composition is implemented/reviewed:44tests plus
+2doctests, default/all-feature all-target warning Clippy and strict Rustdoc pass.
+Canonical simulated independent capture±500ppm, mono/stereo file-first grouping,
+actual PCM worker failure, retained post-consumption DSP fault, explicit stopped
+seek/reprepare and zero-output/32MiB scratch rejection pass. File queue receives no
+drift estimator; no physical timestamp/start alignment/long-session claim.
+Packet target/w215-integration.md. W216 explicit sRGB/linear-light preparation
+is implemented/reviewed:11Rust groups including normalized subnormal alpha,
+8192allocation-free operations, independent Decimal256scalar/4096transfer/2048
+composite cases, Rustdoc, own WK11groups and scoped trusted Chromium Rust-data/
+resize evidence; packet target/w216-review-packet.md. Existing renderer defaults
+retain their numeric policy; no ICC/DisplayP3/font/SVG/AX/physical display claim.
+
+All six packages still require coherent public promotion and public grouped gates.
+W217 dynamic AAX initial/request/ACK/adoption and W218 paired native clocked duplex
+retirement/recovery have approved target-only implementation designs. W219 bounded
+SVG import/render has approved target-only dependency/resource/profile design;
+no public dependency/manifest/lock or new support claim is recorded yet.
+
+
+## W211–216 public adoption and focused acceptance
+
+The previous W202/W207–210 shared runner39661 authoritatively completed exit0:
+all11commands passed; the all-feature workspace test result totals880passed,
+0failed and4ignored. Both all-target warning-Clippy profiles, workspace doctests,
+both warning-Rustdoc profiles, formatting, documentation and script checks passed.
+Terminal receipt: target/w202-207-210-terminal.json; full log:
+target/w202-207-210-gates.log. This acceptance predates W211–216 adoption.
+
+The six reviewed packages W211–216 are now publicly integrated:81 authored
+source/test/guide/decision/metadata files were adopted through exact hash guards,
+then the generated catalogue was refreshed. No Cargo dependency, member or lock
+change occurred. Catalogue149implemented/112prototype/3planned/2excluded is a
+scope/status inventory, not a programme completion percentage.
+
+Public W211/W215 focused receipt target/w211-w215-public-integration.md proves
+49unique tests/doctests, all-feature/all-target warning-Clippy across the three
+changed packages and strict Rustdoc. Public W212 lifecycle fixture passes15/15;
+public W216 independent Decimal256/4096/2048cases and native11/11consumer pass,
+with public512model export identical to the retained browser validation input.
+Receipts: target/w212-public-build-run.log, target/w216-public-oracle.log,
+target/w216-public-native-fixture.log. Public W213 Gain30/30native contracts and
+actual initialized packaged-module callbacks pass; remaining Performance/stock
+and Rust receipts are still being collected. W214 integrated native/state-owner
+and the new combined public workspace gate are next; source is held unchanged.
+W217 latency adoption, W218 paired clocked recovery and W219 SVG remain isolated.
+No new DAW, physical device, screen-reader, signed release or deadline claim.
+
+
+### W213/W214 final public focused receipts
+
+W213 all public owned validation processes are terminal exit0: Gain30/30,
+Performance4/4 and stock14/14native contracts plus each actual packaged module;
+Rust10tests/doctests, warning-Clippy/Rustdoc, Python8 and strictdocs pass.
+Final receipt target/w213-public-final.md. Guide/ADR now record public evidence.
+Public W214 fresh strict native build is terminal0 and CTest13/13passes. Public
+state-owner and original audio-owner scripts both run exact current Rust source
+against fresh public native archives and explicit Gain/Performance bundles, exit0.
+Complete state/order/late refusal/fail-closed/joined retirement/new-child recovery
+and10000mono/stereo/profile0Rustalloc/dealloc pass; original audio-owner panic
+messages are intentional caught regression inputs, not an unreported failed run.
+Receipt target/w214-public-acceptance.log. Shared new W211–216 session12304 remains
+live; no final grouped acceptance claimed until that exact process exits0.
+
+
+### W211–216 combined gate correction and retry
+
+The first combined runner12304 authoritatively exited101 in Gain's concurrent
+worker allocation fixture: the worker's outstanding allocation assertion reported
+2 instead of0, before the callback allocation assertion ran. That failed log is
+retained at target/w211-216-gates.log; it is not integrated acceptance. The fixture
+now uses an atomic started handshake instead of entering blocking startup
+synchronisation inside its measured allocation loop. All original positive-worker,
+net-worker-zero and callback-zero assertions remain. Focused all-feature locked
+Gain realtime tests pass4/4, terminal session83890 exit0, log
+target/w211-216-realtime-fix.log. Retry99866 uses the corrected public snapshot and
+new log target/w211-216-gates-retry.log; joint acceptance remains pending.
+
+Reviewed target-only W217 dynamic AAX timing passes corrected admission/lifecycle
+strict6/6 and full32/32native contracts plus its actual module. W218 paired native
+clocked retirement additionally ran two350ms silent cycles on explicit UMC1820
+CoreAudio input18/output20 at96k: both recovered the original processor after
+joined four-guard retirement, with zero backend/processor/capture faults and zero
+drops. This is short silent ownership evidence, not acoustic/clock/hotplug or
+long-session support. W219 bounded SVG's final actual own-WK fixture passes24/24,
+with18 independent render cases and all six integer profiles byte-exact. W222
+stack-backed streaming interpolation source/consumer review passes, with116unique
+isolated tests/docs and warning-lint/Rustdoc receipts. These packages remain
+isolated; no public capability or dependency adoption is claimed yet.
+
+
+### W220 parameter companion qualification and parallel package checkpoint
+
+W211–216 retry99866 remains live. Its corrected all-feature workspace tests and
+all-feature/all-target warning-Clippy have authoritatively passed; default-feature
+Clippy is running. This is progress within the joint gate, not terminal acceptance.
+Public compiled sources remain held for that exact snapshot.
+
+Root W220/ADR0233 target-only implementation is now frozen with26 exact source/
+fixture/guide/public-baseline guards and an additive feature draft. Final native
+build/session42833 exits0, CTest23/23 including C11 wire contracts and four fast-
+math variants. Isolated root Rust session89969 exits0 for13units/14compile-fail
+Rustdoc tests, all-target warning-Clippy and strict Rustdoc. Exact public-relative
+safe Rust consumer against the fresh native archive and actual Gain/Performance
+bundles exits0: four mono/stereo profiles, controller/DSP separation, independently
+predicted timed Gain smoothing/bypass, Performance serialized Level, stopped state
+recall/explicit refresh/reprepare and10000variable/zero blocks/profile with zero
+observed Rust allocations/deallocations. Performance remains silent without notes.
+Packet target/w220/review-packet.md; public promotion/full gates remain pending.
+
+Independent reviews corrected shared-core CONTROL geometry and malformed successful
+edit admission. Two prepared children now process with shared keeper geometry fixed,
+while every mutable CONTROL operation waits until all borrowed audio scopes joined.
+The actual fixture checks wrong-thread end preserving counts and20001aggregate
+blocks. Native preparation distinguishes an original SDK refusal, owned synthetic
+bus metadata diagnostic and thrown call without fabricating returned SDK status.
+Retained individual parameter queues pin/reopen the exact core; payload reclaim is
+CONTROL-only and never automatically unpins. No DAW or deadline claim follows.
+
+W217/W218/W219/W222/W224/W225 reviewed target-only packets remain held. W224 fractional
+delay isolated124unique tests/docs and W225 selected-order Butterworth132unique
+include their shared earlier Signal baseline; they are not new-test totals.
+W223 native accessibility has a frozen21-file packet with20native/17Rust/24actual
+Rust-native-WK groups, scoped direct-protocol evidence only; root review is pending.
+W221 AAX editor final packet is undergoing one final preinitialize-size admission
+correction. No new Pro Tools, PACE, screen-reader, physical hotplug/long-session,
+Windows/Linux/mobile or release support is established. Independent named DSP/font/
+format work continues; no whole programme category is complete.
+
+### W211–216 joint acceptance and next reviewed packet
+
+Retry99866 is now authoritatively terminal exit0. All11 integrated commands pass:
+927tests/0failed/4ignored, both all-target warning-Clippy configurations, workspace
+doctests, both warning-Rustdoc configurations, formatting, documentation, Python/
+REAPER checker tests and whitespace checks. Exact receipt
+target/w211-216-terminal-retry.json records the complete log hash and command list;
+the earlier allocation-fixture failure remains preserved separately. The public
+compiled-source hold for this snapshot is released.
+
+W217–226 are root-reviewed isolated packages; root has prepared124 guarded combined
+source/test/guide/metadata outputs without public source adoption. The AAX timing
+and optional editor pipeline additions and SVG/native semantics tutorial additions
+are merged together. The native semantics command uses the actual ravet-examples
+package. The paired device guide now distinguishes two short silent same-interface
+CoreAudio ownership runs from acoustic/hotplug/drift/long-session validation.
+
+W221 size and deferred callback retirement/reinitialization corrections are fully
+reviewed and qualified. W223 explicit native semantics and W226 FIR coefficient
+design are reviewed; direct AppKit protocol evidence remains separate from system
+AX/VoiceOver. W229 Chebyshev I/II source and independent numeric/time/Graph evidence
+are reviewed, including corrected candidate-response errors retrying higher orders;
+final focused qualification/hash refresh precedes adoption.
+
+Review discovered an additional W217 recovery contract defect: sticky timing faults
+could survive old-slot collection while stopped preparation reported readiness.
+The timing owner correction and refusal-without-foreign-side-effects regression are
+required before that package is adopted. W227 internal AAX f64 and W228 contextual
+font fallback remain isolated work in progress; W230 elliptic-family design is
+approved for independent implementation. No whole programme area is complete, and
+no new DAW, signing, screen-reader, platform or deadline support follows.
+
+### W217–226 and W229 public source adoption
+
+After retry99866 terminal acceptance and the W217 sticky-fault correction's final
+strict6/full32/actual-module receipts,127 exact guarded outputs from eleven reviewed
+packages were publicly adopted. Source maps and the combined record are retained
+under target/w217-226-promotion; public-adoption.json explicitly leaves public
+qualification incomplete. Both timing/editor pipeline changes and SVG/native
+semantics tutorials are retained. W229 spec-loop response errors skip failed
+candidates, preserving the documented bounded higher-order retry contract.
+
+Offline full metadata resolution adds14 package identities for optional SVG and
+removes none; every existing package version is preserved. Existing strict-num/
+tiny-skia dependency lists change through optional dependency/feature resolution.
+Actual all-workspace-feature resvg/usvg remain without text/font/raster-image
+features, roxmltree positions/std and tiny-skia std/SIMD/PNG are explicit. Shared
+dependencies additionally unify bytemuck derive/aarch64 SIMD, numeric traits/euclid
+and zlib-rs. Eight effective package rows and twelve previously absent complete
+licence files were added to SVG notices; all actual normal dependency versions are
+covered. Receipt target/w217-226-promotion/svg-dependency-acceptance.json. This
+remains dependency evidence rather than release-wide legal review.
+
+Catalogue regeneration/check and whitespace checks pass. Inventory278 records:
+157implemented/116prototype/3planned/2excluded, not a completion percentage.
+Post-adoption Rustfmt corrected one multiline include_bytes spelling without
+changing behavior. Fresh canonical Bus/Delay release build exits0 at
+target/w217-226-promotion/public-delay-release.log. Public processing Rust tests
+and a fresh public VST3 native build/actual safe parameter consumer are running;
+format owner collects separate public headless/editor/Performance/stock native
+receipts. Remaining focused UI/default/all-feature lint and complete workspace
+documentation/joint checks are required before combined public acceptance.
+
+### W217–230 public focused evidence and reviewed additions
+
+Public processing session52561 is terminal exit0:401tests/docs,0failures in
+Signal, Device, Host and Bus/Delay with all features. Fresh canonical Gain
+native-editor release session94599 is terminal0. Receipt
+target/w217-226-promotion/public-cargo-terminal.json retains exact log hashes.
+Fresh public VST3 native session58195 passes23native tests and the actual safe
+Rust parameter owner against Gain/Performance bundles: four mono/stereo profiles,
+timed Gain/bypass, recalled state and10000blocks/profile with zero observed Rust
+allocation/deallocation. Native semantics session49717 passes20native/17Rust/24own
+Rust-native-WebKit checks; these are direct protocol evidence, not system AX or
+VoiceOver. Public AAX headless Gain32/Performance4/stock14 and all three actual
+module checks pass session37378; the final optional editor is being relinked to
+the newly built canonical public Rust archive, with intermediate isolated editor
+evidence retained separately.
+
+W228 contextual local font fallback and W230 selected-order elliptic filters
+are reviewed and34guarded public source/test/guide/metadata outputs integrated.
+Root merged additive fallback declarations/navigation against the current SVG
+and native semantics capabilities instead of adopting stale replacement files.
+Optional SVG licensing/feature-unification text is preserved. No new dependencies
+or lock changes are needed by these two packages. Documentation regeneration and
+workspace formatting pass; their public qualification and the combined workspace
+gates follow. Catalogue280records,159implemented/116prototype/3planned/2excluded
+is an inventory, not a completion percentage.
+
+W228 retains exact face/source ownership and atomic SVG/CPU preparation, backed
+by isolated independent HarfBuzz10profiles/19runs, shared-model60selections and
+actual owned-window104checks/observations. Its WebKit NFC font-policy discrepancy
+remains explicit. W230 bounded elliptic math/tests/guide/ADR received a complete
+independent source review against NIST and independent rational/time/Graph
+evidence; frozen scoped155tests/8docs are not all new tests. Neither scoped
+package establishes general system fonts, screen readers, physical platforms,
+continuous numerical certification or real-time deadlines.
+
+Fresh public optional AAX editor acceptance is now terminal0: canonical editor
+35/35 plus actual registered native/NSView GUI modules against the fresh public
+Gain native-editor Rust archive, session92842 first phase. Exact logs
+target/w217-221-public/canonical-editor-{configure,build,tests,module,gui-module}.log
+replace the earlier isolated-archive evidence for this public-source claim.
+No Pro Tools/signing/host accessibility/deadline claim follows. W227 selected64
+editor51/51 with actual native/GUI consumption also passes in its separate
+target-only candidate; final packet is still pending.
+
+Current coherent snapshot hold: public Surface all-feature session45286 and
+independent HarfBuzz/actual native fallback session39620 are live, with the full
+eleven-command workspace acceptance queued session72654 in
+target/w217-230-gates.log. HarfBuzz10profiles/19matched-face runs already pass
+on the actual public engine; native rebuild/fixture and Surface doctests are
+still pending. Compilation is capped at two shared Cargo jobs. No queued/live
+job is restarted because its log is quiet. Further public source adoption waits
+terminal acceptance; independent target-only work continues.
+
+Public Surface session45286 is now terminal0:99tests/docs,0failed, including
+actual SVG/fallback and borrowed-font compile-fail examples. Public fallback
+script session39620 is terminal0: independent installed HarfBuzz14.4.0,10profiles/
+19matched-face runs, then the actual canonical normal Rust/WebKit consumer with
+104checks/observations. All60Rust-selected renders and30SVG/CPU pixel pairs pass,
+with six analytical CSS agreements plus the separately retained NFC policy
+discrepancy, three measured own-window resizes, default settings and cleanup.
+Exact hashes are in target/w228-230-promotion/public-focused-terminal.json. These
+receipts support the stated bounded package, not general CSS/system font/screen-
+reader or physical-device equivalence.
+
+Joint session72654 has acquired the shared Cargo slot and is compiling/running
+all-feature workspace acceptance. All eleven commands, including required
+workspace doctests and strict Rustdoc, remain pending terminal receipt. Public
+compiled-source hold remains active. W231 system-font catalogue/style-to-render
+architecture is approved for isolated implementation; W232 actual weighted
+equiripple/halfband FIR design is approved and underway. Root W233 hosted VST3
+event/output/context companion architecture received independent SDK review;
+context chord/negative clock/SMPTE units and explicit opaque SysEx/pool policies
+are retained in target-only design, with no implementation claim yet.
+
+### W217–230 combined validation interrupted by storage exhaustion
+
+Joint session72654 terminated exit101 during the first all-feature workspace
+compilation because the filesystem ran out of space. No completed command or
+test assertion failure is inferred. The original log and its hash are preserved
+in target/w217-230-gates-enospc-first.log and its JSON receipt. The earlier scoped
+public test and native acceptance receipts remain separate from this failed
+combined run. Disposable terminal compiler caches are being reclaimed before
+an exact-source retry; further public compiled-source adoption remains held.
+
+W227 internal native64 AAX has a frozen candidate and local package/default
+regression receipts, with root integration review pending. W232 weighted
+equiripple/halfband FIR has a frozen target-only packet, twelve focused groups,
+nine doctests and nine independent Decimal primal/dual profiles; it awaits
+root review and public integration. W231 system fonts and root W233 hosted
+VST3 event/output/context remain under isolated implementation. W234 full short
+MIDI instrument input design is approved for isolated implementation. None of
+these observations closes a broad programme category or supplies a weighted
+completion percentage.
+
+### Reviewed candidates and joint retry progress
+
+The unchanged-source joint retry session24755 has completed all-feature workspace
+tests:1051passed/0failed/4ignored across276reported unit/integration/doctest groups.
+Its warnings-denied lint and remaining documentation/tool commands are still
+running; this partial result is not terminal combined acceptance. Incremental
+compilation is disabled for this storage-constrained retry, with shared Cargo
+limited to two jobs. Further public compiled-source adoption remains held.
+
+Root has accepted the corrected W232 FIR source and actual stereo Graph/direct/
+partitioned consumers after verifying all13frozen source/evidence hashes. The
+original normalized-Nyquist defect, original reflected-grid assumptions and first
+packet remain preserved; corrected179tests/docs and9independent Decimal profiles
+pass. W235 configured elliptic allpass halfband/oversampling source and all eleven
+focused groups are reviewed, with isolated191tests/docs and strict lint/docs
+accepted. Nominal attenuation, actual rounded edge sizing and4097-point sampled
+peaks remain distinct. W227 precision and W236 canonical table acquisition maps
+pass33/12immutable guards. Root paired generic compilation verifies the new
+runtime native acquisition succeeds and const acquisition fails onlyE0015.
+
+Root W233 target-only primitives now pass22C11/normal/fast build/run commands:
+all10SDK event kinds, real immutable input/mutable output IEventList, actual
+IParameterChanges/individual writable queues (64queues/2048whole-block points),
+16retained complete process batches, combined whole event/payload/parameter/count
+publication and10000variable/zero-frame ordinary-C++-heap-free phases. Complete
+pool size10066712bytes gives six pools60400552bytes including keeper slots within
+the64MiB cap. Exact-core CONTROL keeper, refused pin, worker release, actual
+reservation-registry reopen and controlled core resource lifetime pass; these are
+not actual SDK image-loader retention evidence yet. Full copied ProcessContext
+construction passes8192independent presence combinations, signed sample/time/
+clock/SMPTE domains and2048request-bit combinations. Exact source/log hashes are
+in target/w233-processing-context-gates/terminal.json. The initial context fixture
+signed-comparison compilation warning is preserved separately. Native provider,
+actual processor/instrument and safe Rust processing-companion integration remain
+required before a public hosted-processing capability claim.
+
+Review also identified the existing C++ client's callback-equivalence admission
+policy as inconsistent with exact originating companions. W237 separately fixes
+it with genuine32/64 exports, byte-identical copied-core refusal before any creator
+and balanced acquisition/query-exception fixtures. Its frozen8files and explicit
+W236 documentation/CMake overlaps are reviewed; public adoption and fresh native/
+format qualification remain pending. W231 system fonts and W234 raw short-MIDI
+actual module qualification continue in isolated sources. The coherent reviewed
+integration tree is held under target until all current joint commands finish.
+
+### Processing review correction and additional reviewed DSP source
+
+The independent W233 partial-source review reproduced a reused UTF-16 alignment
+padding byte from an earlier event payload. The target-only codec now initializes
+that owned padding byte before copying/publishing the used prefix. Seven actual
+SDK event-list groups cover reused input/output storage, empty text, exact65536-byte
+alignment/terminator capacity and whole late-capacity refusal. All22 C11 and normal/
+fast build-run commands pass; the original counterexample, pre-fix receipt and
+initial boundary-fixture stale-pointer refusal remain preserved separately.
+
+Review also corrected target-only instance query/create and cleanup diagnostics:
+thrown calls no longer claim an original returned SDK status. Valid retained
+exceptional outputs retire once, all six cleanup throwing phases balance their
+acquired duties, and later faults preserve the first returned-or-thrown provenance.
+All8 normal/fast protocol and block-fault build-run commands pass. Their initial
+direct-driver external SDK warning is retained; the corrected driver uses the same
+SYSTEM include policy as the existing CMake build, keeping first-party warnings
+denied. Full W233 native provider/actual processor and safe Rust integration is
+still required; these partial fixtures do not establish hosted processing support.
+
+W238 native64/32 peak/RMS ballistics is reviewed after all395production/796test
+lines and16frozen hashes. Its nine meaningful groups include actual stereo Graph
+consumers; full isolated201tests/docs and warnings-denied lint/Rustdoc/format pass.
+Actual native timing, independently bounded rounding and retained initial ideal-
+tail diagnostics remain explicit. The coherent reviewed six-package integration
+tree now contains72guarded outputs under target/w227-232-235-238-promotion; public
+compiled-source adoption remains pending the live joint gate. W231 system-font
+review and W234 raw-MIDI module qualification continue independently.
+
+The next W233 target-only copied processing catalogue passes four normal/fast
+build-run commands and three meaningful actual SDK groups. It copies indexed
+Unicode event-bus names/channels/type/flags, explicit selected directional bus
+profiles, optional context-requirements presence and all130 input controller
+assignments to admitted writable parameter IDs. Actual maxima are32directional
+buses/33280mapping calls; no bus activates during discovery. Late native/metadata/
+throw failures preserve the previously committed whole snapshot and original
+returned-status provenance. Invalid IDs and actual wrong-thread calls refuse
+before foreign callbacks. This catalogue is not yet wired into Instance/provider
+preparation or the safe Rust companion; its standalone receipt does not complete
+W233. The initial test indentation warning remains preserved separately.
+
+W231's corrected portable bookkeeping and immutable native source are accepted
+after the source/contract/consumer review. All36mapped hashes and supplemental
+portable/native receipts pass. The reviewed seven-package integration tree now
+contains108guarded outputs under target/w227-238-reviewed-promotion; its complete
+staged canonical documentation check and whole-input/baseline promotion preflight
+pass without public source writes. Earlier69/72output staged trees remain
+historical. The existing joint gate is still live; post-adoption archive/format
+and shared workspace qualification remain required.
+
+
+### Processing owner integration and filter review
+
+Root W233 target-only production provider now owns complete processing keepers
+under the exact NativeCore and checks their whole ranges with other state/parameter
+storage. Successful CONTROL admission pins observed retained processing interfaces
+before subsequent foreign callbacks, including stop/reprepare/sibling creation
+and consuming close. Actual provider/module-factory substitution proves input/
+output event-list, output-parameter-list and individual-queue retention, worker
+final release, released-before-cleanup sticky retention, ordinary context/module
+exit, same exact canonical-core reopen and CONTROL reclamation. This is production
+provider ownership evidence with an authored loader, not actual Gain/Performance
+module processing or Pro Tools/DAW evidence.
+
+Instance now copies selected event-bus/controller mapping/context-requirements
+metadata during explicit stopped refresh, validates topology before allocation/
+setup and again after native setup, prepares exact known output IDs, and activates
+only selected event buses. Each attempted activation has one reverse deactivation
+duty; return/throw failures preserve original provenance and never repeat cleanup.
+Reprepare retires prior event duties; parameter reconciliation invalidates mapping
+readiness. Actual SDK ProcessData carries admitted input/output event lists,
+output parameter changes and copied block-start context. Nonempty and zero-frame
+SDK fixtures publish counted output prefixes, full signed output note identities
+and readonly known output-parameter IDs. Twenty normal/fast build-run commands
+pass against the final exact source composition, including provider context/state/
+process-pin lifecycle regressions; source/log hashes are recorded in
+target/w233-instance-processing-gates/terminal.json. The first zero-frame fixture
+incorrectly retained its nonzero expected offset; its failure/source is preserved,
+and only that oracle changed. Earlier sixteen/twenty-command source versions and
+receipts remain separate. Complete paired provider ABI, whole block/two-pool
+admission and original-span protection, safe Rust prepared carriers/MIDI mapping,
+actual module consumers and full contract documentation remain required; this
+partial integration does not complete hosted processing.
+
+W239 first-order trapezoidal LP/HP/allpass is root-reviewed after all398production/
+811test lines and all12 frozen hashes. Full isolated211unique tests/docs and strict
+lint/Rustdoc/format pass, including independent analog/polynomial/time-varying
+circuit and actual native stereo Graph/FIR consumers. The coherent eight-package
+reviewed integration tree contains111guarded outputs under
+target/w227-239-reviewed-promotion. Canonical staged docs and whole baseline/input
+preflight pass without public adoption. Earlier108-output staging is historical.
+
+The W217–230 joint retry completed1051passed/0failed/4ignored and all-feature strict
+Clippy, then terminated101 at default all-target Clippy because SVG integration
+tests imported the optional module without requiring svg-image. The exact
+already-qualified one-line test feature guard from W231 is now applied publicly;
+its prior source/log/terminal result is preserved under
+target/w217-230-default-svg-feature-failure. W231 source is unchanged and its one
+already-applied public baseline/packet metadata is refreshed. Session79853 runs
+the remaining nine commands after that minimal repair; no final combined pass or
+reviewed public source adoption is claimed while it is live.
+
+
+### Paired processing admission and independent reprepare review
+
+W233 target-only event and input-parameter pools now have pure whole-input plans,
+non-copying reservation leases and separate activation. Reserving both pools
+precedes either input copy; cancellation and retained second-pool exhaustion
+preserve complete first-pool batch bytes. Immutable copied protection ranges
+reject SDK result/header writes into native-core, sibling-pool and borrowed caller
+spans while preserving original owned protocol faults. The first legacy wrapper
+regression changed capacity diagnostic precedence; the original failure/source
+is retained under target/w233-paired-capacity-initial. Original bounded-capacity
+admission now precedes source-span inspection, and the complete suite reruns.
+
+Independent immutable source review found that a stale topology during reprepare
+after an earlier successful prepare left old audio/processing readiness visible.
+Admitted reprepare now invalidates readiness before foreign topology inspection;
+local invalid profiles preserve prior readiness. Actual SDK regressions prove
+start rejects without callbacks after stale metadata and a corrected retry retires
+old event activation duties once before selecting new duties. The independent
+negative counterexample remains under target/w233-ui-instance-review. All36 strict
+normal/fast build-run commands and exact current source/log hashes pass at
+target/w233-paired-reservation-gates/terminal.json, including event/output-parameter/
+input-parameter primitives, Instance and provider retention/lifecycle regressions.
+Paired provider ABI, safe Rust carriers and complete actual module consumers remain
+required; this evidence does not complete hosted processing or establish DAW support.
+
+W243 paired dry/wet is frozen after237tests/docs and strict isolated checks, pending
+source/integration review alongside W242 panning and W234 raw MIDI. The complete
+six-stage phaser design is approved for isolated W244 implementation. Additional
+independent DSP/AAX source reviews are prepared for Claude Code from frozen
+first-party input copies, but both initial launches failed due to expired OAuth;
+no Claude review or implementation is claimed. Existing parallel work continues.
+
+
+### Panning and paired dry/wet integration review
+
+Root reviewed all374production/794test lines of W242 panning and all591production/
+1188test lines of W243 paired dry/wet, exact private curve extraction, guides,
+ADRs and full isolated221/237tests/docs receipts. All12W242/all16finalW243 frozen
+hashes pass. The final W243 documentation clarifies that integer-valued Thiran
+delay bypasses recursion and updates both prior values; Integer reconstruction
+is separate. Stripped production expressions and all tests are unchanged, with
+14isolated doctests and strict Rustdoc passing after clarification. Both packages
+are accepted for guarded integration; the coherent ten-package tree now contains
+117outputs under target/w227-243-reviewed-promotion. Composed Signal exports are
+canonically formatted; staged canonical docs and all-input/baseline promotion
+preflight pass. Public source adoption and subsequent compiled qualification are
+still pending. Historical111-output staging and all original receipts remain.
+
+Claude Code authentication is renewed. Both isolated frozen first-party source
+reviews have now started and performed real Read/Grep operations: panning/dry-wet
+and raw-MIDI/AAX. Their actual live handles, immutable input manifests and captured
+streams remain under target/claude-parallel-reviews. Initial authentication failures
+are separately preserved. No Claude findings or finished report is claimed while
+the jobs run; no external SDK or signing fixture was supplied. Parallel phaser,
+paragraph UI and generic raw-MIDI implementation continues independently.
+
+### W227/W231/W232/W235/W236/W237/W238/W239/W242/W243 reviewed source integration
+
+The coherent reviewed source set adopts selected internal native32/64 AAX
+processing, corrected weighted sampled equiripple/halfband FIR design and
+configured allpass halfband/oversampling and canonical runtime native table
+acquisition. Host AAX buffers remain f32; source
+adoption does not establish Pro Tools/PACE, continuous FIR certification, platform
+or deadline support. The FIR original normalized-Nyquist defect and reflected-grid
+observations are preserved in target/w232-review-v1 and the root probe; corrected
+frozen179tests/docs plus9independent85-digit Decimal profiles pass. Actual stereo
+Graph/direct/partitioned consumers and all13frozen hashes were reviewed. The
+W236 original cross-codegen table-address mismatch remains in W234 receipts;
+corrected six-family/both-precision normal/fast identity and actual processor
+fixtures pass. Root paired generic compilation proves runtime acquisition succeeds
+and otherwise identical const acquisition fails onlyE0015. W235 source and all
+eleven meaningful test groups were independently reviewed: full isolated191
+tests/docs, warnings-denied lint/Rustdoc and all13frozen hashes pass. Ideal nominal
+attenuation, actual rounded edge sizing and4097-point sampled stop observations
+remain separate; the order63/width.001 ideal-versus-rounded edge refusal is
+preserved, with no relaxed sizing bound. Existing fixed oversampling defaults
+remain unchanged. A root Rustdoc wording correction changes no numerical behavior.
+W237 exact C++ client admission removes callback-equivalent copied-core acceptance;
+genuine32/64 clients and copied-proxy zero-creator/four throwing-query/three-stage
+null/throw acquisition fixtures plus the existing2000cycle client regression
+pass3/3. Its W236 guide/CMake overlaps were merged additively and prior policy
+observations are preserved under ADR0157, explicitly superseded by ADR0250.
+
+The frozen local AAX precision packet has prior actual native/editor/package
+evidence against its exact original archives. All affected current public native
+archives and format consumers require fresh post-adoption qualification because
+the canonical table acquisition code changes their build. Focused public Signal,
+native and packaging checks and a new complete combined workspace gate remain
+required; no post-adoption result is inferred from isolated or older receipts.
+W238 adds native64/32 peak/RMS ballistics and fixed independent channel banks;
+root reviewed all395production/796test lines, nine meaningful isolated groups,
+201unique inherited tests/docs and strict lint/Rustdoc/format acceptance. Native
+rounding remains separate from ideal timing, with retained initial tail diagnostics
+and independently bounded release evidence; no arbitrary tolerance relaxation.
+All16frozen hashes verified, no legacy defaults or dependencies change.
+W231 adds explicit copied portable/font tokens and opt-in main-thread native
+system-font discovery/load plus immutable selected-axis text instances. Root
+reviewed portable/native ownership, exact SFNT reconstruction, source-axis/backend
+interpretation, consumer publication and numerical/fixture evidence. Modeled
+non-macOS strict compilation exposed native-only bookkeeping dead-code warnings;
+the narrow cfg correction and both original failures remain preserved. Corrected
+portable model4tests and actual macOS23groups/strict lint/doctest/Rustdoc pass;
+this is not cross-target platform qualification. Exact frozen native owners use
+precise ARC lifetimes; root's initial concern was not a defect in the frozen
+source. Supplemental optimized resources8groups/80glyph numeric agreement and
+normal29consumer checks pass. Native/browser/shaping limits and negative style
+observations remain explicit; no system accessibility/general font claim.
+W239 adds native first-order trapezoidal LP/HP/allpass designs, simultaneous
+outputs and independent fixed channel banks. Root reviewed all398production/
+811test lines and all12 frozen source/evidence hashes. Full isolated211unique
+tests/docs and strict lint/Rustdoc/format pass; independent analog/polynomial/
+time-varying circuit and actual native stereo Graph/FIR consumer evidence remains
+separate from physical/DAW support. The original subnormal-tail, native quarter-
+rate coefficient and cancellation-sensitive spectral observation diagnostics are
+preserved; final stable half-angle observation changes no runtime recurrence.
+No dependencies or existing defaults change. Post-adoption Signal/API and full
+workspace checks remain required.
+W242/W243 add prepared seven-law/two-normalization panning and paired delayed-dry
+FIFO/wet mixing with shared exact consumption-frame gain transitions. Root read
+all374/794 panning production/tests and591/1188 dry/wet production/tests, private
+curve extraction, contracts and full isolated221/237tests/docs evidence. All12
+W242/all16finalW243 frozen hashes pass. Direct wet-coordinate coefficients preserve
+tiny requested values; exact frozen panning expression bits stay unchanged. Full
+native64/32 channel1..64/four-delay-policy independent impulse/Thiran/tap and actual
+three-channel Graph/wet-FIR consumers qualify the declared bounded profile. Reset,
+latency retapping, tails/EOF, headroom and queue/refusal contracts remain explicit.
+The final Rustdoc/guide correction distinguishes integer-valued Thiran bypass
+from Integer reconstruction; stripped expressions/tests stay unchanged and14
+isolated doctests/strict Rustdoc pass. Public composition/API/full gates remain
+required; no physical/device/DAW/SIMD/deadline inference or new dependency.
+Exact integration guards and draft/baseline hashes are retained under
+target/w227-243-reviewed-promotion. No new dependencies or lock changes; W231 adds only feature/bin metadata in existing manifests.
+
+
+### Reviewed public source adoption and manifest correction
+
+All117 guarded reviewed outputs are now adopted at
+target/w227-243-reviewed-promotion/public-adoption.json. Prior command qualification
+is explicitly composite: two all-feature commands passed before the exact SVG
+feature cfg, and nine remaining commands passed after it. Unchanged SVG test-body
+bytes and its exact repair hash are verified; original terminal101 remains
+preserved. This is not one uninterrupted byte-identical-source run. A fresh
+post-adoption11-command driver captures1013public source/build/script inputs and
+checks their hashes after qualification; native SDK archive/format gates remain
+separate and required.
+
+The first fresh driver terminated101 before compilation because the system-font
+example requests ravet-webview/system-fonts but the adopted native crate manifest
+omitted that feature. Existing Rust/native build conditionals already implement
+the intended opt-in. The canonical manifest now declares default=[] and
+system-fonts=[] without new dependencies or lock changes; the existing registry
+record clarifies its canonical Cargo feature and already references the manifest.
+The original manifest, failed log and terminal receipt remain under
+target/w227-243-public-initial-font-feature-failure. Isolated feature manifests
+did not prove canonical workspace resolution; no fresh compiled acceptance is
+claimed from that failed launch. The repaired full driver follows.
+
+### Independent review and next source packages
+
+Claude source-only reviews completed with terminal exit0 and all frozen inputs unchanged: `target/claude-parallel-reviews/{dsp,aax-midi}/{REVIEW.md,terminal.json}`. DSP review found no runtime defect, with precise panning/dry-wet contract wording and additional composed fractional-latency evidence to resolve after the current workspace source snapshot gate. AAX raw-owner review found an automation/state-recall admission regression; the format owner confirmed it from source and is preparing actual-module counterexamples and a corrected guarded packet. The old W234 packet remains historical and is not adopted. Static reviews are not executed tests or host validation.
+
+W244 six-stage native phaser source review accepted the complete373-line implementation,1145-line tests, exact private first-order helper addition, guide/ADR/record and all16 frozen hashes. `target/w244-root-review.json` records isolated237 tests plus15 doctests, strict lint/docs/format qualification and selected native32 rounding observations. Public integration and fresh workspace replay remain pending; no arbitrary modulation stability, device/DAW or deadline inference. W245 nonlinear ladder and W246 optional PostScript outlines architecture proposals are approved for separate target-only implementation; those numbers represent plans, not delivered public capabilities.
+
+### Target-only processing metadata ownership refinement
+
+W233 now retains validated VST3 parameter texts inline inside the bounded catalogue vector, so complete SDK argument protection can cover every owned metadata byte with two numeric ranges instead of thousands of separately allocated strings. Full1024 parameters with three381-byte texts, terminators, independent owner copy/move and blocked text destinations pass normal/fast fixtures. `target/w233-inline-metadata-gates/terminal.json` records all48 build/run commands passing for current source, including retained parameter/event interfaces, paired reservations, stale readiness correction and actual processing-pool byte budgets. Earlier36-command evidence is preserved for its source version. This target-only internal storage implementation does not finish the paired provider ABI, safe Rust adapter or full actual format consumers.
+
+### DSP source-review follow-up and coherent phaser staging
+
+Claude DSP contract findings are resolved in target/w243-claude-followup: both precisions reject actual fractional Thiran a rounded1; Integer getters describe unused rounded values rather than executed delay; native delay arithmetic, f64 pair interpolation, rounded-reciprocal panning normalization, caller denormal policy and private lossy wet-coordinate metadata are explicit. Comment-stripped runtime expressions are byte-equivalent to current public panning/dry-wet source. The retarget fixture uses the declared multiplication rather than fragile division equivalence. Six new meaningful groups pass: native64/32 largest fractional taps near maximum across history/FIFO wraps, exact dyadic wet mirrors/energy/headroom, Integer getter-versus-actual-impulse delay and native64/32 actual three-channel Graph/FIR fractional2.5-delay cancellation against independent finite convolution/closed response/low-frequency bound. No broadband perfect-alignment claim is made. Full isolated229 tests plus14 doctests, strict lint/Rustdoc and formatting pass in target/w243-claude-followup/terminal.json.
+
+The accepted W244 phaser and DSP follow-up compose as16 guarded outputs in target/w244-claude-reviewed-promotion, with canonical staged documentation checker/preflight passing. A separate complete composed Signal replay passed243 tests plus15 doctests and strict lint/docs/format; exact source/log hashes are recorded in target/w244-claude-joint/terminal.json. Public apply waits for the current all11 workspace gate and queued fresh native archive/contracts to finish without source changes. The dedicated promoter enforces those receipts, source hashes and every current destination baseline; no public apply yet.
+
+Claude paragraph static review completed exit0 with145 inputs unchanged. Predicted legal trailing BN/ZWJ/tag grapheme failure and publication-recovery issue are being reproduced by the UI owner before revised W240 integration. Original frozen W240 packet remains historical; W246 work is briefly held behind these corrections. Documentation command/URL corruption is also queued for correction. No Unicode conformance or external host support follows from these static reviews.
+
+### Explicit independent reviewer model preference
+
+The user requires Sonnet5.5 for Claude reviews. Future CLI launches now explicitly pass `--model claude-sonnet-5-5`, have no fallback flag, and verify the initialization model in the terminal receipt. The corrected W234 revision review is running with actual initialization reporting exactly that model. A42-second launch that incorrectly omitted the argument reported Opus5.5; it was stopped, all57 inputs remained unchanged, no report was produced, and its negative model-verification receipt is preserved under target/claude-parallel-reviews/aax-midi-r2-sonnet/wrong-default-model-attempt. Earlier completed reviews truthfully retain their original Opus5.5 model receipts and are not relabelled.
+
+
+### Shared containing-core metadata protection and verified Sonnet review
+
+W233 target-only processing now seals one final-address immutable numeric snapshot per exact native core. Maximum256-class metadata uses1544 of1600 fixed ranges, covering every owned inline/heap string capacity and terminator plus canonical key, catalogue/vector, core and snapshot storage. Event and parameter pools borrow it; exact containing-core ownership/pinning keeps it live through escaped SDK references, and pool destruction precedes metadata destruction. No AUDIO expansion or retired facade/Instance dereference is introduced. Known RAVET-owned allocations are the boundary, not unobservable foreign SDK storage. `target/w233-core-metadata-gates/terminal.json` and root review record all52 normal/fast build/run commands passing with current source/log hashes verified. Three new groups include all1536 meaningfully aligned class SDK write destinations, refused input/output/event destinations and healthy retries, complete maximum metadata/capacity publication, and controlled exact core retirement/reopen with retained frozen SDK queries and worker new/delete0. Original first52 test version is preserved; final alignment refinement does not change production source. Paired provider exports, safe Rust carriers and full actual format consumers remain unfinished.
+
+The corrected W234 independent review completed through explicit Sonnet5.5: terminal0, reported model `claude-sonnet-5-5`, model verification true and all57 frozen inputs unchanged. Its report is source-only and identifies a fresh raw early-layout rejection diagnostics defect, weak concurrent-consumption evidence and incomplete harness/dependency provenance. A separate R3 revision is in progress; R2 stays frozen. Earlier Opus reviews retain their original truthful model records. Future Claude launches require explicit Sonnet5.5 and verified model receipts, with no fallback.
+
+W240 legal trailing formatting and browser-publication failures were reproduced. Revised target-only paragraph rendering applies an explicit atomic-grapheme representative-level policy distinct from scalar-exact Unicode bidirectional conformance; fixed Prepend/ZWJ/tag vectors and independent shaping observations accompany it. Browser recovery uses an exact read-only refresh request and monotonic delivery identity so cached JSON republishes without changing state revision. Actual own-window rejection/recovery/subsequent geometry-change proof passes; final corrected browser/source packet remains pending. W247/ADR0260 typed indexed composition and shared-control mono duplication architecture is approved for isolated implementation, using canonical Graph execution and singleton UnsafeCell storage with exclusive owner/session borrowing. Miri is unavailable on installed toolchains; no Miri pass is claimed. These scoped target packages do not close broad programme rows.
+
+
+### Reviewed ladder composition and processing preparation completion
+
+Root read the complete605-line nonlinear ladder implementation,1098-line tests, independent Decimal generator/input exporter, guide/ADR/registry/export and qualification driver. All18 frozen hashes and four terminal0 commands verify259tests+16docs; root independently recomputed all816 Decimal450 oracle vectors and exact bytes match. `target/w245-root-review.json` accepts the declared single-saturator/four-RC six-mode contract. Independent explicit Sonnet5.5 review is running from42 frozen first-party inputs; no result inferred yet. Coherent phaser/ladder/DSP-follow-up staging now has22 guarded outputs and passes canonical staged docs/whole preflight. The complete composed Signal replay passes265tests+16docs, strict all-target lint, Rustdoc and format with source/log hashes verified in target/w244-245-claude-joint/terminal.json. No public apply; the dedicated promoter requires fresh all11 workspace/native/editor archive gates plus resolved independent review.
+
+W233 target-only parameter refresh now permits compliant controllerless SDK components to reconcile an empty catalogue and prepare actual event/context processing. Read/edit still requires a real controller; no synthetic parameter IDs. A separate33-range immutable prepared snapshot protects all32 event-bus name capacities/terminators and whole catalogue storage. Actual381-byte maximum UTF8 names plus8/0/1-frame controllerless SDK event callbacks pass; all52 normal/fast native build/run commands and current source/log hashes verify at target/w233-processing-metadata-gates/terminal.json. Initial new test diagnostic string escaping failed compilation and is preserved; correction changes fixture only. Complete paired provider ABI/safe Rust/actual modules still required.
+
+The fresh public all-feature workspace tests passed; current lint/docs/remaining commands remain live. A separate canonical native-editor Gain release archive job is queued at target/w227-243-editor-cache, preserving the default native archive cache/receipts. That future path is not current artifact evidence; downstream actual SDK/editor consumers remain required. Corrected W240 R2 source/evidence and corrected W234 R3 source/evidence are frozen for root review. Independent W246 source work resumes under its approved architecture without mutating either UI packet.
+
+
+W233 target-only paired VST3 processing companion checkpoint: the exact
+ProviderV2 companion now supplies stopped copied selection/bus/MIDI-mapping
+metadata and paired input-parameter/event processing with atomic complete
+event/payload/output-parameter publication. Whole caller capacities are admitted
+before both queue reservations, input copy or DSP. Late failure silences valid
+audio prefixes, preserves output counts/storage and records conservative history
+progress, original native return or a distinct throw. Strict C11 and normal/fast
+C++17 provider/primitive/module fixtures passed all58 build/run commands with
+source/log hashes verified; the actual controlled SDK fixture covers9 input/10
+output event kinds, context/parameters, local and late failure, reentry,10000
+variable/zero calls with no measured framework new/delete and16 retained slots
+with paired cancellation/release continuation. This remains outside public
+source. Safe Rust, actual Gain/Performance/output-image loading and whole
+sibling Instance metadata admission are unfinished; no DAW/platform/deadline
+claim. Historical48/52 receipts retain their earlier source versions.
+
+### Reviewed DSP adoption and parallel validation checkpoint
+
+The fresh pre-adoption public workspace qualification completed all eleven
+commands with no changes to its 1,013 captured source/build/script inputs.
+Independent native archive/contracts qualification completed four commands;
+the separate editor archive command also passed. Exact archive and source hashes
+were verified before further source adoption. These are local build and fixture
+results, separate from DAW, device and deadline evidence.
+
+The revised ladder packet closes the fourteen independent Sonnet 5.5 source
+review findings within its declared model. Root regenerated all 2,016 Decimal450
+history vectors and 60 alternate-equation vectors, matching the frozen bytes.
+The coherent phaser/ladder/panning/dry-wet replay passed 278 tests and 16 doctests,
+strict all-target lint, Rustdoc and formatting. Its 29 guarded implementation,
+test and documentation outputs are now adopted in the public tree. Registry
+generation and the documentation checker pass. Fresh integrated workspace
+qualification is running; isolated results do not stand in for that acceptance.
+The original ladder model and review receipts remain preserved.
+
+The target-only safe Rust VST3 processing owner passed 24 unit tests and 17
+doctests in both debug and release, with strict lint/Rustdoc/format passing.
+An actual Rust-to-native SDK-loader consumer passed seven commands against
+explicit existing Gain and Performance bundle artifacts. It checks mono/stereo
+timed gain and ramp behavior, zero-frame retargeting and audible timed instrument
+events, level and context against independent formulas. The instrument maximum
+absolute error was approximately 5.596e-11. Native provider archive construction
+passed three separately source/dependency-bound commands. This is local macOS
+arm64 in-process evidence, with no DAW or arbitrary plug-in support inference.
+
+The subsequent Sonnet 5.5 processing review completed with all 86 first-party
+inputs unchanged. It identified missing discriminating tests, incomplete native
+test registration/provenance and a native terminator-budget admission mismatch.
+Corrections are in a separate target-only revision: four focused Rust groups
+already pass for whole-call refusal preservation, cumulative text termination
+budgets, CONTROL success facts and complete output capacities. Sonnet is writing
+the remaining Rust wire tests while a separate owner extends native registration
+and rich callback measurements. Original qualified sources stay frozen. Full
+sibling-instance metadata protection and CONTROL exception provenance remain
+unfinished; this package has not been adopted publicly.
+
+The actual consumer also passed a separate seven-command replay against fresh
+Gain and Performance VST3 modules from the frozen W241 C++ composition, linked
+to the canonical W227-243 native archives. Root verified every bound source,
+module, SDK dependency, archive, binary and command-log hash; the same independent
+instrument error bound holds. The first supplemental provenance receipt had
+hashed its outer log before the final print. Root refused that receipt before
+executing modules; the original is preserved, and a separate closed-output
+receipt verifies all 1,137 paths. No module rebuild was needed for that correction.
+
+### Revised VST3 wire and actual-module qualification
+
+The separate W233 R2 safe Rust owner passes 37 unit tests and 17 doctests in
+debug and release, strict all-target lint, warning-denied Rustdoc and formatting.
+The expanded tests discriminate complete input/output wire arguments, malformed
+reports, native UTF16 terminator budgets, refusal preservation and malformed
+CONTROL success. The first complete run caught three incorrect expected
+non-payload offsets in the authored test; its source and failure log are
+preserved. The correction changes those expected literals to the existing
+owned wire cursor and does not change production behavior. A separate C11
+compile/run confirms thirteen wire structures and 121 literal field offsets
+on the measured 64-bit profile.
+
+Revised native fixtures pass seventy build/run commands plus two compiler
+probes. A separate maintained CMake build passes four commands and twenty-two
+registered normal/fast fixtures. The 10000-call rich native workload covers nine
+input and ten output kinds, all thirteen context presence bits, copied payloads,
+queues and zero/variable frames with zero measured C++ operator new/delete.
+This measurement excludes malloc and arbitrary foreign SDK allocation. Root
+verified the declared source, log, dependency, external SDK and archive hashes.
+
+A separate R2 Rust-to-native SDK-loader consumer passes seven build, actual
+module, lint, documentation and formatting commands against the fresh W241 Gain
+and Performance module artifacts. Debug/release mono/stereo gain, smoothing,
+zero-frame retargeting, instrument timing and backing tails match independent
+formulas; maximum instrument error remains approximately 5.596e-11. Its reused
+runtime archive has twenty-two compiled first-party dependencies proven
+byte-identical to the revised native tree. All 3,306 captured consumer inputs,
+binary and command-log hashes verify. These target-only local macOS arm64
+results establish no DAW, other-platform or deadline support. Complete sibling
+metadata protection and CONTROL failure provenance are being implemented in a
+separate native R3 tree; public adoption remains pending.
+
+The explicit Sonnet 5.5 typed-composition review finished with all thirty-four
+frozen inputs unchanged. It identifies misleading manual-owner lifecycle
+documentation and a non-discriminating compile-fail example, plus meaningful
+test gaps. A separate Sonnet 5.5 follow-up is addressing those findings while
+preserving the canonical manual Processor hook contract. Its new tests and
+documentation are not qualified or publicly adopted yet.
+
+### Peak-meter graph coverage and LV2 source review
+
+Root read the complete W250 finite-FIR peak-meter implementation, both API and
+actual Graph/FIR test files, independent coefficient/reference generators,
+bounded worker example and proposed documentation. Recomputing all 1,276
+Decimal90 reference values produces byte-identical output. The original packet
+remains frozen. Its graph test used mutable meter scratch but separate external
+graph buffers; a separate R2 test crosses actual separate/in-place Graph buffers
+with both meter observation views, in both precisions and three profiles, across
+two preparation lifecycles. Twenty-four distinct compositions pass in debug and
+release with independent audio, measurement, tail and heap checks. These remain
+two runtime test groups, with optimized repeats counted separately.
+
+The revised complete isolated suite passes 287 tests and 17 doctests, with
+strict Rustdoc, all-target lint and formatting passing. Source and command-log
+hashes verify; only the Graph test differs from the original draft. An explicit
+Sonnet 5.5 static review is running from forty frozen inputs. The finite estimate
+retains its known near-Nyquist accuracy limits and is not publicly adopted or
+claimed to meet a physical audio deadline.
+
+Root also reviewed all seven W248 exact-origin LV2 source/doc changes and checked
+the original guards and ninety-file actual-module supplement. Its original
+promoter correctly refused four changed Signal dependencies after DSP adoption;
+each current byte matches that separately reviewed adoption. A reconciled guard
+set preserves the original receipt. An eleven-output source/registry/generated
+catalogue/index/status proposal passes the staged documentation checker and
+whole preflight. Public source adoption waits for the running integrated
+workspace qualification; fresh native/module acceptance remains separate.
+
+### Qualified typed-composition follow-up and independent numerical review
+
+The explicit Sonnet 5.5 typed-composition follow-up finished with all thirty-five
+frozen inputs unchanged. Root reviewed its production comments, revised tests,
+borrow examples and lifecycle documentation. A separate R2 tree now passes
+81 runtime tests and 14 doctests, strict all-target lint, strict Rustdoc and
+formatting. Root checked all 295 source inputs and command-log hashes. The first
+run exposed a test fixture that moved inline controls after recording their
+address; boxing the fixture before preparation preserves the meaningful address
+assertion. A test-only type-complexity lint was also corrected. Both initial
+failures remain preserved. Executable production behavior is unchanged, including
+the canonical manual audio-owner obligations. Root corrected the safety comment
+to allow a returned shared stage reference on another thread when its processor
+is Sync, while its enclosing borrow still excludes graph callbacks. Public
+source adoption and Miri qualification remain separate.
+
+The W250 static Sonnet 5.5 review also finished. Root verified its reported model,
+all forty frozen inputs and session-log hash. It reports no confirmed runtime
+bug and identifies meaningful evidence gaps: poisoned Graph flags before reset,
+independent post-reset FIR outputs, exact accuracy-limit regression assertions,
+trailing source support and per-channel exceptional-input isolation. A separate
+Sonnet 5.5 follow-up starts from the already qualified R2 graph-view matrix with
+fifty frozen inputs; its new tests remain unexecuted. Known finite-grid accuracy
+limits remain recorded. The original numerical packets are unchanged.
+
+The W233 R3 native snapshot remains frozen; a separate R4 adds core-owned
+controller-handler retention, guarded query destinations, early provisional
+publication and accurate local-exception provenance. Dedicated lifetime and
+aliasing fixtures pass locally; complete native/CMake qualification and root
+review are still pending. Calibrated loudness/LRA has a frozen isolated package
+awaiting root review, with a separate Graph flag-evidence correction underway.
+The separate native denormal/SIMD architecture is approved for isolated
+implementation. These target-only packages establish no new DAW, physical
+platform, hardware deadline or public release support.
+
+### Qualified finite-peak follow-up and paired native ownership replay
+
+The Sonnet 5.5 finite-peak follow-up completed with all fifty frozen inputs
+unchanged and only its eight allowed outputs changed. Root verified the actual
+initialization model, session log and all ninety-seven output hashes, then read
+the revised numerical/Graph tests, comments, guide, decision and worker script.
+A separate R3 copy passes seven qualification commands: 294 runtime tests and
+17 doctests, nineteen optimized peak/Graph groups, strict all-target lint,
+strict Rustdoc, formatting, the example build and thirty-five generated worker
+admission checks. Four test loops were rewritten as enumerated iterators for
+lint, and formatting was applied; numerical assertions and tolerances did not
+change. The original two lint failures and format failure remain preserved.
+Executable production tokens are unchanged. Exact 16 MiB worker success was not
+run; its optional check is explicitly skipped. Known finite-grid numerical
+limitations remain visible. Public source adoption is still separate.
+
+Root reviewed the complete native VST3 R2-to-R4 production changes and new
+retained-handler, sibling, state and provenance fixtures. Independent evidence
+verification binds 574 original/revised packet guards, 98 fixture commands,
+two compiler identity probes, four CMake commands and 31 selected CTest profiles
+to 4,404 unique current files, including 1,712 external SDK files. A separate
+consumer links the qualified safe Rust R2 API to the freshly built R4 provider
+and SDK archives. All seven consumer gates pass; actual Gain mono/stereo timed
+parameters and Performance timed notes, expressions, parameters and context
+match independent audio references in debug and release. The Performance maximum
+error is 5.5957650622537325e-11. Loaded reference modules retain their separately
+qualified W241/W227-243 provenance. Native failure/retention evidence comes from
+the native fixtures, not the positive loaded-module replay. Separately allocated
+SDK helper storage and foreign heap remain outside declared range/heap checks;
+no DAW, deadline or physical platform support is inferred.
+
+A separate coherent tree composes thirty-two typed/mono, finite-peak and reviewed
+LV2 origin source/documentation outputs, with joint Graph/Signal checks running.
+Its minimal lockfile update adds only the existing Signal development dependency
+to Graph. Graph denies unsafe outside the audited private typed-storage module;
+other workspace crates keep their policy. No public compiled source was changed.
+The full native32/64 indexed-bus and owned Graph hosting architecture is approved
+for isolated implementation, including checked reset refusal and MAIN retirement
+of worker tokens. Hosted-editor completion remains independent required work.
+Sonnet 5.5 is reviewing twenty first-party loudness/LRA inputs without executing
+code. New native denormal, SIMD and generated-LV2-output packages remain subject
+to their own root review and integration; they do not establish general support.
+
+### Composed source qualification and result classification correction
+
+The coherent typed/mono, finite-peak and LV2-origin staged tree passes all six
+focused integration commands: Graph/Signal tests, strict all-target lint, strict
+Rustdoc, workspace formatting, the documentation checker and script regression
+tests. The result is 374 runtime tests and 38 doctests, 412 combined. Public
+source adoption and complete workspace qualification remain separate.
+
+The isolated typed/mono R2 log contains 74 runtime tests and 21 doctests: seven
+ordinary merged Rustdoc tests plus fourteen standalone compile-fail tests. Earlier
+81 runtime / 14 doctest statements classified those seven Rustdoc tests incorrectly;
+the total of 95 and successful qualification are unchanged. Original receipts
+remain preserved with a separate classification correction. Staged current
+capability and decision text use the corrected split. No implementation changed.
+
+### LV2 exact-origin source adoption
+
+The W248 reusable helper now admits the exact originating native core and shared
+cache/state schema before resource creators. Callback-equivalent copied cores or
+separately copied schemas refuse; coherent top-level cache/state copies remain
+valid because this ABI supplies no stronger table-address identity accessor.
+Metadata queries precede acquisition and violating query exceptions refuse.
+The maintained actual-origin validator is required by both bundler profiles.
+Root reviewed all seven source/doc deltas, checked the frozen guards and the
+ninety-file supplemental actual-module evidence, and reconciled four dependency
+changes exactly to the reviewed DSP source adoption. Original packets and the
+initial drift refusal remain preserved. Isolated CMake seven tests, Gain three
+validators, Performance five validators and four bundler tests pass; the separate
+canonical supplement uses the explicitly qualified W227-243 native archives.
+Fresh integrated public native module qualification remains a separate next gate.
+No DAW, Linux runtime, broader precision/profile or deadline support is inferred.
+
+### Typed composition and finite peak source composition
+
+This staged tree composes the reviewed typed/mono APIs (74 runtime tests and21
+doctests), finite peak follow-up (294 runtime tests and17 doctests,19 release
+groups and35 worker admission checks), and exact-origin LV2 change. Six focused joint
+qualification commands pass (374 runtime tests and38 doctests); guarded public
+adoption and full workspace qualification remain separate. Typed storage
+uses a narrowly permitted private unsafe module under Graph's deny policy. Other
+workspace policy is unchanged. Peak numerical assertions/tolerances are unchanged;
+exact16MiB worker success was not run. No DAW, deadline or physical support claim.
+
+### Reviewed LV2 generated-output source composition
+
+The generated-output helper, opt-in processor profile and canonical NoteRouting
+reference have completed root source review. All sixteen authored outputs,
+twenty-seven packet inputs, 931 dependencies and 850 evidence paths verify.
+Five incoming files compose explicitly on the adopted exact-origin LV2 base.
+The final isolated package passes six mandatory validators and strict ad-hoc
+signature checks; seven final default validators give twelve unique native
+profiles. Six Python tests verify mandatory failure propagation. That original
+pipeline substituted recorded canonical Rust archives. This source composition
+does not itself establish a fresh archive/module replay, public workspace
+acceptance, a DAW or Linux runtime result, or a real-time deadline.
+
+### Integrated composition and fresh LV2 replay
+
+The reviewed typed/mono graph composition, finite interpolated peak estimator and
+exact-origin LV2 ownership changes are adopted locally. Their fresh integrated
+workspace passes all eleven test/lint/doc/format/Python/whitespace commands with
+1,043 compiled/build/script inputs unchanged and all thirty-two adopted outputs
+verified. The isolated source composition retains its earlier 374 runtime and
+38 Rustdoc tests; the typed-only split is 74 runtime and 21 Rustdoc tests.
+
+The generated LV2 output composition now has a separate fresh replay: all
+thirty-one commands pass against 1,700 unchanged source/SDK/driver inputs. Actual
+current-source Cargo builds Gain, Performance and NoteRouting; all twelve native
+validators pass, and the maintained NoteRouting pipeline executes actual Cargo,
+its six mandatory packaged validators and strict ad-hoc signature verification.
+The earlier helper field-name failure and both incomplete documentation staging
+attempts are preserved; they changed no production implementation or assertion.
+This is local synthetic macOS native evidence. Generated-output source adoption
+requires its own fresh workspace acceptance; no LV2 DAW/Linux/physical device or
+real-time deadline qualification follows.
+
+The scoped floating-point policy package has also completed root source/evidence
+review. Its separate packed/vector extension is qualified in isolated ARM and
+translated-x86 runs and undergoing root/Sonnet 5.5 static review. Loudness/LRA
+Sonnet 5.5 follow-up has produced stronger tests and clarified numerical limits;
+those new tests still require execution. Hosted processor, Audio Unit and
+configurable convolution work continue in separate source trees.
+
+### Generated LV2 output post-adoption public acceptance
+
+The fresh post-adoption public gate for the 21 adopted W252 generated LV2
+output source/documentation files passes all eleven commands: all-feature
+workspace tests (1,295 passed, zero failed, four ignored external oracles),
+all-feature and default warning-denied Clippy, doctests, default and
+all-feature strict Rustdoc, formatting, documentation checks, script and REAPER
+evidence-check Python tests, and diff checks. All 1,051 bound source inputs are
+unchanged in the current tree. Receipt target/w252-public-gates.log and
+terminal.json, exit 0. This is offline workspace evidence; native format
+modules, DAW, Linux, physical device and deadline qualification remain separate.
+
+### Loudness/LRA follow-up test qualification (R4)
+
+The R3 qualification of the Sonnet 5.5 loudness/LRA follow-up tests passed its
+debug and release test runs, then failed strict all-target lint on a needless
+borrow; receipt target/w251-r3-root-gates.log and its logs remain preserved. A
+separate R4 copy changes only two test lines' lint shape: the closure is passed
+by value and a function-pointer type alias replaces an inline tuple type. No
+assertion, tolerance or production token changed. All seven R4 commands pass:
+348 all-feature tests including 18 doctests, 34 release loudness/Graph/calibration
+tests, strict all-target lint, strict Rustdoc, doctests, formatting and the
+loudness-file example on an independently generated 997 Hz fixture, with zero
+source changes. Receipt target/w251-r4-root-gates.log and terminal.json, exit 0.
+This is synthetic numerical/Graph evidence only; full source review and public
+adoption remain separate, and no standards, host, hardware or deadline
+certification follows.
+
+### W251 calibrated loudness and loudness range public adoption
+
+Root-delegated review completed all 1,256 production lines of the prepared
+loudness meter, its public API, example, oracle data and three test files with no
+blocking defect (target/w251-root-review.md). K-weighting, channel weights,
+400 ms/3 s windows, strict integrated gates and inclusive LRA gates/percentile
+ranks match the documented profile; processing is allocation-free after
+preparation with whole-call refusal. Non-blocking notes (an out-of-range
+frequency reported as a coefficient error, sparse item Rustdoc) remain recorded.
+
+Ten new and seven modified public files were adopted after verifying every public
+base and staged hash; only an additive read-only `Biquad::delay_state` accessor
+changes existing source, and Cargo manifests/lock are unchanged. The identical
+staged workspace passed all 29 public gate commands: 1,339 all-feature workspace
+tests (zero failed, four ignored external oracles), 58 doctests, default and
+all-feature warning-denied Clippy and Rustdoc, formatting, documentation checks,
+58 script and four REAPER evidence Python tests, byte-identical oracle CSV
+regeneration and whitespace checks. Receipt target/w251-adoption-gates-r2 and
+packet target/w251-adoption.md. FFmpeg comparison figures remain earlier
+recorded receipts. This is synthetic numerical and offline Graph evidence; no
+standards certification, EBU Mode, host, hardware or deadline claim follows. See
+[decision0264](decisions/0264-prepared-calibrated-loudness-range.md).
+
+### W257 native convolution schedules public adoption
+
+The native f32/f64 zero-latency, fixed and nonuniform partitioned convolution
+engines, bounded 1–64 channel banks and the additive `FftPlan32` are adopted in
+ravet-signal, which keeps no runtime dependencies: the processor/Graph adapter is
+test-support code using existing development dependencies. The only existing
+source change shares the f64 FFT twiddle preparation without changing its
+expression order; existing FFT tests and assertions are unchanged. Root accepted
+the bounded `ConvolutionBank32/64::engine_mut(channel)` accessor as the one other
+public addition.
+
+The isolated revision passes 327 tests, 32 focused release tests and 18
+doctests with strict lint, Rustdoc and formatting. Twelve review groups check
+bit-identical block partitions (including 1, odd, maximum and zero frames,
+separate and in-place), exact stage-boundary impulses, reset at every stage
+boundary, empty/zero/subnormal responses, frequency response, bank refusal
+without state change and zero measured processing allocations. Measured maximum
+errors against independent references stay below 1.2e-13 (f64) and 2.7e-6 (f32);
+f64 uniform mode is bit-identical to `PartitionedConvolver`; full-size f32 FFT
+leakage of 3.2e-11 is recorded with its strict assertion preserved.
+
+Fourteen public paths were adopted after verifying every base and staged hash.
+The identical stage, rebased on W251, passed every public gate: 1,283 all-feature
+runtime tests in 300 binaries (zero failed, four ignored), 84 doctests, default
+and all-feature warning-denied Clippy and Rustdoc, formatting, documentation
+checks, 58 script and four REAPER evidence Python tests and whitespace checks.
+Packet target/w257-adoption.md; failed intermediate receipts are preserved.
+Source-rate response preparation and live transition/worker ownership remain
+separate work. No real-time deadline, DAW, device or platform claim follows.
+See [decision0270](decisions/0270-native-convolution-schedules.md).
+
+### W256 asynchronous AUv3 host ownership public adoption
+
+The default-disabled ravet-host `au-hosting` ABI and its macOS native provider
+(`crates/ravet-host/native/au`) own asynchronous AUv3 instantiation, bounded
+pending requests, MAIN retirement of worker completions and joined main-bus
+rendering. Render reentry, MAIN prepare/end during rendering, synchronous
+completion reentry, success-with-NSError, cancellation after delivery,
+duplicate completion and forgotten tokens are refused or retired exactly once.
+2,000 prepared calls perform zero C++ `new` and zero Rust allocations. The Rust
+consumer and native fixtures run through
+`tools/au-host-validation/check-au-host.py` against the root-qualified Gain
+archive; `extension.mm` is manual-only. Failed staging receipts (intra-doc link,
+module order, stale Cargo fingerprints after timestamp-preserving sync) remain
+preserved under target/w256-adoption.md.
+
+Exact-path AUv3 registration of the ad-hoc signed public Gain extension from a
+user cache location was attempted and cleaned up: PlugInKit and AudioComponent
+matches were zero before, after and after cleanup, and the actual host probe was
+unavailable. Out-of-process rendering therefore remains unvalidated; further
+signing, installation or registration needs explicit owner approval.
+
+### Combined public acceptance after W251, W257 and W256
+
+The public tree with all three adoptions passes all twelve combined commands on
+a fresh exclusive cache: 1,287 all-feature runtime tests and 92 doctests (zero
+failed, four ignored external oracles), default doctests (59), default and
+all-feature warning-denied Clippy and Rustdoc, formatting, documentation checks,
+script and REAPER evidence Python tests, `git diff --check`, and the AU host
+driver (native CTest 2/2 and actual Rust consumer). No bound source changed
+during the run. Receipt target/combined-251-257-256-gates.log and terminal.json,
+exit 0. This is local macOS arm64 offline and in-process evidence; no DAW,
+auval, out-of-process AUv3, device, other-platform or deadline claim follows.
+See [decision0269](decisions/0269-auv3-asynchronous-host-ownership.md).
+
+### W253/W254 `ravet-native-dsp` public adoption
+
+The new workspace crate `ravet-native-dsp` adopts the root-accepted W253 scoped
+native floating-point policy and the W254 R2 explicit packed values and prepared
+vector slices. The crate denies unsafe code except in its two private native
+modules; the portable workspace policy is unchanged. Native vector admission now
+also requires `neon` (AArch64) or `sse2` (x86_64), a pure tightening with
+unchanged release instructions on both macOS targets. libm is declared exactly as
+in Foundation (`=0.2.16`, default features disabled), so combined builds enable
+no libm features; its licence is recorded as MIT only. The lockfile adds only the
+new package entry.
+
+The W254 Sonnet 5.5 static review found no production defect. Its R2 follow-up adds
+30 tests (all 17×17 special-value pairs in every lane under Preserve and FlushBoth,
+bit-exact slices, exact Graph mixer stage and complete refusal coverage); seven
+production mutations all fail the suite, five only through the new tests. With
+libm defaults disabled, every asserted sqrt result is unchanged; Scalar sqrt of the
+smallest subnormal inside FlushBoth now observably returns the input bits while
+native hardware flushes, and remains policy-defined and unasserted.
+
+The stage passed 15 gates, including thumbv6m no_std, x86_64 and Rosetta x86_64
+release tests (target/w253-254-adoption.md). After merge on the W251/W257/W256
+public tree, all fourteen combined commands pass on a fresh cache: 1,349
+all-feature runtime tests and 94 doctests (zero failed, four ignored), 61 default
+doctests, warning-denied Clippy and Rustdoc, formatting, documentation, Python and
+whitespace checks, the AU host driver and the new crate's thumbv6m and x86_64
+checks. Receipt target/combined-2-native-dsp-gates.log, exit 0, with no bound
+source change. Rosetta translation is not physical x86 evidence; timings are not
+deadline evidence. See [decision0266](decisions/0266-scoped-native-floating-control.md)
+and [decision0267](decisions/0267-explicit-packed-register-and-slice-family.md).
+
+### W233 VST3 processing companion and W255 hosted VST3 audio public adoption
+
+W255 depends on W233's paired processing companion, which had been root-accepted
+but not publicly adopted, so both were staged together with every path labelled
+by origin (38 W233, 13 W233 with W255 changes, 35 W255, plus shared registry,
+index and guide files). W233 contributes prepared hosted VST3 events, parameter
+points and block context: all nine SDK input and ten output event kinds use one
+bounded wire format, refusal before dispatch preserves state, late faults publish
+no partial batch, and the containing native core owns retained SDK batches and
+handler keepers. Root accepted the adoption-time ADR 0246 after checking its
+claims against the W233 packets.
+
+W255 adds explicit stopped-instance bus negotiation with selected native32 or
+native64 profiles (no silent precision fallback), all advertised main/aux buses
+requested explicitly, per-node rich event/parameter lanes, and an owned Graph
+bank whose node drops and abandoned controls retire on MAIN after every audio
+lease ends; unverifiable reclamation retains the bank. Reset of a hosted node
+reports rebuild required, and the CLAP Graph node now forwards checked reset
+results. Changes to the adopted typed Graph, ravet-native-dsp processor and
+ravet-host manifest were three-way merged; `au-hosting` is retained and the
+workspace lockfile is unchanged.
+
+The stage passed every gate on its first run: 1,500 workspace tests, strict
+Clippy/Rustdoc/formatting, documentation and Python checks, 126 normal/fast-math
+native fixture commands, VST3 CMake/CTest 61/61 including actual Gain/Performance
+targets, and the actual-module consumer in debug and release (exact Gain mono/
+stereo native32/64, Performance maximum error 5.6e-11 native32 and 3.7e-18
+native64, Graph bank recall and abandoned-control retention, 10,000 Graph blocks
+with zero Rust AUDIO allocations). All 94 public paths were adopted after base
+and staged hash verification. The combined public run then passed all fourteen
+commands on a fresh cache: 1,398 runtime tests and 102 doctests (zero failed,
+four ignored), 61 default doctests, warning-denied Clippy and Rustdoc, formatting,
+documentation, Python and whitespace checks, the AU host driver and
+ravet-native-dsp thumbv6m/x86_64 checks. Receipts target/w255-adoption.md and
+target/combined-3-vst3-gates.log, exit 0.
+
+Ordinary framework event/transport translation for Graph nodes, a shared
+Sidechain VST3 module, a loaded rich-event module through the Rust bank, module
+unload-versus-pin reporting and VST3 editor hosting remain open. Foreign SDK heap,
+DAW, third-party plug-in, other-platform and deadline claims do not follow. See
+[decision0246](decisions/0246-hosted-vst3-events-context.md) and
+[decision0268](decisions/0268-hosted-vst3-graph-banks.md).
+
+### W240 font-stack paragraphs and browser publication recovery public adoption
+
+W240 R2 adopts the explicit atomic-grapheme representative-level paragraph policy
+(distinct from scalar-exact Unicode bidirectional conformance) and exact
+read-only browser publication recovery with monotonic delivery identity. A
+root-delegated source review confirmed the earlier blocking findings (grapheme
+split at line end, non-monotonic work, stuck busy state and recovery) are
+resolved; the remaining copyable-command and version-spacing documentation
+corruption was corrected during adoption (target/text-chain-review.md).
+
+Twenty-eight public paths were adopted after base and staged hash verification;
+Cargo.lock and LICENSING are unchanged. The stage, built from the current public
+tree, passed all public gates: 1,524 all-feature workspace tests (zero failed,
+four ignored), 63 doctests, default and all-feature warning-denied Clippy and
+Rustdoc, formatting, documentation, 58 script and four REAPER Python tests and
+whitespace checks. W240's own suites pass: the HarfBuzz 14.4.0 oracle (22 cases,
+95 runs, 121 glyphs plus fixed wrap, visual and grapheme vectors), the
+own-window native consumer (41 groups), authored export (274 states), hidden
+WKWebView (65 groups) and headless Chromium over loopback DevTools (65 groups,
+trusted Wider click/Enter/Space width progression). A first native-suite attempt
+failed only because the Cargo-slot runner printed status lines into captured
+oracle JSON; that receipt is preserved. Packet target/w240-adoption.md. No
+Unicode conformance, native accessibility, VoiceOver, other-platform or deadline
+claim follows. See [decision0253](decisions/0253-font-stack-paragraphs.md).
+
+W246 PostScript outlines are not adopted: review reproduced a panic from a
+crafted CFF top DICT reaching a public `Result` API (unchecked operand-group
+indexing after read-fonts and RAVET tokenized a large-exponent real differently).
+A separate R2 correction is in progress.
+
+### W234 R4, W241 and W249 AAX chain public adoption
+
+The frozen AAX chain is adopted as one coherent composition: W234 R4 complete
+short-MIDI instrument input with the MidiSine native32/64 reference, W241 raw
+short MIDI for main and multibus effects with both auxiliary directions and one
+AUDIO admission, and W249 opt-in prepared host meter taps with a separate Gain
+meter reference. Every packet, promotion source and evidence guard was verified
+first; no blocking review finding remained. Seventy-two three-way merges over 59
+paths were all fast-forwards, R4 equals R3 on every W241 overlap, W249's six
+additive overlaps apply on W241, and Cargo manifests and lockfile are unchanged.
+Fifty-nine code/doc paths were adopted after base and staged hash verification;
+the three shared documentation files were verified as pure additions to the
+post-W240 public versions, and stale "adoption pending" status wording was
+corrected.
+
+The stage passed all 86 commands: 1,509 all-feature workspace tests, 61
+doctests, warning-denied Clippy and Rustdoc, formatting, documentation, 62
+script tests (16 AAX packaging) and four REAPER tests, whitespace, and AAX
+pipelines rebuilt fresh from the staged sources with CTest in normal and
+fast-math profiles (Gain native32 32/32, native64 48/48, editor32 35/35, stock32
+14/14; Performance, MidiSine, raw routing and Gain meters 32/64), local notices,
+ad-hoc signing with strict verification, bundle checks and registered-module
+contracts. Packet target/aax-chain-adoption.md.
+
+### Combined public acceptance after W240 and the AAX chain
+
+All fourteen combined commands pass on a fresh cache: 1,429 all-feature runtime
+tests and 104 doctests (zero failed, four ignored), 63 default doctests,
+warning-denied Clippy and Rustdoc, formatting, documentation, Python and
+whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
+checks, with no bound source change. Receipt
+target/combined-4-w240-aax-gates.log, exit 0. Evidence is local macOS arm64;
+no Pro Tools, ACF host chain, PACE or production signing, DAW, other-platform or
+deadline claim follows. See [decision0247](decisions/0247-aax-short-midi-input.md),
+[decision0254](decisions/0254-aax-raw-effects-auxiliary.md) and
+[decision0262](decisions/0262-aax-native-metering.md).
+
+### W246 R2 explicit PostScript outlines public adoption
+
+Root review of frozen W246 reproduced a panic: RAVET and read-fonts 0.45.0
+tokenized a large-exponent CFF real differently, and unchecked operand-group
+indexing let a crafted 26-byte top DICT panic `outline_format`/`outline_glyph`
+through a public `Result` API. The original packet and reproduction remain
+preserved. R2 refuses every number spelling read-fonts would truncate, requires
+both decoders to agree on operator count, per-operator operand count, integer/real
+kind and integer values before either result is used, and replaces every
+unchecked DICT/FDSelect/INDEX index, slice and offset addition with refusal.
+Existing tests are unchanged; new regression tests cover the crafted DICT, a Font
+DICT variant, exponent boundaries, leading-zero exponents, truncation and operand
+mismatch, every spelling up to five nibbles, 200,000 seeded long exponents,
+40,000 DICT mutations and 20,000 font-level mutations per seed font with zero
+panics (the same loop finds ten panics on the frozen source). An independent
+Sonnet 5.5 static review found no blocking or major defect and cleared adoption;
+absolute panic-freedom wording was softened because complete absence also depends
+on read-fonts/skrifa, and its minor test and measurement follow-ups remain open.
+
+Seventy-eight public paths were adopted after base and staged hash verification.
+Cargo.lock adds only skrifa 0.48.0 (MIT OR Apache-2.0, recorded in LICENSING).
+Two inherited failures were corrected during staging without changing assertions:
+text-only Clippy (feature-gated unused test items) and an unmapped formatting
+divergence (public `tests/svg_image.rs` retained). The stage passed every public
+gate: 1,572 all-feature workspace tests (zero failed, four ignored), 63
+doctests, warning-denied Clippy and Rustdoc, formatting, documentation, 62 script
+and four REAPER tests, whitespace, and text-only ravet-surface Clippy/tests. The
+24-command native script passed (feature on/off loaders, installed system-font
+comparison with 40 glyphs and maximum 1.14e-13 font units, ten authored
+HarfBuzz/FreeType/CoreText profiles, owned windows, CFF2 window and 33+33 WebKit
+groups), as did 63 headless Chromium groups with trusted CFF2 weight selection.
+Packet target/w246-adoption.md. Per-glyph metadata re-admission and backend CFF2
+blend costs are unmeasured; leading-zero exponents are conservatively refused.
+No Unicode conformance, native accessibility or deadline claim follows. See
+[decision0259](decisions/0259-explicit-postscript-outlines.md).
+
+### Combined public acceptance after W246 R2
+
+With the skrifa lock addition, all fourteen combined commands pass on a fresh
+cache: 1,468 all-feature runtime tests and 104 doctests (zero failed, four
+ignored), 63 default doctests, warning-denied Clippy and Rustdoc, formatting,
+documentation, Python and whitespace checks, the AU host driver and
+ravet-native-dsp thumbv6m/x86_64 checks, with no bound source change. Receipt
+target/combined-5-w246-gates.log, exit 0.
+
+### W260 first Linux build and test evidence
+
+The current public tree (1,600-file snapshot taken before W246 adoption, with
+281 vendored locked crates shipped offline and hash-verified) was built and
+tested on the owner's Arch Linux machine (kernel 7.2.3, x86_64, 20 cores). The
+primary matrix uses rustc 1.99.0 installed user-locally through rustup at the
+owner's request; the system rustc 1.98.1 gave identical results as a secondary
+record. All 37 workspace members build with default and all features; `cargo
+test --workspace` passes 1,219 tests and the all-feature run passes 1,492 (zero
+failed, four ignored external FFmpeg/Pillow oracles). Default-feature
+warning-denied Clippy, 61/101 doctests, warning-denied Rustdoc, formatting,
+documentation checks and 62 Python tests pass. Per-crate default and all-feature
+test runs (74) all exit 0; ravet-media, ravet-metal, ravet-core-midi and
+ravet-editor-smoke compile as documented macOS-only stubs. The Linux CLAP bundle
+path produced Gain, Sine and Sidechain bundles, and the offline in-process Gain
+smoke host passed. Receipts target/w260-linux-validation.md and target/w260/logs.
+
+All-feature Clippy found a missing cfg gate in the SVG workspace tutorial model
+(dead without macOS `live-ui`, also failing on macOS without that feature);
+the fix is adopted, and macOS all-feature/default Clippy and the 40 tutorial
+tests pass with it. A WebKitGTK 2.52.6 deprecation replacement remains a
+compiled-only proposal (target/w260/proposed-fixes). CMake was unavailable, so
+LV2 bundling, the Linux C++ editor library/GTK tests and native fixtures were not
+run (the two Linux editor sources compiled to objects only). The macOS
+`native_semantics` tutorial binary still requires `live-ui` to build. This is
+build/test evidence on one machine: no audio device, DAW, plug-in host, GUI,
+other-distribution or real-time deadline evidence, and no Linux support claim.
+
+### W259 impulse-response preparation and live convolution transitions public adoption
+
+Source-rate impulse-response preparation is adopted in ravet-signal (no runtime
+dependencies) with explicit integer-rate sinc conversion, channel selection,
+threshold trimming with recorded offsets and none/peak/energy normalization with
+reported gain, all bounded before allocation with whole-call refusal; file
+preparation uses ravet-audio-file's existing default-disabled
+`resampled-playback` feature. Live engine/bank transitions are in ravet-graph
+behind the new default-disabled `convolution-transitions` feature, reusing its
+bounded handoff and retirement pattern: background preparation, allocation-free
+AUDIO handoff, explicit equal-gain or equal-power crossfade with both engines
+running, non-audio retirement and explicit Refuse, QueueOne or LatestWins
+mid-fade policy. Cargo.lock is unchanged.
+
+An independent Sonnet 5.5 review found no blocker but required changes. R3 makes
+LatestWins start the newest proposal, refuses rather than later starting a
+backpressured Refuse proposal, computes energy normalization with exact
+power-of-two scaling (huge finite samples are no longer zeroed and subnormal
+responses no longer refused as silent; unrepresentable gains refuse), removes
+every panic path from AUDIO and documents exactly which thread frees what at
+shutdown in either drop order. Regression tests for the three behaviour defects
+fail on the frozen R1 source and pass on R3. Analytic resampling error is at most
+1.56e-5 of peak with 64 taps (96→48 kHz) and 1.05e-6 with 256 taps (192→48 kHz);
+trim, normalize and mapping are bitwise exact; crossfades match an independent
+blend bit-exactly across laws, precisions, partitions and block sizes; AUDIO-side
+allocation and free counts are zero through handoff, fade, retirement,
+backpressure and post-control shutdown.
+
+Eighteen public paths were adopted after base and staged hash verification. The
+stage passed all 33 public commands: 1,603 all-feature workspace tests (zero
+failed, four ignored), 64 doctests, warning-denied Clippy and Rustdoc,
+formatting, documentation, 62 script and four REAPER tests, whitespace, 29
+release W259 tests, three release stress runs and release allocation/shutdown
+tests. Packet target/w259-adoption.md; superseded pre-review receipts and the R1
+failure are preserved. New engines start without history (a level dip for
+responses longer than the fade), differing latencies are reported but not
+aligned, and release stress rarely reached mid-fade offers, so those paths rely
+on deterministic tests. No real-time deadline claim follows. See
+[decision0272](decisions/0272-impulse-response-preparation-and-live-convolution-transitions.md).
+
+### W258 hosted VST3 editor ownership public adoption
+
+A separate native editor table and the default-disabled ravet-host `vst3-editor`
+feature own macOS NSView IPlugView editors created on MAIN from the edit
+controller. Host sizes are bounded to 1..16384 and pass the plug-in's resize,
+`checkSizeConstraint` (only `kResultTrue` accepts) and `onSize` sequence with no
+unconstrained fallback; the applied size is re-queried with `getSize`.
+Plug-in-initiated resizes are refused while detached or during other host calls
+into the view, deferred during attach or scale change and then applied or
+counted, never acknowledged and silently dropped. A live editor blocks instance
+destroy and module close, so the view is released before the controller,
+component and module. The Rust `Editor` guard exclusively borrows its `Instance`;
+attachment is `unsafe` because the caller's window must outlive it; no native
+pointer escapes.
+
+An independent Sonnet 5.5 review found no blocking memory-safety defect but
+required changes. R3 reports the true attached state on every native reply,
+including refusals; records the exclusive-borrow limitation in ADR 0271 (Rust
+scoped audio, prepare and state calls need the editor closed, and concurrent
+editor plus AUDIO is shown only through the raw native table); narrows the
+compile-fail doctest claims to compiling controls; makes refused drops observable
+and deterministic; clears the resize mailbox on detach, teardown and successful
+host resize; and terminates the process if an unretired owner is destroyed from
+inside its own callback (fork-tested). The fixtures also found and closed a
+nested-call gap during plug-in-initiated resize.
+
+Twenty-three public paths were adopted after base and staged hash verification.
+The stage passed the full public gate set (all-feature tests, 64 doctests,
+warning-denied Clippy and Rustdoc, formatting, documentation, 62 script and four
+REAPER tests, whitespace) and VST3 CMake/CTest 67/67 including six editor tests.
+The real-window test built RAVET's Gain editor and ran nine cycles across three
+modules: three attached the real editor and six correctly reported no editor,
+with 857 audio blocks processed on a worker while the editor was open and
+instance/module retirement refused during it. Packet target/w258-adoption.md;
+earlier R1/R2/pre-R3 receipts are preserved. Graph-bank child editors, editor
+edit gestures, a real-window Rust API test and a manual visible probe remain
+open. Local macOS arm64 only; no DAW, third-party editor, rendering, keyboard,
+focus or accessibility claim. See
+[decision0271](decisions/0271-hosted-vst3-editor-ownership.md).
+
+### Combined public acceptance after W258, W259 and the W260 tutorial fix
+
+All fourteen combined commands pass on a fresh cache: 1,511 all-feature runtime
+tests and 111 doctests (zero failed, four ignored), 64 default doctests,
+warning-denied Clippy and Rustdoc, formatting, documentation, Python and
+whitespace checks, the AU host driver and ravet-native-dsp thumbv6m/x86_64
+checks, with no bound source change. Receipt
+target/combined-6-w258-w259-gates.log, exit 0.

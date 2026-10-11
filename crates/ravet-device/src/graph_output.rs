@@ -249,10 +249,10 @@ impl WorkerGraphSession<'_> {
             }
         }
     }
-    fn reset(&mut self) {
+    fn try_reset(&mut self) -> Result<(), GraphStatus> {
         match self {
-            Self::Fixed(graph) => graph.reset(),
-            Self::Dynamic(graph) => graph.reset(),
+            Self::Fixed(graph) => graph.try_reset(),
+            Self::Dynamic(graph) => graph.try_reset(),
         }
     }
 }
@@ -432,8 +432,20 @@ impl GraphOutputSession<'_> {
     /// Reset graph histories on their owner; queued and retained audio is not
     /// discarded. Stop/join both endpoints before explicitly clearing a queue.
     pub fn reset(&mut self) {
-        self.graph.reset();
-        *self.fault = None;
+        let _ = self.try_reset();
+    }
+    /// Preserve published/queued audio and retain the fault on reset refusal.
+    pub fn try_reset(&mut self) -> Result<(), GraphStatus> {
+        match self.graph.try_reset() {
+            Ok(()) => {
+                *self.fault = None;
+                Ok(())
+            }
+            Err(status) => {
+                self.fault.get_or_insert(status);
+                Err(status)
+            }
+        }
     }
     pub fn finish(self) {}
 }

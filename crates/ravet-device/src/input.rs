@@ -55,7 +55,7 @@ pub struct InputStatistics {
     pub backend_errors: u64,
 }
 #[derive(Default)]
-struct CaptureCounters {
+pub(super) struct CaptureCounters {
     callbacks: AtomicU64,
     captured: AtomicU64,
     dropped: AtomicU64,
@@ -63,7 +63,10 @@ struct CaptureCounters {
     errors: AtomicU64,
 }
 impl CaptureCounters {
-    fn snapshot(&self) -> InputStatistics {
+    pub(super) fn report_error(&self) {
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+    pub(super) fn snapshot(&self) -> InputStatistics {
         InputStatistics {
             callbacks: self.callbacks.load(Ordering::Relaxed),
             captured_frames: self.captured.load(Ordering::Relaxed),
@@ -77,7 +80,7 @@ impl CaptureCounters {
 /// the newest input suffix and count it. No callback allocation, locks or I/O.
 pub struct PreparedCapture {
     producer: AudioProducer,
-    counters: Arc<CaptureCounters>,
+    pub(super) counters: Arc<CaptureCounters>,
 }
 impl PreparedCapture {
     /// Input channels 1..64, power-of-two ring capacity 1..65536 frames.
@@ -122,7 +125,7 @@ impl PreparedCapture {
 /// Pause does not discard queued captured frames; seek/flush policy is external.
 pub struct InputStream {
     stream: cpal::Stream,
-    counters: Arc<CaptureCounters>,
+    pub(super) counters: Arc<CaptureCounters>,
 }
 impl InputStream {
     pub fn play(&self) -> Result<(), cpal::Error> {
@@ -164,13 +167,65 @@ pub fn open_input(
         .map_err(OpenError::Backend)?;
     Ok((InputStream { stream, counters }, consumer))
 }
+/// Original preparation error and exclusive unchanged endpoint ownership.
+pub struct PreparedDuplexFailure<P> {
+    processor: P,
+    consumer: AudioConsumer,
+    error: PrepareError,
+}
+impl<P> PreparedDuplexFailure<P> {
+    pub fn error(&self) -> &PrepareError {
+        &self.error
+    }
+    pub fn into_parts(self) -> (P, AudioConsumer, PrepareError) {
+        (self.processor, self.consumer, self.error)
+    }
+}
+impl<P> std::fmt::Display for PreparedDuplexFailure<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+impl<P> std::error::Error for PreparedDuplexFailure<P> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+impl<P> std::fmt::Debug for PreparedDuplexFailure<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedDuplexFailure")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+pub(crate) fn scratch<T: Clone>(n: usize, zero: T) -> Result<Vec<T>, PrepareError> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(n)
+        .map_err(|_| PrepareError::InvalidMaximumFrames)?;
+    v.resize(n, zero);
+    Ok(v)
+}
+pub(crate) fn planar<T: Clone>(
+    channels: usize,
+    frames: usize,
+    zero: T,
+) -> Result<Vec<Vec<T>>, PrepareError> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(channels)
+        .map_err(|_| PrepareError::InvalidMaximumFrames)?;
+    for _ in 0..channels {
+        v.push(scratch(frames, zero.clone())?);
+    }
+    Ok(v)
+}
 /// Prepared f32 effect processing over queued interleaved input. Input underflow
 /// fills the missing suffix with zero and counts frames. Variable output buffers
 /// split at the preparation maximum; no rate adaptation or event delivery.
 pub struct PreparedDuplex<P: Processor> {
-    processor: P,
+    processor: Option<P>,
+    active: bool,
     config: ProcessConfig,
-    consumer: AudioConsumer,
+    consumer: Option<AudioConsumer>,
     captured: Vec<f32>,
     inputs: Vec<Vec<f32>>,
     outputs: Vec<Vec<f32>>,
@@ -179,36 +234,94 @@ pub struct PreparedDuplex<P: Processor> {
 }
 impl<P: Processor> PreparedDuplex<P> {
     pub fn new(
-        mut processor: P,
+        processor: P,
         sample_rate: u32,
         consumer: AudioConsumer,
         output_channels: usize,
         maximum_frames: usize,
     ) -> Result<Self, PrepareError> {
-        if !(1..=MAXIMUM_FRAMES).contains(&maximum_frames) {
-            return Err(PrepareError::InvalidMaximumFrames);
-        }
-        if !(1..=MAXIMUM_CHANNELS).contains(&output_channels) {
-            return Err(PrepareError::UnsupportedLayout);
-        }
-        let input_channels = consumer.channels();
-        let config = ProcessConfig::new(
-            f64::from(sample_rate),
-            maximum_frames,
-            0,
-            AudioLayout::new(input_channels, output_channels)?,
-        )?;
-        processor.prepare(config)?;
-        Ok(Self {
+        Self::new_owned(
             processor,
-            config,
+            sample_rate,
             consumer,
-            captured: vec![0.; maximum_frames * input_channels],
-            inputs: vec![vec![0.; maximum_frames]; input_channels],
-            outputs: vec![vec![0.; maximum_frames]; output_channels],
+            output_channels,
+            maximum_frames,
+        )
+        .map_err(|failure| failure.error)
+    }
+    /// Prepare on control, retaining the original processor and capture consumer
+    /// on normal failure. All fallible scratch reserves precede child preparation.
+    /// A failed child prepare must leave it inactive; foreign panics are exceptional.
+    pub fn new_owned(
+        mut processor: P,
+        sample_rate: u32,
+        consumer: AudioConsumer,
+        output_channels: usize,
+        maximum_frames: usize,
+    ) -> Result<Self, PreparedDuplexFailure<P>> {
+        let prepared = (|| {
+            if !(1..=MAXIMUM_FRAMES).contains(&maximum_frames) {
+                return Err(PrepareError::InvalidMaximumFrames);
+            }
+            if !(1..=MAXIMUM_CHANNELS).contains(&output_channels) {
+                return Err(PrepareError::UnsupportedLayout);
+            }
+            let input_channels = consumer.channels();
+            let config = ProcessConfig::new(
+                f64::from(sample_rate),
+                maximum_frames,
+                0,
+                AudioLayout::new(input_channels, output_channels)?,
+            )?;
+            let captured = scratch(maximum_frames * input_channels, 0.0f32)?;
+            let inputs = planar(input_channels, maximum_frames, 0.0f32)?;
+            let outputs = planar(output_channels, maximum_frames, 0.0f32)?;
+            let counters = Arc::default();
+            processor.prepare(config)?;
+            Ok((config, captured, inputs, outputs, counters))
+        })();
+        let (config, captured, inputs, outputs, counters) = match prepared {
+            Ok(parts) => parts,
+            Err(error) => {
+                return Err(PreparedDuplexFailure {
+                    processor,
+                    consumer,
+                    error,
+                });
+            }
+        };
+        Ok(Self {
+            processor: Some(processor),
+            active: true,
+            config,
+            consumer: Some(consumer),
+            captured,
+            inputs,
+            outputs,
             position: Some(0),
-            counters: Arc::default(),
+            counters,
         })
+    }
+    /// Consume stopped ownership on control, deactivating exactly once. Scratch
+    /// disposal is on this caller; no capture drain, reset, seek or wait is hidden.
+    pub fn into_parts(mut self) -> (P, AudioConsumer) {
+        self.deactivate_owned();
+        (
+            self.processor.take().expect("owned processor"),
+            self.consumer.take().expect("owned consumer"),
+        )
+    }
+    pub fn into_processor(self) -> P {
+        self.into_parts().0
+    }
+    fn deactivate_owned(&mut self) {
+        if self.active {
+            self.active = false;
+            self.processor
+                .as_mut()
+                .expect("owned processor")
+                .deactivate();
+        }
     }
     /// Offline callback-equivalent rendering. Panics are contained by the live
     /// wrapper, not this method; malformed partial frames silence without dequeue.
@@ -232,7 +345,12 @@ impl<P: Processor> PreparedDuplex<P> {
         let frames = chunk.len() / channels;
         let captured = &mut self.captured[..frames * inputs];
         captured.fill(0.);
-        let read = self.consumer.pop(captured).expect("complete frames");
+        let read = self
+            .consumer
+            .as_mut()
+            .expect("owned consumer")
+            .pop(captured)
+            .expect("complete frames");
         self.counters
             .input_underflow_frames
             .fetch_add((frames - read) as u64, Ordering::Relaxed);
@@ -267,7 +385,12 @@ impl<P: Processor> PreparedDuplex<P> {
                 ..Transport::default()
             },
         );
-        match self.processor.process(&mut block) {
+        match self
+            .processor
+            .as_mut()
+            .expect("owned processor")
+            .process(&mut block)
+        {
             ProcessStatus::Continue => {}
             ProcessStatus::Silence => block.clear_outputs(),
             ProcessStatus::Fault(_) => {
@@ -303,7 +426,7 @@ impl<P: Processor> DeviceRenderer for PreparedDuplex<P> {
 }
 impl<P: Processor> Drop for PreparedDuplex<P> {
     fn drop(&mut self) {
-        self.processor.deactivate();
+        self.deactivate_owned();
     }
 }
 /// Two explicit streams with a bounded input FIFO. Matching nominal rates are

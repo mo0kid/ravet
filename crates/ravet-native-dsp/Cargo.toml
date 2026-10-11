@@ -1,0 +1,30 @@
+[package]
+name = "ravet-native-dsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Explicit native floating policy, packed values and prepared vector operations"
+
+[features]
+default = []
+std = ["ravet-foundation?/std"]
+processor = ["dep:ravet-foundation"]
+
+[dependencies]
+libm = { version = "=0.2.16", default-features = false }
+ravet-foundation = { path = "../ravet-foundation", default-features = false, optional = true }
+
+[dev-dependencies]
+allocation-counter = "=0.8.1"
+ravet-foundation.workspace = true
+ravet-graph = { path = "../ravet-graph" }
+ravet-signal.workspace = true
+
+# Native boundary alone: deny is weakened only inside its private register and
+# intrinsic modules. The portable workspace unsafe-forbid is unchanged.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"

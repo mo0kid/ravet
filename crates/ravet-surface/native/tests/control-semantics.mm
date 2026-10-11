@@ -42,7 +42,7 @@ int main(int argc,char** argv) {
             }];
             for(int wait=0;wait<20&&!evaluated;wait++)pump();pump();
         }
-        if(!finished){__block bool sampled=false;[web evaluateJavaScript:@"JSON.stringify(window.ravetSemanticProgress)" completionHandler:^(id result,NSError* error){if(result)std::cout<<[(NSString*)result UTF8String]<<'\n';sampled=true;}];for(int i=0;i<50&&!sampled;i++)pump();}
+        if(!finished){__block bool sampled=false;[web evaluateJavaScript:@"JSON.stringify(window.ravetSemanticProgress)" completionHandler:^(id result,NSError* error){if(error)std::cerr<<error.localizedDescription.UTF8String<<'\n';if(result)std::cout<<[(NSString*)result UTF8String]<<'\n';sampled=true;}];for(int i=0;i<50&&!sampled;i++)pump();}
         if(evidence)std::cout<<evidence.UTF8String<<'\n';
         require(finished&&passed,"WebKit control semantic contracts failed");
         // Native range dragging must survive; cancelling pointerdown would also

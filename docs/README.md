@@ -19,15 +19,27 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Feature catalogue](FEATURES.md) | Current capabilities, implementation limits, source, and test evidence |
 | [Architecture](architecture.md) | Crate boundaries, ownership, lifecycle, and real-time obligations |
 | [Extended processing](extended-processing.md) | Precision, buses, bounded output events and block-start transport |
-| [Plug-in hosting](plugin-hosting.md) | Explicit bounded candidate discovery, trusted CLAP catalogues and entry ownership |
+| [Plug-in hosting](plugin-hosting.md) | Explicit bounded CLAP discovery, trusted catalogues and entry ownership |
+| [VST3 hosting](vst3-hosting.md) | Caller-linked trusted catalogue ownership and explicit native linking |
+| [VST3 parameters](vst3-parameters.md) | Owned stopped controller metadata and bounded timed DSP input |
+| [VST3 state](vst3-state.md) | Owned stopped component/controller bytes and explicit partial failure |
+| [VST3 instances](vst3-instances.md) | Main-owned components/controllers and scoped main-bus f32 processing |
+| [VST3 processing](vst3-processing.md) | Paired events, parameter output and block context for hosted instances |
+| [AUv3 hosting](au-hosting.md) | Optional macOS asynchronous AUv3 ownership and joined main-bus f32 audio |
 | [Audio graphs](audio-graphs.md) | Prepared topology, routing, latency compensation and explicit fault progress |
 | [Audio files](audio-files.md) | Bounded WAV/AIFF streams, worker frame buffers and prepared memory transport |
+| [Color preparation](color-preparation.md) | Explicit sRGB/linear-light transfer and alpha association |
+| [SVG images](svg-images.md) | Optional bounded resource-free SVG import and prepared pixels |
 | [Image assets](image-assets.md) | Optional owned static PNG/JPEG worker codecs and explicit pixel adoption |
 | [CPU raster](cpu-raster.md) | Optional owned path/stroke/local-font RGBA8 rendering |
 | [Metal drawing](metal-drawing.md) | Explicit macOS offscreen rectangles/bitmap scenes and owned GPU readback |
+| [System fonts](system-fonts.md) | Explicit copied catalogue/style selection and immutable font variations |
+| [Font-stack paragraphs](fallback-paragraphs.md) | Exact-face wrapped mixed-direction paragraphs, grapheme-safe bidi and SVG/CPU output |
+| [PostScript outlines](postscript-outlines.md) | Optional selected-instance CFF1/CFF2 outlines and explicit macOS PostScript font loading |
 | [Local video](local-video.md) | Explicit macOS local-video metadata and timestamped worker frame extraction |
 | [Audio devices](audio-devices.md) | Explicit output adapter, selection, configuration and callback probe |
 | [Signal processing](signal-processing.md) | Prepared filters, FFT, FIR convolution and selectable oversampling |
+| [Native DSP boundary](native-dsp.md) | Scoped native floating-point policy, explicit packed values and prepared vector slices |
 | [CoreMIDI UMP](core-midi-ump.md) | Exact native IDs, protocol-selected macOS ports and guarded owned endpoint lifetime |
 | [MIDI](midi.md) | Short messages, device packets, voice/RPN expression and portable sine synthesis |
 | [Parameters and meters](parameters.md) | Portable schemas, complete state, bypass and bounded meter transfer |
@@ -40,19 +52,36 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Rust runtime services](runtime-services.md) | Bounded files/HTTPS, owned workers/timers and native ownership facade |
 | [Parameter attachments](parameter-attachments.md) | Reusable stable-ID UI bindings, normalized mappings and explicit gesture ownership |
 | [Portable drawing](surface-drawing.md) | Bounded geometry/layout, themed SVG typography and explicit-clock animation |
+| [Grid workspace](grid-layout.md) | Explicit row/column spans and measured standalone content size |
+| [Window lifecycle](window-lifecycle.md) | Exact owned window state and veto-aware closure |
+| [Window constraints](window-constraints.md) | Opt-in content bounds, aspect fitting and native callback guards |
 | [Control semantics](control-semantics.md) | Explicit knob disabled/end ownership and meter label/formatter lifecycle |
 | [Modal dialogs](modal-dialogs.md) | Browser-owned modality, guarded completion and explicit retirement drains |
 | [Web controls](web-controls.md) | Reusable local slider/number, toggle, choice and action-button components |
 | [Editor control bridge](editor-control.md) | CLAP committed-edit gestures, coherent parameter reads and meter handoff |
+| [Native semantics](native-semantics.md) | Explicit custom-control semantic snapshots and guarded AppKit intent delivery |
 | [Native editor](native-editor.md) | macOS WebKit prototype, ownership, and main-loop probe |
 | [Sidechain CLAP reference](sidechain-clap.md) | Native f32/f64 stereo main buses and mono auxiliary detector validation |
 | [MIDI sine CLAP reference](sine-clap.md) | Native instrument bundle, timed MIDI and atomic level recall |
+| [Native client acquisition](native-client-acquisition.md) | Exact core origin and balanced CONTROL ownership |
+| [Native table identity](native-table-identity.md) | Canonical runtime processor and companion table acquisition |
 | [Native processing adapter](native-processing.md) | Prepared f32/f64 processing, events/transport, lifecycle, schemas, explicit state and telemetry for native shims |
 | [VST3 reference](vst3.md) | Shared Rust DSP, external SDK build and validator/contracts |
 | [AUv3 and mobile](mobile.md) | Native Apple/Android adapters, public app fixtures and validation limits |
 | [AudioUnit v2 reference](audio-unit.md) | External SDK component build, normalized controls and in-process render/state checks |
-| [AAX reference](aax.md) | External SDK build and binary-entry probe; host/signing prerequisites |
+| [AAX reference](aax.md) | External SDK build, registered native parameter/control fixtures and explicit lifecycle/host/signing limits |
+| [AAX internal precision](aax-precision.md) | Explicit native32/64 DSP behind host-f32 buffers |
+| [AAX timing](aax-timing.md) | Checked initial latency and prepared acknowledged replacement |
+| [AAX native editor](aax-native-editor.md) | Optional owned WebKit editor and checked host automation |
+| [Performance AAX](performance-aax.md) | Native no-input short-note instrument, Level state and local actual-module validation |
+| [AAX transport](aax-transport.md) | Initialized public SDK capture, exact raw ticks, rounded PPQ and independent availability |
+| [AAX MIDI output](aax-generated-midi.md) | Explicit generated short messages and partial SDK delivery |
+| [AAX audio buses](aax-bus-mapping.md) | Explicit prepared main/aux mapping and initialized registered Rust adoption |
+| [AAX short MIDI input](aax-short-midi.md) | Explicit raw complete short-MIDI instrument input and the MidiSine native32/64 reference |
+| [AAX raw routing](aax-raw-routing.md) | Raw short MIDI for main and multibus effects, both auxiliary directions and one AUDIO admission |
+| [AAX meters](aax-meters.md) | Opt-in prepared host meter taps and the separate Gain meter reference |
 | [LV2 reference](lv2.md) | Mono/stereo descriptors, control ports and actual-binary checks |
+| [LV2 MIDI output](lv2-output.md) | Prepared short MIDI staging, complete Atom capacity and output fault semantics |
 | [Host validation](host-validation.md) | Disposable REAPER checks, synthetic renders and manual interaction scope |
 | [Runtime validation](runtime-validation.md) | Configured workspace platform matrix and macOS CLAP ABI workflow |
 | [Gain session state](session-state.md) | Product state format and CLAP restore synchronization |
@@ -63,6 +92,9 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Decision records](decisions/README.md) | Reasons for architectural and distribution choices |
 | [Licensing](../LICENSING.md) | GPL edition and accepted commercial pricing/policy |
 | [Commercial agreement draft](legal/COMMERCIAL_LICENSE_DRAFT.md) | Proposed contract, Order Form, and owner/legal review notes; no commercial grant |
+
+Caller-owned [local font fallback](font-fallback.md) retains exact selected faces
+through shaping and SVG/CPU rendering.
 
 ## API reference
 

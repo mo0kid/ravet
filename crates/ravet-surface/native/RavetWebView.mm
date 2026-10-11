@@ -71,12 +71,31 @@
 - (BOOL)acceptsFirstMouse:(NSEvent*)event { return YES; }
 @end
 
+@class RavetAccessibilityOwner;
 @interface RavetWebContainer : NSView
 @property(nonatomic, strong) WKWebView* web;
 @property(nonatomic, strong) RavetWebBridge* bridge;
 @property(nonatomic, strong) NSColor* background;
+@property(nonatomic,strong) RavetAccessibilityOwner* accessibilityOwner;
+@property(nonatomic) uint64_t accessibilityRevision;
+@property(nonatomic) BOOL accessibilityTransition;
 @end
+#include "RavetAccessibility.inc"
 @implementation RavetWebContainer
+- (BOOL)isAccessibilityElement { if(!NSThread.isMainThread)return NO; return self.accessibilityOwner ? YES : [super isAccessibilityElement]; }
+- (NSAccessibilityRole)accessibilityRole { if(!NSThread.isMainThread)return NSAccessibilityUnknownRole; return self.accessibilityOwner ? NSAccessibilityGroupRole : [super accessibilityRole]; }
+- (NSString*)accessibilityLabel { if(!NSThread.isMainThread)return nil; return self.accessibilityOwner ? self.accessibilityOwner.label : [super accessibilityLabel]; }
+- (NSArray*)accessibilityChildren { if(!NSThread.isMainThread)return @[]; return self.accessibilityOwner ? [self.accessibilityOwner children] : [super accessibilityChildren]; }
+- (NSArray*)accessibilityChildrenInNavigationOrder { if(!NSThread.isMainThread)return @[]; return self.accessibilityOwner ? [self.accessibilityOwner children] : [super accessibilityChildrenInNavigationOrder]; }
+- (id)accessibilityFocusedUIElement { if(!NSThread.isMainThread)return nil; return self.accessibilityOwner ? [self.accessibilityOwner focusedElement] : [super accessibilityFocusedUIElement]; }
+- (id)accessibilityHitTest:(NSPoint)point {
+    if(!NSThread.isMainThread)return nil;
+    if(!self.accessibilityOwner)return [super accessibilityHitTest:point];
+    NSArray* children=[self.accessibilityOwner children];
+    for(RavetAccessibilityElement* element in children.reverseObjectEnumerator)
+        if(NSPointInRect(point,element.accessibilityFrame))return element;
+    return [self.accessibilityOwner visible]&&NSPointInRect(point,NSAccessibilityFrameInView(self,self.bounds))?self:nil;
+}
 - (BOOL)isFlipped { return YES; }
 - (BOOL)isOpaque { return YES; }
 - (void)drawRect:(NSRect)dirtyRect { [_background setFill]; NSRectFill(dirtyRect); }
@@ -163,6 +182,7 @@ extern "C" void ravet_web_destroy(void* view) {
     NSCAssert(NSThread.isMainThread, @"main thread required");
     if (!view) return;
     RavetWebContainer* container = (__bridge_transfer RavetWebContainer*)view;
+    [container.accessibilityOwner retire]; container.accessibilityOwner=nil;
     [container.bridge.timer invalidate]; container.bridge.timer = nil;
     container.bridge.message = nullptr; container.bridge.snapshot = nullptr; container.bridge.bufferSnapshot = nullptr; container.bridge.context = nullptr;
     [container.web.configuration.userContentController removeScriptMessageHandlerForName:@"ravet"];

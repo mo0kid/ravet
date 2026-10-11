@@ -166,8 +166,23 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
         process: Self::process,
         timing: Self::timing,
     };
-    /// Static immutable table for this processor and native sample precision.
-    pub const fn entry() -> &'static NativeProcessorEntryV1 {
+    /// Canonical runtime-acquired immutable table for this processor/precision.
+    /// This function is deliberately non-const and out of line: separate exports
+    /// and companions must return the same table address across codegen units.
+    /// Acquire on CONTROL and retain the originating library through borrowers.
+    ///
+    /// Const evaluation is intentionally unavailable; it can promote distinct
+    /// copies of the table into foreign export/companion call sites.
+    /// ```compile_fail
+    /// use ravet_native::{NativeProcessor, NativeProcessorEntryV1};
+    /// use ravet_foundation::{Processor, Sample};
+    /// const fn table<P: Processor<S> + Default + Send + 'static,
+    ///                S: Sample + Send + 'static>() -> &'static NativeProcessorEntryV1 {
+    ///     NativeProcessor::<P, S>::entry()
+    /// }
+    /// ```
+    #[inline(never)]
+    pub fn entry() -> &'static NativeProcessorEntryV1 {
         &Self::ENTRY
     }
     extern "C" fn create() -> *mut c_void {

@@ -1,0 +1,17 @@
+[package]
+name = "ravet-bus-routing-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Public native main, detector and auxiliary routing reference"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-native = { path = "../../crates/ravet-native" }
+
+[lints.rust]
+unsafe_code = "deny"

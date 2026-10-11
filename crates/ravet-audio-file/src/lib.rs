@@ -83,3 +83,29 @@ mod mp3_recording;
 pub use mp3_recording::{
     Mp3RecordingCompletion, Mp3RecordingExit, Mp3RecordingStatus, Mp3RecordingWorker,
 };
+
+#[cfg(feature = "resampled-playback")]
+mod file_playback;
+#[cfg(feature = "resampled-playback")]
+pub use file_playback::{
+    FilePlaybackFailure, FilePlaybackInfo, FilePlaybackOptions, FilePlaybackProgress,
+    IndexedPlaybackReader, PlaybackConversion, PlaybackReader, PreparedFilePlayback,
+    prepare_file_playback,
+};
+
+#[cfg(feature = "resampled-playback")]
+mod impulse_file;
+#[cfg(feature = "resampled-playback")]
+pub use impulse_file::{
+    ImpulseResponseFileError, ImpulseResponseFileErrorKind, ImpulseResponseFileOptions,
+    prepare_impulse_response_file,
+};
+
+#[cfg(feature = "resampled-playback")]
+mod converted;
+#[cfg(feature = "resampled-playback")]
+pub use converted::{
+    ConvertedReadAhead, ConvertedReadAheadCounts, ConvertedReadAheadFailure,
+    ConvertedReadAheadOptions, ConvertedReadAheadProgress, IndexedConvertedReadAhead,
+    IndexedReadAheadCounts, IndexedSeekFailure, IndexedSeekReceipt,
+};

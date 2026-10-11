@@ -15,3 +15,15 @@ calls are separate operations; callers own publication/recall/processing orderin
 This archive is not a plug-in factory, editor or SDK event-bus advertisement. See
 [the instrument guide](../../docs/midi.md) for synthesis/rejection/precision policy
 and [native processing](../../docs/native-processing.md) for foreign ownership.
+
+
+The separate `midi` module exports `ravet_midi_sine_*_v1` native32/64 processor,
+parameters/cache/audio-state/state/telemetry tables for a raw-short-MIDI sine
+reference. It uses the existing portable sine kernel with automatic program Level
+replacement explicitly disabled. Raw bank/program requests stay observable while
+acknowledged global Level remains coherent. State product `RAVETMS\0`/version1
+persists only Level; voices/history/raw telemetry are transient. Its distinct
+[AAX-only MidiSine reference](../../docs/aax-short-midi.md) has its own public IDs,
+no-input mono/stereo buses and no VST3 DSP class in the required SDK bootstrap.
+Existing identified Performance exports, state and output-completion behavior
+remain separate. See `include/RavetMidiSine.h` for exact telemetry fields and lifetime.

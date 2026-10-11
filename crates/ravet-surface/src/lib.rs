@@ -2,15 +2,22 @@
 //!
 //! [`ParameterAttachment`] maps validated metadata to explicit UI edits through
 //! a product [`ParameterControl`] transport and refreshes without feedback.
-//! Portable [`layout`] geometry, [`drawing`] SVG and [`animation`] tweens are
+//! Portable [`layout`] axis/grid geometry, [`drawing`] SVG and [`animation`] tweens are
 //! explicit UI facilities; rendering/font selection belongs to the consumer.
 //! The optional `text` feature adds local-font single-run shaping and measurement
-//! and bounded paragraph wrapping, source caret/hit mapping and caller-buffer
+//! and explicit caller-owned contextual font fallback, plus bounded paragraph
+//! wrapping, source caret/hit mapping and caller-buffer
 //! selection geometry, plus bounded source editing/undo and prepared layout identity
 //! on UI/worker threads. The independent optional `raster` feature adds owned CPU
 //! path/stroke pixels; combining it with `text` adds prepared local-font glyph pixels.
 //! The optional `image` feature owns bounded static PNG/JPEG pixels and PNG export.
 //! Optional `jpeg-encode` adds explicit opaque baseline JPEG writing.
+//! Optional `gif-image` adds explicit one-image GIF decoding and canvas policy.
+//! The dependency-free `color` module explicitly prepares sRGB/linear-light
+//! scalar colors and caller-buffer RGBA transfer/source-over without implicit
+//! renderer or image-profile changes.
+//! Optional `svg-image` imports owned bounded resource-free SVG geometry and sRGB
+//! premultiplied image pixels, with explicit viewport fitting.
 //! These allocating APIs do not create a window or establish callback deadlines.
 //! Editors must be independently creatable and destroyable while processing
 //! continues. Parameter changes and metering will communicate through bounded
@@ -26,11 +33,18 @@ pub use attachment::{AttachmentError, ParameterAttachment, ParameterControl};
 mod web_controls;
 pub use web_controls::{WEB_CONTROLS_SCRIPT, WEB_THEME_STYLE, embed_web_controls};
 pub mod animation;
+pub mod color;
 pub mod drawing;
 pub mod layout;
 
 #[cfg(feature = "text")]
 pub mod text;
+
+#[cfg(feature = "text")]
+pub mod fallback;
+
+#[cfg(feature = "text")]
+pub mod fallback_paragraph;
 
 #[cfg(feature = "text")]
 pub mod bidi;
@@ -49,3 +63,6 @@ pub mod raster;
 
 #[cfg(feature = "image")]
 pub mod image;
+
+#[cfg(feature = "svg-image")]
+pub mod svg;

@@ -445,3 +445,8 @@ pub fn encode_png(asset: &ImageAsset, maximum_bytes: usize) -> Result<Vec<u8>, I
 mod jpeg;
 #[cfg(feature = "jpeg-encode")]
 pub use jpeg::{JpegOptions, JpegSampling, encode_jpeg};
+
+#[cfg(feature = "gif-image")]
+mod gif;
+#[cfg(feature = "gif-image")]
+pub use gif::{GifBackground, decode_static_gif};

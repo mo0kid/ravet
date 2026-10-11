@@ -68,6 +68,12 @@ impl AudioProducer {
     pub fn capacity_frames(&self) -> usize {
         self.ring.capacity
     }
+    #[cfg(feature = "resampled-playback")]
+    pub(crate) fn available_frames(&self) -> usize {
+        let head = self.ring.head.0.load(Ordering::Relaxed);
+        let tail = self.ring.tail.0.load(Ordering::Acquire);
+        self.ring.capacity - head.wrapping_sub(tail)
+    }
     pub(crate) fn owns(&self, consumer: &AudioConsumer) -> bool {
         Arc::ptr_eq(&self.ring, &consumer.ring)
     }

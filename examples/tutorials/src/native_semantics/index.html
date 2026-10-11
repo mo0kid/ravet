@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><title>RAVET native semantic companion</title>
+<style>body{font:16px system-ui;margin:24px}#gain{width:320px;padding:16px;border:2px solid #3578ab;border-radius:6px;outline-offset:4px}button{font:inherit;padding:10px 20px;margin-top:18px}canvas{display:block;width:320px;height:24px;background:#eee}#status{min-height:24px}</style>
+<body><h1>Custom output control</h1>
+<div id="gain" role="slider" aria-label="Gain" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0.5" tabindex="0">Gain <output id="value">0.50</output><canvas id="bar" width="320" height="24" aria-hidden="true"></canvas></div>
+<button id="reset" type="button">Reset gain</button><p id="status" role="status">Ready</p>
+<script>
+'use strict';let admitted={gain:.5,revision:0};let events=[];
+function send(gain){window.webkit.messageHandlers.ravet.postMessage({gain});}
+document.getElementById('gain').addEventListener('keydown',event=>{
+ if(event.key!=='ArrowUp'&&event.key!=='ArrowDown')return;event.preventDefault();
+ events.push({key:event.key,trusted:event.isTrusted});send(Math.max(0,Math.min(1,admitted.gain+(event.key==='ArrowUp'?.1:-.1))));
+});
+document.getElementById('reset').addEventListener('click',event=>{events.push({key:'reset',trusted:event.isTrusted});send(.5);});
+window.ravetUpdate=value=>{
+ if(!value||!Number.isFinite(value.gain)||value.gain<0||value.gain>1||!Number.isInteger(value.revision)||value.revision<0)return;
+ admitted=value;document.getElementById('value').textContent=value.gain.toFixed(2);
+ document.getElementById('gain').setAttribute('aria-valuenow',String(value.gain));
+ const context=document.getElementById('bar').getContext('2d');context.clearRect(0,0,320,24);context.fillStyle='#3578ab';context.fillRect(0,0,320*value.gain,24);
+ document.getElementById('status').textContent='Gain '+value.gain.toFixed(2);
+};
+window.ravetCompanionGeometry=()=>{const ids=['status','gain','reset'];const geometry=ids.map(id=>{const r=document.getElementById(id).getBoundingClientRect();return [r.x,r.y,r.width,r.height].join(',');}).join('|');window.webkit.messageHandlers.ravet.postMessage({geometry});};
+window.addEventListener('resize',()=>window.ravetCompanionGeometry());
+window.ravetCompanionReport=()=>({gain:admitted.gain,revision:admitted.revision,painted:document.getElementById('value').textContent,events,focus:document.activeElement.id,viewport:[innerWidth,innerHeight]});
+</script></body>

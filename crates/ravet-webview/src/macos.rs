@@ -1,3 +1,7 @@
+use crate::accessibility::{
+    AccessibilityAction, AccessibilityActionKind, AccessibilityError, AccessibilityKind,
+    AccessibilityRevision, AccessibilitySnapshot,
+};
 use std::{
     cell::RefCell,
     ffi::{CStr, CString, c_char, c_void},
@@ -22,6 +26,16 @@ unsafe extern "C" {
     fn ravet_web_set_size(view: *mut c_void, width: f64, height: f64) -> bool;
     fn ravet_web_set_visible(view: *mut c_void, visible: bool);
     fn ravet_web_destroy(view: *mut c_void);
+    fn ravet_web_accessibility_set(
+        view: *mut c_void,
+        label: *const c_char,
+        nodes: *const NativeAccessibilityNode,
+        count: usize,
+        focused: u64,
+        context: *mut c_void,
+        action: Option<extern "C" fn(*mut c_void, u64, u64, u32) -> bool>,
+        revision: *mut u64,
+    ) -> u32;
 }
 /// Query the Cocoa UI thread without creating a view. All native editor ownership
 /// operations belong to that thread; this predicate does not initialize AppKit.
@@ -35,6 +49,12 @@ pub fn is_main_thread() -> bool {
 pub trait Callbacks {
     fn message(&mut self, json: &str);
     fn snapshot(&mut self) -> Option<String>;
+    /// Accept a discrete intent from the explicit native companion. Default is
+    /// refusal. Acceptance does not publish a new value or create a host gesture;
+    /// publish the next complete snapshot after callback unwind. Never audio-thread.
+    fn accessibility_action(&mut self, _: AccessibilityAction) -> bool {
+        false
+    }
 }
 /// Creation fails without owning a native view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +119,50 @@ extern "C" fn snapshot(raw: *mut c_void, destination: *mut c_char, capacity: usi
     }))
     .unwrap_or(0)
 }
+#[repr(C)]
+struct NativeAccessibilityNode {
+    id: u64,
+    label: *const c_char,
+    text: *const c_char,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    minimum: f64,
+    value: f64,
+    maximum: f64,
+    increment: f64,
+    kind: u32,
+    enabled: bool,
+    hidden: bool,
+}
+extern "C" fn accessibility_action(
+    raw: *mut c_void,
+    node_id: u64,
+    revision: u64,
+    kind: u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        let kind = match kind {
+            0 => AccessibilityActionKind::Press,
+            1 => AccessibilityActionKind::Increment,
+            2 => AccessibilityActionKind::Decrement,
+            _ => return false,
+        };
+        // SAFETY: native ownership gates guarantee a live original context on the
+        // UI thread. The retained Rc survives synchronous callback destruction.
+        let context = unsafe { retain_context(raw) };
+        let Ok(mut callbacks) = context.callbacks.try_borrow_mut() else {
+            return false;
+        };
+        callbacks.accessibility_action(AccessibilityAction {
+            node_id,
+            revision: AccessibilityRevision(revision),
+            kind,
+        })
+    }))
+    .unwrap_or(false)
+}
 /// Owned embedded NSView and callback context, destroyed in that order.
 /// `WebView` is neither Send nor Sync. Creation checks the Cocoa main thread;
 /// every subsequent operation and destruction stays on that thread.
@@ -152,6 +216,111 @@ impl<'a> WebView<'a> {
             _main_thread: PhantomData,
         })
     }
+    /// Install a complete opt-in native accessibility hierarchy for custom
+    /// content, replacing automatic WebKit content traversal. None restores the
+    /// original behavior and retires old elements. Requires an attached original
+    /// native owner. This does not inspect HTML or move system/page focus.
+    ///
+    /// Every full publication has a new editor-local revision. Retained elements
+    /// from previous revisions keep copied metadata but cannot route actions.
+    /// Native action/notification reentry reports Busy. Accepted native intent and
+    /// presentation acknowledgement are separate; update after callback unwind.
+    pub fn set_accessibility(
+        &self,
+        snapshot: Option<&AccessibilitySnapshot>,
+    ) -> Result<AccessibilityRevision, AccessibilityError> {
+        if !is_main_thread() {
+            return Err(AccessibilityError::WrongThread);
+        }
+        if self._context.callbacks.try_borrow_mut().is_err() {
+            return Err(AccessibilityError::Busy);
+        }
+        let label = snapshot.map(|s| CString::new(s.label()).expect("checked label"));
+        let labels: Vec<_> = snapshot
+            .into_iter()
+            .flat_map(|s| s.nodes())
+            .map(|n| CString::new(n.label()).expect("checked label"))
+            .collect();
+        let texts: Vec<_> = snapshot
+            .into_iter()
+            .flat_map(|s| s.nodes())
+            .map(|n| match n.kind() {
+                AccessibilityKind::StaticText { value } => {
+                    Some(CString::new(value.as_str()).expect("checked value"))
+                }
+                _ => None,
+            })
+            .collect();
+        let nodes: Vec<_> = snapshot
+            .into_iter()
+            .flat_map(|s| s.nodes())
+            .enumerate()
+            .map(|(i, n)| {
+                let (x, y, width, height) = n.frame().rectangle();
+                let (kind, minimum, value, maximum, increment) = match n.kind() {
+                    AccessibilityKind::StaticText { .. } => (0, 0., 0., 0., 0.),
+                    AccessibilityKind::Button => (1, 0., 0., 0., 0.),
+                    AccessibilityKind::Slider {
+                        minimum,
+                        value,
+                        maximum,
+                        increment,
+                    } => (2, *minimum, *value, *maximum, *increment),
+                };
+                let availability = n.availability();
+                NativeAccessibilityNode {
+                    id: n.id(),
+                    label: labels[i].as_ptr(),
+                    text: texts[i].as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+                    x,
+                    y,
+                    width,
+                    height,
+                    minimum,
+                    value,
+                    maximum,
+                    increment,
+                    kind,
+                    enabled: availability.enabled,
+                    hidden: availability.hidden,
+                }
+            })
+            .collect();
+        let mut revision = 0;
+        // SAFETY: this view/context remains owned on the UI thread; native code
+        // copies all bounded buffers before publication. None supplies no context.
+        let status = unsafe {
+            ravet_web_accessibility_set(
+                self.view.as_ptr(),
+                label.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+                if snapshot.is_some() {
+                    nodes.as_ptr()
+                } else {
+                    std::ptr::null()
+                },
+                nodes.len(),
+                snapshot.and_then(|s| s.focused_id()).unwrap_or(0),
+                if snapshot.is_some() {
+                    Rc::as_ptr(&self._context).cast_mut().cast()
+                } else {
+                    std::ptr::null_mut()
+                },
+                snapshot.map(|_| {
+                    accessibility_action as extern "C" fn(*mut c_void, u64, u64, u32) -> bool
+                }),
+                &mut revision,
+            )
+        };
+        match status {
+            0 => Ok(AccessibilityRevision(revision)),
+            1 => Err(AccessibilityError::InvalidInput),
+            2 => Err(AccessibilityError::Unavailable),
+            3 => Err(AccessibilityError::Busy),
+            4 => Err(AccessibilityError::Exhausted),
+            5 => Err(AccessibilityError::WrongThread),
+            _ => Err(AccessibilityError::Unavailable),
+        }
+    }
     pub fn set_background(&self, red: f64, green: f64, blue: f64) -> bool {
         // SAFETY: self owns a live view on the main thread.
         unsafe { ravet_web_set_background(self.view.as_ptr(), red, green, blue) }
@@ -199,12 +368,94 @@ impl Drop for WebView<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     struct Empty;
     impl Callbacks for Empty {
         fn message(&mut self, _: &str) {}
         fn snapshot(&mut self) -> Option<String> {
             None
         }
+    }
+    #[test]
+    fn native_action_retains_context_through_callback_self_destruction() {
+        type Owner = Rc<RefCell<Option<Rc<Context<'static>>>>>;
+        struct Retiring {
+            owner: Owner,
+            dropped: Rc<Cell<usize>>,
+            seen: Rc<Cell<Option<AccessibilityAction>>>,
+        }
+        impl Callbacks for Retiring {
+            fn message(&mut self, _: &str) {}
+            fn snapshot(&mut self) -> Option<String> {
+                None
+            }
+            fn accessibility_action(&mut self, action: AccessibilityAction) -> bool {
+                self.seen.set(Some(action));
+                self.owner.borrow_mut().take();
+                true
+            }
+        }
+        impl Drop for Retiring {
+            fn drop(&mut self) {
+                self.dropped.set(self.dropped.get() + 1);
+            }
+        }
+        let owner: Owner = Rc::new(RefCell::new(None));
+        let dropped = Rc::new(Cell::new(0));
+        let seen = Rc::new(Cell::new(None));
+        *owner.borrow_mut() = Some(Rc::new(Context {
+            callbacks: RefCell::new(Box::new(Retiring {
+                owner: owner.clone(),
+                dropped: dropped.clone(),
+                seen: seen.clone(),
+            })),
+        }));
+        let raw = Rc::as_ptr(owner.borrow().as_ref().unwrap())
+            .cast_mut()
+            .cast();
+        assert!(accessibility_action(raw, 9, 31, 1));
+        assert!(owner.borrow().is_none());
+        assert_eq!(dropped.get(), 1);
+        assert_eq!(
+            seen.get(),
+            Some(AccessibilityAction {
+                node_id: 9,
+                revision: AccessibilityRevision(31),
+                kind: AccessibilityActionKind::Increment
+            })
+        );
+    }
+    #[test]
+    fn native_action_refuses_bad_kind_nested_borrow_and_catches_panic() {
+        struct Nested {
+            raw: Rc<Cell<*mut c_void>>,
+            count: Rc<Cell<usize>>,
+        }
+        impl Callbacks for Nested {
+            fn message(&mut self, _: &str) {}
+            fn snapshot(&mut self) -> Option<String> {
+                None
+            }
+            fn accessibility_action(&mut self, _: AccessibilityAction) -> bool {
+                self.count.set(self.count.get() + 1);
+                assert!(!accessibility_action(self.raw.get(), 1, 1, 0));
+                panic!("fixture native action panic")
+            }
+        }
+        let raw = Rc::new(Cell::new(std::ptr::null_mut()));
+        let count = Rc::new(Cell::new(0));
+        let context = Rc::new(Context {
+            callbacks: RefCell::new(Box::new(Nested {
+                raw: raw.clone(),
+                count: count.clone(),
+            })),
+        });
+        raw.set(Rc::as_ptr(&context).cast_mut().cast());
+        assert!(!accessibility_action(raw.get(), 1, 1, 99));
+        assert_eq!(count.get(), 0);
+        assert!(!accessibility_action(raw.get(), 1, 1, 0));
+        assert_eq!(count.get(), 1);
+        assert_eq!(Rc::strong_count(&context), 1);
     }
     #[test]
     fn snapshot_copies_before_callback_context_is_destroyed() {

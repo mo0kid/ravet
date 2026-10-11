@@ -389,6 +389,7 @@ pub struct EffectBridge<P> {
     scratch: [Vec<f32>; 2],
     events: ParameterEvents,
     previous_transport: Option<(Transport, usize)>,
+    reset_error: Option<ProcessError>,
 }
 impl<P: Processor> EffectBridge<P> {
     pub fn prepare(mut processor: P, config: ProcessConfig) -> Result<Self, BridgeError> {
@@ -412,6 +413,7 @@ impl<P: Processor> EffectBridge<P> {
             scratch: std::array::from_fn(|_| vec![0.0; config.maximum_frames()]),
             events: ParameterEvents::with_capacity(config.maximum_events())?,
             previous_transport: None,
+            reset_error: None,
         })
     }
     /// Select native CLAP note/expression input for a processor that explicitly
@@ -446,8 +448,25 @@ impl<P: Processor> EffectBridge<P> {
         &self.processor
     }
     pub fn reset(&mut self) {
-        self.processor.reset();
-        self.previous_transport = None;
+        let _ = self.try_reset();
+    }
+    /// Preserve refused history reset and stop subsequent DSP dispatch.
+    pub fn try_reset(&mut self) -> Result<(), ProcessError> {
+        match self.processor.try_reset() {
+            Ok(()) => {
+                self.reset_error = None;
+                self.previous_transport = None;
+                Ok(())
+            }
+            Err(error) => {
+                self.reset_error.get_or_insert(error);
+                Err(error)
+            }
+        }
+    }
+    /// Original refused reset, until a complete successful reset.
+    pub fn reset_error(&self) -> Option<ProcessError> {
+        self.reset_error
     }
     pub fn deactivate(&mut self) {
         self.processor.deactivate();
@@ -553,6 +572,9 @@ impl<P: Processor> EffectBridge<P> {
         frames: usize,
         transport: Transport,
     ) -> Result<ProcessStatus, BridgeError> {
+        if let Some(error) = self.reset_error {
+            return Err(BridgeError::Processor(error));
+        }
         let [left, right] = &mut self.scratch;
         let mut channels = [&mut left[..frames], &mut right[..frames]];
         let audio = AudioBuffer::in_place(

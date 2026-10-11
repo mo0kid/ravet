@@ -3,22 +3,35 @@ use crate::background::{BackgroundWorker, PumpProgress, Shared};
 use crate::{AudioConsumer, AudioFileError, PlaybackError, ReadAheadProgress};
 use std::sync::{Arc, atomic::Ordering};
 
-/// Worker-only source for an automatic read-ahead owner.
+/// Worker-only queue source for an automatic read-ahead owner.
+/// All cursors, seek targets and ReadAheadProgress frame counts use this source
+/// queue's sample rate. Native readers publish original-rate frames; explicit
+/// converted sources publish output-rate frames and expose original input
+/// coordinates separately.
 /// Implementations must preserve queued/pending/cursor state on failed stopped
 /// seeks, and must publish only complete frames to their unique producer. Pump
 /// calls must be bounded; worker backend allocations and I/O remain explicit.
 pub trait ReadAheadPump: Send + 'static {
     /// Perform one bounded read/publication attempt outside the audio callback.
     fn pump(&mut self) -> Result<ReadAheadProgress, AudioFileError>;
+    /// Whether the immediately preceding pump made bounded worker progress.
+    /// Pure, bounded observation only: no I/O, blocking or allocation. Native
+    /// default uses new publication; explicitly converted sources can include
+    /// input read/consumption/output generation. An unchanged full ring is false.
+    fn worker_progressed(&self, progress: &ReadAheadProgress) -> bool {
+        progress.queued_frames != 0
+    }
+
     /// Check that this source owns the consumer's matching producer.
     fn owns(&self, consumer: &AudioConsumer) -> bool;
     /// Remaining worker scratch frames not yet published to the ring.
     fn pending_frames(&self) -> usize;
-    /// Decoded/read position, including pending and queued frames.
+    /// Queue-source generated/read position, including pending and queued frames.
+    /// Converted implementations use target-rate output frames, not input frames.
     fn reader_position(&self) -> u64;
-    /// Fixed source sample rate; no implicit rate conversion is performed.
+    /// Fixed queue-source sample rate; conversion is explicit in its implementation.
     fn sample_rate(&self) -> u32;
-    /// Position exactly, clearing the old generation only after success.
+    /// Position exactly in queue-source frames, clearing generation only after success.
     fn seek_stopped(
         &mut self,
         consumer: &mut AudioConsumer,
@@ -55,9 +68,10 @@ pub struct BufferedPlaybackProgress {
     pub worker_status: ReadAheadStatus,
 }
 /// Prepared consumer transport. Render/play/pause perform no heap, lock or I/O.
-/// Source position advances only for consumed frames; underruns stall it. Paused
+/// Queue-source position advances only for consumed frames; underruns stall it. Paused
 /// renders do not consume the ring. Output always fills with audio plus silence.
-/// No device clock, rate conversion, crossfade, looping or live seek is provided.
+/// The endpoint itself provides no device clock, rate conversion, crossfade,
+/// looping or live seek. A worker can explicitly convert into its queue rate.
 /// Serialize commands with this exclusive endpoint on its owning audio thread;
 /// destruction follows callback shutdown. Worker status snapshots may change
 /// concurrently. A stopped seek belongs to the control owner with this endpoint
@@ -71,6 +85,10 @@ pub struct BufferedPlayback {
     playing: bool,
 }
 impl BufferedPlayback {
+    /// Fixed prepared render bound in queue-source output frames.
+    pub fn maximum_render_frames(&self) -> usize {
+        self.maximum_frames
+    }
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
@@ -197,7 +215,7 @@ impl<P: ReadAheadPump> ReadAheadWorker<P> {
         self.inner.start("ravet-read-ahead", |pump| {
             let progress = pump.pump()?;
             Ok(PumpProgress {
-                progressed: progress.queued_frames != 0,
+                progressed: pump.worker_progressed(&progress),
                 completed: progress.end_of_file && progress.pending_frames == 0,
             })
         })

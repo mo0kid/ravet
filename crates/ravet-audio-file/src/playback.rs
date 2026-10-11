@@ -76,6 +76,33 @@ impl MemoryPlayback {
             loop_range: None,
         })
     }
+    #[cfg(feature = "resampled-playback")]
+    /// Internal move of a fully validated prepared clip; no second PCM copy.
+    pub(crate) fn from_owned_validated(
+        samples: Vec<f32>,
+        channels: usize,
+        sample_rate: u32,
+        maximum_frames: usize,
+    ) -> Self {
+        debug_assert!(
+            samples.len() <= 16_777_216
+                && !samples.is_empty()
+                && samples.len().is_multiple_of(channels)
+        );
+        Self {
+            samples,
+            channels,
+            sample_rate,
+            maximum_frames,
+            position: 0,
+            playing: false,
+            loop_range: None,
+        }
+    }
+    /// Fixed callback bound prepared with the clip; configuration must not exceed it.
+    pub fn maximum_render_frames(&self) -> usize {
+        self.maximum_frames
+    }
     pub fn channels(&self) -> usize {
         self.channels
     }

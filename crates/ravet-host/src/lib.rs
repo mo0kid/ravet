@@ -1,6 +1,12 @@
-//! Explicit CLAP candidate discovery and trusted-library metadata/lifetime access.
+//! Explicit CLAP discovery and optional trusted VST3/AUv3 native ownership.
 //! Optional native hosting stays outside the portable umbrella. Discovery never
 //! executes candidates; loading is an explicit unsafe native-code trust boundary.
+/// Caller-linked macOS AUv3 asynchronous owners and joined main-bus audio.
+#[cfg(feature = "au-hosting")]
+pub mod au;
+/// Caller-linked trusted VST3 catalogue and scoped instance ABIs with main-thread ownership.
+#[cfg(feature = "vst3-catalogue")]
+pub mod vst3;
 use clack_host::prelude::PluginEntry;
 mod editor;
 pub use editor::{EditorError, PluginEditor};

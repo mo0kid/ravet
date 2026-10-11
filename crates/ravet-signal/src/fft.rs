@@ -25,6 +25,17 @@ pub enum FftError {
     LengthMismatch,
 }
 
+/// Fallible plan preparation failures; distinct from unchanged transform errors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FftPreparationError {
+    /// Size is not a power of two in 1..=1,048,576.
+    InvalidSize,
+    /// Requested or actual twiddle capacity exceeds the byte budget.
+    Capacity,
+    /// The allocator refused the fallible twiddle reservation.
+    Allocation,
+}
+
 /// Prepared complex radix-two FFT, 1..=1,048,576 points.
 /// Construction allocates twiddles; transforms allocate/deallocate nothing.
 /// Forward uses exp(-i*w), inverse exp(+i*w) normalized by 1/N.
@@ -39,13 +50,39 @@ impl FftPlan {
         if !size.is_power_of_two() || size > 1_048_576 {
             return Err(FftError::InvalidSize);
         }
-        let twiddles = (0..size / 2)
-            .map(|index| {
-                let phase = -std::f64::consts::TAU * index as f64 / size as f64;
-                Complex::new(phase.cos(), phase.sin())
-            })
-            .collect();
+        let twiddles = Self::fill_twiddles(size, Vec::with_capacity(size / 2));
         Ok(Self { size, twiddles })
+    }
+    /// Fallible CONTROL preparation with an explicit twiddle-storage byte bound.
+    /// Numeric Vec capacity is included; allocator overhead and caller transform
+    /// buffers are excluded. Size 1 requires no twiddle bytes and admits budget 0.
+    /// Invalid size/budget refuses before allocation or trigonometric preparation.
+    /// The legacy `new` constructor retains its infallible allocation policy.
+    pub fn try_new(size: usize, maximum_twiddle_bytes: usize) -> Result<Self, FftPreparationError> {
+        if !size.is_power_of_two() || size > 1_048_576 {
+            return Err(FftPreparationError::InvalidSize);
+        }
+        let count = size / 2;
+        check_fft_storage::<Complex>(count, maximum_twiddle_bytes)?;
+        let mut twiddles = Vec::new();
+        twiddles
+            .try_reserve_exact(count)
+            .map_err(|_| FftPreparationError::Allocation)?;
+        check_fft_storage::<Complex>(twiddles.capacity(), maximum_twiddle_bytes)?;
+        let twiddles = Self::fill_twiddles(size, twiddles);
+        Ok(Self { size, twiddles })
+    }
+    fn fill_twiddles(size: usize, mut twiddles: Vec<Complex>) -> Vec<Complex> {
+        // Both constructors reserve the complete count before coefficient math.
+        for index in 0..size / 2 {
+            let phase = -std::f64::consts::TAU * index as f64 / size as f64;
+            twiddles.push(Complex::new(phase.cos(), phase.sin()));
+        }
+        twiddles
+    }
+    /// Numeric twiddle Vec capacity only, excluding allocator/control overhead.
+    pub fn twiddle_storage_bytes(&self) -> usize {
+        self.twiddles.capacity() * size_of::<Complex>()
     }
     pub fn size(&self) -> usize {
         self.size
@@ -106,6 +143,16 @@ impl std::fmt::Display for FftError {
     }
 }
 impl std::error::Error for FftError {}
+impl core::fmt::Display for FftPreparationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::InvalidSize => "FFT size must be a power of two from 1 to 1,048,576",
+            Self::Capacity => "FFT twiddle storage exceeds its numeric byte budget",
+            Self::Allocation => "FFT twiddle storage allocation failed",
+        })
+    }
+}
+impl core::error::Error for FftPreparationError {}
 
 #[cfg(test)]
 mod tests {
@@ -148,5 +195,47 @@ mod tests {
             Err(FftError::LengthMismatch)
         );
         assert_eq!(samples, [Complex::new(1., 2.); 3]);
+    }
+}
+
+// Used both before reservation and on actual allocated Vec capacity.
+pub(crate) fn check_fft_storage<T>(
+    count: usize,
+    budget: usize,
+) -> Result<usize, FftPreparationError> {
+    let bytes = count
+        .checked_mul(size_of::<T>())
+        .ok_or(FftPreparationError::Capacity)?;
+    if bytes > budget {
+        Err(FftPreparationError::Capacity)
+    } else {
+        Ok(bytes)
+    }
+}
+#[cfg(test)]
+mod fallible_tests {
+    use super::*;
+    #[test]
+    fn actual_overallocated_capacity_rejects_and_legacy_coefficients_match() {
+        let v = Vec::<Complex>::with_capacity(17);
+        assert_eq!(
+            check_fft_storage::<Complex>(v.capacity(), 16 * size_of::<Complex>()),
+            Err(FftPreparationError::Capacity)
+        );
+        assert_eq!(
+            check_fft_storage::<Complex>(usize::MAX, usize::MAX),
+            Err(FftPreparationError::Capacity)
+        );
+        for size in [1, 2, 4, 16, 128, 4096, 1_048_576] {
+            let legacy = FftPlan::new(size).unwrap();
+            let bounded = FftPlan::try_new(size, size / 2 * size_of::<Complex>()).unwrap();
+            assert_eq!(legacy.twiddles.len(), bounded.twiddles.len());
+            for (a, b) in legacy.twiddles.iter().zip(&bounded.twiddles) {
+                assert_eq!(
+                    (a.re.to_bits(), a.im.to_bits()),
+                    (b.re.to_bits(), b.im.to_bits())
+                );
+            }
+        }
     }
 }

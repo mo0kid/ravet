@@ -33,7 +33,7 @@ pub use graph_output::{
 };
 pub use input::{
     DuplexStream, InputDeviceInfo, InputStatistics, InputStream, PreparedCapture, PreparedDuplex,
-    input_device, input_devices, open_duplex, open_input,
+    PreparedDuplexFailure, input_device, input_devices, open_duplex, open_input,
 };
 
 /// Upper bound on scratch frames per channel, allocated before stream creation.
@@ -115,11 +115,45 @@ impl Counters {
     }
 }
 
+/// Failure-owned output preparation. The original processor survives ordinary
+/// format/configuration/scratch/prepare errors; preparation runs off callback.
+/// A failing Processor::prepare must leave itself inactive. Foreign prepare
+/// panics are exceptional and do not produce a successful recovery receipt.
+pub struct PreparedOutputFailure<P> {
+    processor: P,
+    error: PrepareError,
+}
+impl<P> PreparedOutputFailure<P> {
+    pub fn error(&self) -> &PrepareError {
+        &self.error
+    }
+    pub fn into_parts(self) -> (P, PrepareError) {
+        (self.processor, self.error)
+    }
+}
+impl<P> std::fmt::Debug for PreparedOutputFailure<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedOutputFailure")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+impl<P> std::fmt::Display for PreparedOutputFailure<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "output preparation: {}", self.error)
+    }
+}
+impl<P> std::error::Error for PreparedOutputFailure<P> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 /// Prepared output-only f32 rendering, independently testable without hardware.
 /// Construction may allocate; render uses bounded scratch without allocation.
 /// Processor implementations must obey the portable callback contract.
 pub struct PreparedOutput<P: Processor> {
-    processor: P,
+    processor: Option<P>,
     config: ProcessConfig,
     scratch: Vec<Vec<f32>>,
     position: Option<i64>,
@@ -130,28 +164,93 @@ impl<P: Processor> PreparedOutput<P> {
     /// Input/events/auxiliary capacities are zero. A failed prepare must leave
     /// the supplied processor inactive, as required by Processor.
     pub fn new(
-        mut processor: P,
+        processor: P,
         sample_rate: u32,
         channels: usize,
         maximum_frames: usize,
     ) -> Result<Self, PrepareError> {
-        if maximum_frames > MAXIMUM_FRAMES {
-            return Err(PrepareError::InvalidMaximumFrames);
-        }
-        let config = ProcessConfig::new(
-            f64::from(sample_rate),
-            maximum_frames,
-            0,
-            AudioLayout::new(0, channels)?,
-        )?;
-        processor.prepare(config)?;
-        Ok(Self {
+        Self::new_owned(processor, sample_rate, channels, maximum_frames)
+            .map_err(|failure| failure.error)
+    }
+
+    /// Prepare off callback while returning the original processor on ordinary
+    /// failure. Scratch is fallibly allocated before Processor::prepare, so a
+    /// scratch allocation failure does not mutate the processor. A failed foreign
+    /// prepare must obey Processor's inactive contract; foreign panic is exceptional.
+    pub fn new_owned(
+        processor: P,
+        sample_rate: u32,
+        channels: usize,
+        maximum_frames: usize,
+    ) -> Result<Self, PreparedOutputFailure<P>> {
+        Self::new_owned_with_allocator(
             processor,
+            sample_rate,
+            channels,
+            maximum_frames,
+            |channels, frames| {
+                let mut scratch = Vec::new();
+                scratch
+                    .try_reserve_exact(channels)
+                    .map_err(|_| PrepareError::InvalidMaximumFrames)?;
+                for _ in 0..channels {
+                    let mut plane = Vec::new();
+                    plane
+                        .try_reserve_exact(frames)
+                        .map_err(|_| PrepareError::InvalidMaximumFrames)?;
+                    plane.resize(frames, 0.0);
+                    scratch.push(plane);
+                }
+                Ok(scratch)
+            },
+        )
+    }
+
+    fn new_owned_with_allocator(
+        mut processor: P,
+        sample_rate: u32,
+        channels: usize,
+        maximum_frames: usize,
+        allocate: impl FnOnce(usize, usize) -> Result<Vec<Vec<f32>>, PrepareError>,
+    ) -> Result<Self, PreparedOutputFailure<P>> {
+        let prepared = (|| {
+            if maximum_frames > MAXIMUM_FRAMES {
+                return Err(PrepareError::InvalidMaximumFrames);
+            }
+            let config = ProcessConfig::new(
+                f64::from(sample_rate),
+                maximum_frames,
+                0,
+                AudioLayout::new(0, channels)?,
+            )?;
+            let scratch = allocate(channels, maximum_frames)?;
+            let counters = Arc::default();
+            Ok((config, scratch, counters))
+        })();
+        let (config, scratch, counters) = match prepared {
+            Ok(parts) => parts,
+            Err(error) => return Err(PreparedOutputFailure { processor, error }),
+        };
+        if let Err(error) = processor.prepare(config) {
+            return Err(PreparedOutputFailure { processor, error });
+        }
+        Ok(Self {
+            processor: Some(processor),
             config,
-            scratch: vec![vec![0.0; maximum_frames]; channels],
+            scratch,
             position: Some(0),
-            counters: Arc::default(),
+            counters,
         })
+    }
+
+    /// Consume a directly owned stopped renderer on control, deactivate its
+    /// processor once and return that original owner. Scratch/counters retire on
+    /// the calling control thread. Reopening requires explicit preparation; no
+    /// reader seek/reset is hidden here. A foreign deactivation panic is exceptional.
+    pub fn into_processor(mut self) -> P {
+        let mut processor = self.processor.take().expect("owned prepared processor");
+        processor.deactivate();
+        processor
     }
 
     /// Fill an interleaved device buffer, partitioning oversized callbacks.
@@ -188,7 +287,12 @@ impl<P: Processor> PreparedOutput<P> {
                     ..Transport::default()
                 },
             );
-            match self.processor.process(&mut block) {
+            match self
+                .processor
+                .as_mut()
+                .expect("owned prepared processor")
+                .process(&mut block)
+            {
                 ProcessStatus::Continue => {}
                 ProcessStatus::Silence => block.clear_outputs(),
                 ProcessStatus::Fault(_) => {
@@ -217,7 +321,9 @@ impl<P: Processor> PreparedOutput<P> {
 }
 impl<P: Processor> Drop for PreparedOutput<P> {
     fn drop(&mut self) {
-        self.processor.deactivate();
+        if let Some(processor) = self.processor.as_mut() {
+            processor.deactivate();
+        }
     }
 }
 
@@ -380,5 +486,44 @@ pub use clocked_input::{ClockedInputProgress, PreparedClockedInput};
 mod clocked;
 pub use clocked::{
     ClockedDuplexError, ClockedDuplexOpenError, ClockedDuplexOptions, ClockedDuplexStatistics,
-    ClockedDuplexStream, PreparedClockedDuplex, open_clocked_duplex,
+    ClockedDuplexStream, PreparedClockedDuplex, PreparedClockedDuplexFailure, open_clocked_duplex,
+};
+
+#[cfg(feature = "resampled-playback")]
+mod file_output;
+#[cfg(feature = "resampled-playback")]
+pub use file_output::FilePlaybackOutput;
+
+#[cfg(feature = "resampled-playback")]
+mod buffered_file_output;
+#[cfg(feature = "resampled-playback")]
+pub use buffered_file_output::{
+    BufferedPlaybackOutput, BufferedPlaybackOutputMonitor, BufferedPlaybackOutputStatistics,
+};
+
+mod reclaimable;
+pub use reclaimable::{
+    FailedOutputOwner, OutputRetirement, OutputRetirementError, ReclaimableOutput,
+    ReclaimableOutputFailure, ReclaimableOutputOpenError, ReclaimedOutput, open_reclaimable_output,
+};
+
+#[cfg(feature = "resampled-playback")]
+mod buffered_file_duplex;
+#[cfg(feature = "resampled-playback")]
+pub use buffered_file_duplex::{
+    BufferedFileDuplexMonitor, BufferedFileDuplexProcessor, BufferedFileDuplexStatistics,
+};
+
+mod reclaimable_clocked;
+pub use reclaimable_clocked::{
+    ClockedDuplexRetirement, ClockedRetirementError, FailedClockedOwner, ReclaimableClockedDuplex,
+    ReclaimableClockedFailure, ReclaimableClockedOpenError, ReclaimableClockedStatistics,
+    ReclaimedClockedDuplex, StoppedClockedDuplex, open_reclaimable_clocked_duplex,
+};
+
+mod reclaimable_clocked_recovery;
+pub use reclaimable_clocked_recovery::{
+    ClockedRecoveryFailure, ClockedRecoveryReceipt, ReclaimableClockedRecoveryConstructionFailure,
+    ReclaimableClockedRecoveryError, ReclaimableClockedRecoveryStatus,
+    RecoveringReclaimableClockedDuplex,
 };

@@ -2,6 +2,10 @@
 
 Status: implemented; linked native and macOS arm64 SDK format validation passed.
 
+The originating-table admission policy is superseded by
+[ADR 0250](0250-native-client-acquisition.md). The earlier acquisition and
+validation observations below remain historical.
+
 ## Context
 
 Native lifecycle, explicit audio state and readout companions need a reusable

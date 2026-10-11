@@ -70,6 +70,7 @@ pub struct NativeAudioAdapter<S: Sample = f32> {
     generated: Vec<Event>,
     payload_bytes: usize,
     poisoned: bool,
+    reset_error: Option<ProcessError>,
 }
 impl<S: Sample> NativeAudioAdapter<S> {
     /// Deactivate the supplied stopped processor, validate bounds, allocate
@@ -116,6 +117,7 @@ impl<S: Sample> NativeAudioAdapter<S> {
             ],
             payload_bytes: bytes,
             poisoned: false,
+            reset_error: None,
         };
         if let Err(error) = processor.prepare(config) {
             processor.deactivate();
@@ -133,17 +135,28 @@ impl<S: Sample> NativeAudioAdapter<S> {
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }
+    /// Original refused reset; C entry status remains its existing refusal code.
+    pub fn reset_error(&self) -> Option<ProcessError> {
+        self.reset_error
+    }
     /// Reset the same processor without changing adapter preparation. A panic
     /// poisons this adapter; poisoned instances reject without invoking reset.
     pub fn reset<P: Processor<S>>(&mut self, processor: &mut P) -> Result<(), ProcessError> {
         if self.poisoned {
             return Err(ProcessError::BackendFailure);
         }
-        if catch_unwind(AssertUnwindSafe(|| processor.reset())).is_err() {
-            self.poisoned = true;
-            return Err(ProcessError::BackendFailure);
+        match catch_unwind(AssertUnwindSafe(|| processor.try_reset())) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => {
+                self.poisoned = true;
+                self.reset_error = Some(error);
+                Err(error)
+            }
+            Err(_) => {
+                self.poisoned = true;
+                Err(ProcessError::BackendFailure)
+            }
         }
-        Ok(())
     }
     fn run<P: Processor<S>>(
         &mut self,

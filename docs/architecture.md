@@ -52,6 +52,9 @@ exports to consumers. The explicit `ravet-graph` schedules owned portable nodes 
 routes; its distinct fault status exposes partial node progress rather than
 claiming whole-graph DSP rollback. These crates are not implicitly re-exported
 by the umbrella.
+The explicit `ravet-native-dsp` crate owns scoped current-thread floating-point
+policy and explicit packed/vector operations behind private native modules; it is
+not re-exported by the umbrella. See [native DSP](native-dsp.md).
 Native format reference wrappers use the explicit public `ravet-gain-native`
 and `ravet-performance-native` archives; their SDKs stay external. See [observable state](observable-state.md),
 [audio files](audio-files.md), [MIDI](midi.md), [VST3](vst3.md),

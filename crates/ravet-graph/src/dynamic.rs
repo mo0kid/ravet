@@ -230,7 +230,11 @@ impl<S: GraphSample> DynamicGraph<S> {
     /// Reset only the currently selected graph; proposed graphs retain their
     /// already-prepared histories until selected. No graph destruction occurs.
     pub fn reset(&mut self) {
-        self.current.reset();
+        let _ = self.try_reset();
+    }
+    /// Reset only the selected graph; proposals retain their prepared history.
+    pub fn try_reset(&mut self) -> Result<(), GraphStatus> {
+        self.current.try_reset()
     }
     /// Fixed latency enforced for every accepted graph.
     pub fn latency_samples(&self) -> u32 {
@@ -259,7 +263,11 @@ impl<S: GraphSample> DynamicGraphAudioSession<'_, S> {
         self.graph.process(block)
     }
     pub fn reset(&mut self) {
-        self.graph.reset();
+        let _ = self.try_reset();
+    }
+    /// Forward checked reset without resetting pending proposals.
+    pub fn try_reset(&mut self) -> Result<(), GraphStatus> {
+        self.graph.try_reset()
     }
     pub fn latency_samples(&self) -> u32 {
         self.graph.latency_samples()

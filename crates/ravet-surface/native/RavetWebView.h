@@ -33,3 +33,17 @@ void ravet_web_destroy(void* view);
 // Dispatches at most 32 ready GLib iterations; a no-op on macOS/Windows.
 void ravet_web_pump();
 }
+
+#if defined(__APPLE__)
+#include <stdint.h>
+// Explicit native companion for Rust custom-content consumers; UI/main thread only.
+struct RavetAccessibilityNode {
+    uint64_t id; const char* label; const char* text;
+    double x,y,width,height,minimum,value,maximum,increment;
+    uint32_t kind; bool enabled,hidden;
+};
+typedef bool (*RavetAccessibilityAction)(void*,uint64_t,uint64_t,uint32_t);
+extern "C" uint32_t ravet_web_accessibility_set(void* view,const char* label,
+    const RavetAccessibilityNode* nodes,size_t count,uint64_t focused,void* context,
+    RavetAccessibilityAction action,uint64_t* revision);
+#endif

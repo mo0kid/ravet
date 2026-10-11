@@ -151,3 +151,8 @@ if(DEFINED RAVET_PERFORMANCE_LIBRARY)
     endif()
     add_test(NAME ravet_native_performance COMMAND ravet_native_performance)
 endif()
+
+# Exact runtime table provenance across independent Rust export/companion codegen.
+include(table-identity.cmake)
+
+include(client-companions.cmake)

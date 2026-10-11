@@ -108,7 +108,13 @@ impl<
     /// Validate the paired immutable schema on control. Invalid metadata returns
     /// None; no implicit opt-in is supplied for arbitrary parameter processors.
     pub fn entry() -> Option<&'static NativeStateEntryV1> {
-        NativeParameters::<P, S, N>::entry().map(|_| &Self::ENTRY)
+        NativeParameters::<P, S, N>::entry().map(|_| Self::canonical_entry())
+    }
+    // Keep one address-bearing body per concrete companion, across exports and
+    // cross-codegen companion chains. Runtime metadata validation remains above.
+    #[inline(never)]
+    fn canonical_entry() -> &'static NativeStateEntryV1 {
+        &Self::ENTRY
     }
     extern "C" fn parameters_entry() -> *const NativeParameterEntryV1 {
         NativeParameters::<P, S, N>::entry().map_or(ptr::null(), |table| table as *const _)

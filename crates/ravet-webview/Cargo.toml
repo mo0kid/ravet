@@ -6,5 +6,10 @@ license.workspace = true
 publish.workspace = true
 description = "Main-thread macOS Cocoa/WebKit binding for RAVET editors"
 
+[features]
+postscript-fonts = ["system-fonts"]
+default = []
+system-fonts = []
+
 [lints.rust]
 unsafe_code = "deny"

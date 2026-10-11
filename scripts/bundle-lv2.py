@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a local public gain or performance LV2 bundle using external headers."""
+"""Build a local public gain, performance or note-routing LV2 bundle using external headers."""
 import argparse
 import pathlib
 from lv2_bundle import build_reference, package_reference, prepare_context, validate_reference
@@ -8,7 +8,7 @@ from lv2_bundle import build_reference, package_reference, prepare_context, vali
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", type=pathlib.Path, required=True)
-    parser.add_argument("--plugin", choices=("gain", "performance"), default="gain")
+    parser.add_argument("--plugin", choices=("gain", "performance", "note-routing"), default="gain")
     args = parser.parse_args()
     root = pathlib.Path(__file__).resolve().parents[1]
     try:

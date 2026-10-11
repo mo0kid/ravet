@@ -2,12 +2,14 @@
 """Check actual macOS reference AAX load/entry points; not Pro Tools validation."""
 import ctypes
 import pathlib
-import sys
+import argparse
 
 
-def check(artifact):
+def check(artifact, plugin="gain"):
+    if plugin not in ("gain", "performance", "midi", "raw-routing", "gain-meters"):
+        raise ValueError("expected an explicit public AAX reference profile")
     artifact = pathlib.Path(artifact).resolve()
-    library = ctypes.CDLL(str(artifact / "Contents/MacOS/ravet_gain_aax"))
+    library = ctypes.CDLL(str(artifact / f"Contents/MacOS/ravet_{plugin.replace('-', '_')}_aax"))
     for name in ("ACFRegisterPlugin", "ACFRegisterComponent", "ACFGetClassFactory",
                  "ACFCanUnloadNow", "ACFStartup", "ACFShutdown",
                  "ACFGetSDKVersion", "GetPluginFactory"):
@@ -22,4 +24,8 @@ def check(artifact):
 
 
 if __name__ == "__main__":
-    check(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("artifact", type=pathlib.Path)
+    parser.add_argument("--plugin", choices=("gain", "performance", "midi", "raw-routing", "gain-meters"), default="gain")
+    args = parser.parse_args()
+    check(args.artifact, args.plugin)

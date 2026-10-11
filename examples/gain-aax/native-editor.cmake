@@ -1,0 +1,32 @@
+# Optional authored native AAX GUI. Stock SDK remains external; no system install.
+if(NOT APPLE OR NOT RAVET_AAX_REFERENCE_PROFILE STREQUAL "native")
+    message(FATAL_ERROR "RAVET_AAX_EDITOR requires the macOS native Gain profile")
+endif()
+target_compile_definitions(ravet_gain_aax PRIVATE RAVET_AAX_NATIVE_EDITOR=1)
+target_include_directories(ravet_gain_aax PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/ravet-webview/include")
+target_link_libraries(ravet_gain_aax PRIVATE "-framework WebKit")
+foreach(aax_editor_target IN ITEMS ravet_aax_editor_controls ravet_aax_editor_controls_fast ravet_aax_editor_lifecycle ravet_aax_editor_registered_contracts)
+    if(aax_editor_target MATCHES "registered")
+        set(aax_editor_source editor-registered.mm)
+    elseif(aax_editor_target MATCHES "lifecycle")
+        set(aax_editor_source editor.mm)
+    else()
+        set(aax_editor_source editor-controls.cpp)
+    endif()
+    add_executable(${aax_editor_target} "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/aax-validation/${aax_editor_source}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/aax-validation/description-stub.cpp")
+    target_compile_features(${aax_editor_target} PRIVATE cxx_std_17)
+    target_compile_definitions(${aax_editor_target} PRIVATE RAVET_AAX_NATIVE_SAMPLE_BITS=${RAVET_AAX_INTERNAL_PRECISION})
+    target_compile_options(${aax_editor_target} PRIVATE -Wall -Wextra -Werror -O2 "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+    target_include_directories(${aax_editor_target} PRIVATE "${RAVET_AAX_SDK}/Interfaces" "${RAVET_AAX_SDK}/Interfaces/ACF"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../gain-aax" "${CMAKE_CURRENT_SOURCE_DIR}/../gain-native/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/ravet-native/include" "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/ravet-webview/include")
+    target_link_libraries(${aax_editor_target} PRIVATE aax_wrapper sdk "${RAVET_GAIN_LIBRARY}"
+        "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration" "-framework Carbon" "-framework Cocoa" "-framework WebKit" iconv)
+    if(aax_editor_target MATCHES "_fast$")
+        target_compile_options(${aax_editor_target} PRIVATE -ffast-math)
+    endif()
+    if(NOT aax_editor_target MATCHES "registered")
+        add_test(NAME ${aax_editor_target} COMMAND ${aax_editor_target})
+    endif()
+endforeach()
