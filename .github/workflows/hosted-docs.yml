@@ -49,7 +49,10 @@ jobs:
   build:
     name: Build and test snapshot
     if: github.event_name == 'push' || inputs.action == 'publish'
-    runs-on: macos-latest
+    # Runs on the self-hosted Mac runner: Rustdoc on Linux omits the
+    # cfg(target_os = "macos") API (132 of 2100 snapshot pages at 6b09fc0) and
+    # the build fails on the guides' ravet_webview::StandaloneWindow links.
+    runs-on: [self-hosted, macOS, mac-docs]
     timeout-minutes: 45
     # A newer commit supersedes an older build; publishing is never cancelled.
     concurrency:
@@ -101,7 +104,9 @@ jobs:
       always() && github.ref == 'refs/heads/main' &&
       (needs.build.result == 'success' ||
        (github.event_name == 'workflow_dispatch' && inputs.action == 'rollback' && needs.build.result == 'skipped'))
-    runs-on: ubuntu-latest
+    # Self-hosted Arch Linux runner `omarchy`. The hosted-docs environment's
+    # secrets are passed to the job at run time; the runner stores none.
+    runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 45
     # Credentials live in this environment; restrict it to main in repository settings.
     environment: hosted-docs
@@ -119,8 +124,12 @@ jobs:
         with:
           sparse-checkout: scripts/docs/hosted
           persist-credentials: false
-      - name: Install lftp
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+      - name: Check publishing tools
+        # Installed on the runner once, by its owner: sudo pacman -S --needed lftp
+        run: |
+          for tool in lftp curl python3; do
+            command -v "$tool" >/dev/null || { echo "::error::$tool is missing on the runner (sudo pacman -S --needed lftp)"; exit 1; }
+          done
       - name: Download snapshot
         if: needs.build.result == 'success'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8

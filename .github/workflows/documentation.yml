@@ -8,25 +8,37 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same ref supersedes a queued or running check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Self-hosted Arch Linux runner `omarchy`. Uses the machine's python3 (the
+  # checker needs only the standard library); setup-python has no Arch builds.
   documentation-checks:
     name: Documentation checks
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.11'
       - name: Check catalogue and local links
         run: python3 scripts/check-docs.py
       - name: Test documentation checker
         run: python3 -m unittest discover -s scripts/tests -v
 
+  # MANUAL while GitHub-hosted Actions minutes are unavailable: runs only on
+  # workflow_dispatch or pull_request, not on every push. It stays on macOS
+  # because a Linux Rustdoc build omits the macOS-only API (ravet_webview's
+  # StandaloneWindow/WebView, ravet_metal, ravet_media, ravet_core_midi). The
+  # Linux runtime job still checks warning-free Rustdoc on every push.
+  # Restore by deleting the `if:` line once hosted minutes are available, or
+  # use a self-hosted macOS runner: runs-on: [self-hosted, macOS].
   api-reference:
     name: API reference
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 15
     env:

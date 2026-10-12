@@ -8,28 +8,29 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same ref supersedes a queued or running check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_BUILD_JOBS: '2'
-  CARGO_TARGET_DIR: target
 
 jobs:
-  workspace:
-    name: Workspace (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  # Self-hosted Arch Linux runner `omarchy` (~/actions-runner/ravet). ALSA,
+  # pkg-config and the Rust toolchain are installed on the machine, so there is
+  # no apt step. CARGO_TARGET_DIR, RUSTUP_HOME and CARGO_HOME come from the
+  # runner's .env: one shared, size-capped target dir reused across jobs.
+  linux:
+    name: Workspace (omarchy Linux)
+    runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      CARGO_BUILD_JOBS: '8'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Linux audio and MIDI build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config
       - name: Install stable Rust and check tools
         run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
       - name: Check formatting
@@ -45,10 +46,47 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo +stable doc --workspace --no-deps --all-features --locked
 
+  # MANUAL while GitHub-hosted Actions minutes are unavailable: GitHub-hosted
+  # jobs run only on workflow_dispatch or pull_request, not on every push.
+  # Restore by deleting the `if:` lines once hosted minutes are available.
+  hosted:
+    name: Workspace (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      CARGO_TARGET_DIR: target
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install stable Rust and check tools
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Check formatting
+        run: cargo +stable fmt --all -- --check
+      - name: Test workspace contracts
+        run: cargo +stable test --workspace --all-targets --all-features --locked
+      - name: Check lint contracts
+        run: cargo +stable clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test documentation examples
+        run: cargo +stable test --workspace --doc --all-features --locked
+      - name: Build warning-free API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo +stable doc --workspace --no-deps --all-features --locked
+
+  # MANUAL while GitHub-hosted Actions minutes are unavailable (see above).
   macos-clap:
     name: macOS CLAP bundle contracts
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
