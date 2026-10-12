@@ -26,6 +26,48 @@ Call `play`, `pause` and drop from the control thread. Pause/resume retains hist
 and logical sample position. Backend errors increment a counter; recovery is
 caller-directed stream reopening, not a callback action.
 
+## Sample-rate admission and retry
+
+Every native output/input stream build uses shared control-thread rate admission.
+After a successful build, the opener reads the device rate; a different value
+causes the stream to be dropped before it can be returned or played. A query
+failure also rejects the stream, as a backend error. Duplex openers recheck
+input after output construction, since output can change a shared device clock.
+Graph, file, recording and recovery paths inherit this check through these
+openers; independently prepared offline renderers do not query devices.
+
+`device_nominal_sample_rate(&cpal::Device) -> Result<u32, cpal::Error>` lets callers
+choose the device's current rate before preparing a processor. On macOS it
+resolves CPAL's public CoreAudio UID and directly reads
+`kAudioDevicePropertyNominalSampleRate`. CPAL 0.18.2's `default_input_config` and
+`default_output_config` read `kAudioDevicePropertyStreamFormat` instead; stream
+ASBD rates can differ from the nominal device clock. The helper opens no stream
+and changes no settings. Other backends provide only a CPAL default-config rate
+proxy, using the opening direction (the public helper prefers output, then input).
+This is not a measured clock or proof of negotiation on those backends.
+
+`OpenError`, `ClockedDuplexOpenError`, `ReclaimableOutputOpenError` and
+`ReclaimableClockedOpenError` now include
+`SampleRateMismatch { requested: u32, actual: u32 }`. Input failures in clocked
+duplex retain `ClockedDuplexOpenError::Input(OpenError::SampleRateMismatch { .. })`
+so callers can identify the affected direction. These provisional enums remain
+exhaustive: consumers must update exhaustive matches for the new variant.
+Reclaimable failures retain their existing pending callback-retirement ownership;
+wait for that proof before reusing the original processor.
+
+CPAL's explicit sample-rate update timeout/failure and listener-disconnection
+messages map to the same mismatch error when the nominal query succeeds.
+Unrelated errors, including unsupported formats and general device-busy errors,
+remain backend errors; a failed nominal query preserves the original build error.
+A timeout can report `requested == actual`: the rate is known but CPAL did not
+return a usable stream. Retrying is a caller decision, never an implicit loop.
+Choose `actual`, rebuild/reprepare the processor and open again explicitly.
+
+This is an opening-time snapshot. Later device-rate changes, default-output
+rerouting, virtual-device conversion, clock drift, and audible pitch correctness
+still require runtime monitoring or target validation; no continuous guarantee
+is established by the offline tests. See [decision 0277](decisions/0277-device-rate-admission.md).
+
 ## Processing thread
 
 `PreparedOutput` is also independently usable for offline adapter tests. It

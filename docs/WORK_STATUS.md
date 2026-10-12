@@ -1,10 +1,65 @@
 # RAVET work status
 
-Updated: 10 October 2026. Owner: current implementation session.
+Updated: 13 October 2026. Owner: current implementation session.
 Starting point: four documentation-only crates; no Git repository.
 Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
+
+## Device nominal-rate admission — 13 October 2026
+
+Completed shared control-thread sample-rate admission for all seven direct CPAL
+stream builds in `ravet-device`, including input/duplex, clocked and reclaimable
+paths; graph/file/recording/recovery adapters inherit it through their openers.
+A successful build with a different or unreadable rate is dropped before return.
+Duplex construction rechecks input after output to catch shared-device changes.
+Known-rate CPAL rate-update/listener failures return explicit mismatch receipts,
+including equal-rate timeouts, with no automatic retry and unchanged reclaimable
+retirement ownership. Added `device_nominal_sample_rate` and four provisional
+opening-error variants. See [decision 0277](decisions/0277-device-rate-admission.md)
+and [audio devices](audio-devices.md).
+
+CPAL 0.18.2 source review found its CoreAudio default configurations read stream
+ASBDs, rather than the nominal property. The macOS helper resolves its public UID
+and queries the nominal property directly. Other backends expose only current
+CPAL default-config proxies; their actual negotiation is not qualified. The
+standard popup now prefers a new device's nominal rate, preserves supported
+saved preferences, displays reported mismatches and offers an explicit supported
+actual-rate selection without starting. The interactive examples provide the
+snapshot signal and prepare again on explicit Start.
+
+Validation on sandboxed macOS arm64, Rust 1.99.0, Cargo locked/offline:
+
+- All 128 tests/doctests for `ravet-device`, `ravet-examples` and `ravet-webview`
+  pass, including 40 device unit tests and the typed example snapshot test.
+  Fakes exercise stream disposal, failed queries, message classification,
+  equal-rate timeouts, shared-clock changes and ordinary/paired retirement.
+- The actual popup script passes a Node DOM/bridge fake for device switches,
+  saved settings, supported/unsupported/equal-rate mismatch selection,
+  independent/stale inputs, running controls and explicit Start. All 68 Python
+  tests pass, including this test.
+- Workspace check, all-target Clippy with warnings denied, formatting,
+  documentation registry/checker, all 64 workspace doctests and workspace
+  Rustdoc with warnings denied pass.
+- The requested full workspace test command stops at two unchanged
+  `ravet-media` H.264 `Decode` failures. A complete `--no-fail-fast` run records
+  1,287 passes and 14 failures across seven unchanged targets: two video tests,
+  eight Metal tests returning `Backend`, one OSC loopback test and three runtime
+  TLS tests. The network failures explicitly report `Operation not permitted`;
+  video also reports a restricted `sysctlbyname` call. No changes were made to
+  these crates or their tests; this environment cannot establish a green full
+  workspace gate.
+- The hidden native UI probe fails at its pre-existing opt-out page readiness
+  assertion before the added rate fixture. Logs show sandbox-denied WebKit paths
+  and unavailable XPC services. The new hidden rate fixture is provided but
+  native integration qualification remains pending; the DOM fake is not a
+  substitute for that qualification.
+
+No real audio devices were opened. Physical/virtual-device rate changes, audible
+pitch correctness, later routing changes, other platforms and real-time deadlines
+remain unvalidated. Scratch logs and the empty screenshot directory were removed;
+normal Cargo build artifacts remain under this worktree's `target/`. No commit
+was created; integrator review and commit remain external to this session.
 
 ## Hosted documentation publishing prepared — 11 October 2026
 

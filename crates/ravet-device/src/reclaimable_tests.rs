@@ -198,7 +198,7 @@ fn original_spawn_and_backend_errors_return_exact_ownership_without_hidden_retry
     let inactive = Arc::clone(&probe.deactivated);
     let failure = start_prepared(
         prepare(probe),
-        |_, _| -> Result<(), cpal::Error> { panic!("must not hand off") },
+        |_, _| -> Result<(), ReclaimableOutputOpenError> { panic!("must not hand off") },
         |job| {
             drop(job);
             Err(std::io::Error::other("spawn original"))
@@ -225,9 +225,11 @@ fn original_spawn_and_backend_errors_return_exact_ownership_without_hidden_retry
         prepare(Probe::new(73)),
         move |d, e| {
             *capture.lock().unwrap() = Some((d, e));
-            Err::<(), _>(cpal::Error::with_message(
-                cpal::ErrorKind::DeviceNotAvailable,
-                "original backend message",
+            Err::<(), _>(ReclaimableOutputOpenError::Backend(
+                cpal::Error::with_message(
+                    cpal::ErrorKind::DeviceNotAvailable,
+                    "original backend message",
+                ),
             ))
         },
         spawn_worker,
@@ -251,6 +253,33 @@ fn original_spawn_and_backend_errors_return_exact_ownership_without_hidden_retry
     let (probe, _) = split(retirement.wait().unwrap());
     assert_eq!(probe.id, 73);
 }
+#[test]
+fn rate_mismatch_drops_fake_stream_and_preserves_retirement_owner() {
+    let failure = start_prepared(
+        prepare(Probe::new(96)),
+        |data, errors| {
+            crate::sample_rate::verify_result(Ok((data, errors)), 48000, || Ok(96000))
+                .map_err(ReclaimableOutputOpenError::from)
+        },
+        spawn_worker,
+        None,
+    )
+    .err()
+    .unwrap();
+    let (error, owner) = failure.into_parts();
+    assert!(matches!(
+        error,
+        ReclaimableOutputOpenError::SampleRateMismatch {
+            requested: 48000,
+            actual: 96000
+        }
+    ));
+    let FailedOutputOwner::Pending(retirement) = owner else {
+        panic!("retirement owner required")
+    };
+    assert_eq!(split(retirement.wait().unwrap()).0.id, 96);
+}
+
 #[test]
 fn preparation_preflight_and_scratch_fault_preserve_untouched_owner_then_reprepare() {
     let probe = Probe::new(99);

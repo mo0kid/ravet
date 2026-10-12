@@ -3,6 +3,7 @@ use super::{
     Counters, DeviceRenderer, DuplexStream, InputStatistics, MAXIMUM_FRAMES, OpenError,
     OutputStatistics, OutputStream, PreparedDuplex, open_input, output_callback,
 };
+use crate::sample_rate::{Direction, StreamOpenError, verified_stream};
 use cpal::traits::DeviceTrait;
 use ravet_audio_file::{AudioConsumer, AudioProducer, audio_ring};
 use ravet_foundation::{MAXIMUM_CHANNELS, PrepareError, Processor};
@@ -81,6 +82,12 @@ pub enum ClockedDuplexOpenError {
     Input(OpenError),
     Preparation(ClockedDuplexError),
     Output(cpal::Error),
+    /// Output failed rate admission; both streams are dropped.
+    /// Input failures remain in `Input(OpenError::SampleRateMismatch { .. })`.
+    SampleRateMismatch {
+        requested: u32,
+        actual: u32,
+    },
 }
 impl std::fmt::Display for ClockedDuplexOpenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -88,6 +95,17 @@ impl std::fmt::Display for ClockedDuplexOpenError {
     }
 }
 impl std::error::Error for ClockedDuplexOpenError {}
+impl From<StreamOpenError> for ClockedDuplexOpenError {
+    fn from(error: StreamOpenError) -> Self {
+        match error {
+            StreamOpenError::Backend(error) => Self::Output(error),
+            StreamOpenError::SampleRateMismatch { requested, actual } => {
+                Self::SampleRateMismatch { requested, actual }
+            }
+        }
+    }
+}
+
 /// Independently loaded telemetry; these fields are not one atomic callback
 /// snapshot. Initial/recovery priming is intentional zero input, not underflow.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -492,7 +510,8 @@ impl ClockedDuplexStream {
 }
 /// Open explicit f32 input/output devices using prepared clocked conversion.
 /// Ring frames must match options.clock.capacity_frames. No implicit format,
-/// device or output routing changes; streams start only on play().
+/// device or output routing changes; both device rates are verified after building.
+/// Mismatch drops both streams; streams start only on play().
 pub fn open_clocked_duplex<P: Processor + Send + 'static>(
     input: &cpal::Device,
     output: &cpal::Device,
@@ -534,8 +553,8 @@ pub fn open_clocked_duplex<P: Processor + Send + 'static>(
     let errors = Arc::clone(&counters);
     let clock_counters = Arc::clone(&renderer.clock_counters);
     let mut callback = output_callback(renderer);
-    let stream = output
-        .build_output_stream(
+    let stream = verified_stream(output, Direction::Output, output_config.sample_rate, || {
+        output.build_output_stream(
             output_config,
             move |data: &mut [f32], _| callback(data),
             move |_| {
@@ -543,7 +562,10 @@ pub fn open_clocked_duplex<P: Processor + Send + 'static>(
             },
             None,
         )
-        .map_err(ClockedDuplexOpenError::Output)?;
+    })
+    .map_err(ClockedDuplexOpenError::from)?;
+    let input_stream = verified_stream(input, Direction::Input, input_rate, || Ok(input_stream))
+        .map_err(|error| ClockedDuplexOpenError::Input(OpenError::from(error)))?;
     Ok(ClockedDuplexStream {
         streams: DuplexStream::from_streams(input_stream, OutputStream { stream, counters }),
         clock_counters,

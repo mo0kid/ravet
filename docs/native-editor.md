@@ -346,7 +346,8 @@ drop(editor); // the parent window borrow prevents early window destruction
 The default popup and semantic theme are injected before exactly one `</body>` in trusted local
 HTML. The page must permit inline scripts/styles, stay within the 1 MiB document
 bound and reserve the popup's DOM IDs (including `io-settings`, `audio-output`,
-`audio-input`, `sample-rate`, `buffer-size`, `midi-inputs`, `start` and `stop`).
+`audio-input`, `sample-rate`, `buffer-size`, `midi-inputs`, `use-actual-rate`,
+`start` and `stop`).
 It wraps an existing inline `window.ravetUpdate` function after the page scripts.
 Consumers must define that function before their closing body tag. An optional
 `window.ravetSettingsWillOpen` hook can release on-screen notes before the dialog
@@ -362,7 +363,7 @@ state (`running` boolean and `status` string):
   "io": {
     "audio": true, "input": true, "midi": true,
     "outputs": [{"id":"device-id", "name":"Output", "channels":2,
-      "rates":[44100,48000], "default_rate":48000, "buffers":[64,128,256,512]}],
+      "rates":[44100,48000], "default_rate":48000, "nominal_rate":48000, "buffers":[64,128,256,512]}],
     "inputs": [{"id":"input-id", "name":"Input", "channels":2}],
     "midis": [{"id":"midi-id", "name":"Keyboard"}],
     "note": "Stop audio to change settings."
@@ -376,7 +377,11 @@ when needed. MIDI inputs are independently selectable and initially unchecked.
 Output rate options and buffer labels come from the consumer's supported-device
 inventory; milliseconds are `1000 * frames / rate`, not measured latency. The
 first device must be chosen explicitly when no saved available selection exists. New device selection resets its channel
-selection to the first pair. Buffer zero means device default.
+selection to the first pair and its current `nominal_rate` (or `default_rate`
+for older consumers), even when the old device's selected rate is supported.
+Saved explicit rate preferences still restore when supported. Consumers should
+populate `nominal_rate` from `ravet_device::device_nominal_sample_rate` and include
+it in the supported `rates` list when applicable. Buffer zero means device default.
 
 The popup sends JSON actions through the ordinary `Callbacks::message` bridge:
 `{"type":"action","action":"refresh"}` and `stop`, or `start` with `output`,
@@ -384,7 +389,26 @@ The popup sends JSON actions through the ordinary `Callbacks::message` bridge:
 `buffer_size`, `output_pairs`, `input_pairs` and `midis`. Pair arrays contain
 zero-based first-channel indices such as `[0,2]`; MIDI IDs remain strings.
 Device controls disable while running; a successful start closes the popup.
-Failed starts retain it and show the consumer's status. The consumer validates
+Failed starts retain it and show the consumer's status.
+A consumer may additionally supply a top-level snapshot field:
+
+```json
+{ "sample_rate_mismatch": {
+  "direction": "output", "device": "device-id", "requested": 48000, "actual": 96000
+} }
+```
+
+The popup shows both rates for the currently selected exact device. For an output
+(or an input sharing the selected output's ID), **Use device rate** selects and
+saves `actual` without starting audio. The button is disabled when that rate is
+absent from the advertised supported options. An independent input mismatch
+shows its actual rate without changing output settings; the consumer selects
+that input's nominal rate on retry. Equal-rate timeouts are still displayed.
+Clear the signal on stop/new start, and keep it while the failed start is visible.
+Running or old-device signals do not offer a rate change. The interactive examples
+publish this field from the typed opening errors and prepare fresh DSP on Start.
+
+The consumer validates
 all messages and owns enumeration, configuration, opening, stopping and routing;
 the window does not open devices or grant device permissions. Synthetic/demo
 sources belong to the application UI, not the device-input selector.

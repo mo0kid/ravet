@@ -2,6 +2,7 @@ use super::{
     Counters, DeviceRenderer, MAXIMUM_FRAMES, OpenError, OutputStatistics, OutputStream,
     output_callback,
 };
+use crate::sample_rate::{Direction, verified_stream};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ravet_audio_file::{AudioConsumer, AudioProducer, audio_ring};
 use ravet_foundation::{
@@ -139,6 +140,7 @@ impl InputStream {
     }
 }
 /// Open explicitly configured f32 capture; backend format/rate errors propagate.
+/// Post-build rate verification uses the same contract as [`crate::open_output`].
 /// No sample conversion, resampling or automatic device recovery is performed.
 pub fn open_input(
     device: &cpal::Device,
@@ -155,8 +157,8 @@ pub fn open_input(
         .map_err(OpenError::Preparation)?;
     let counters = Arc::clone(&capture.counters);
     let errors = Arc::clone(&counters);
-    let stream = device
-        .build_input_stream(
+    let stream = verified_stream(device, Direction::Input, config.sample_rate, || {
+        device.build_input_stream(
             config,
             move |input: &[f32], _| capture.capture(input),
             move |_| {
@@ -164,7 +166,8 @@ pub fn open_input(
             },
             None,
         )
-        .map_err(OpenError::Backend)?;
+    })
+    .map_err(OpenError::from)?;
     Ok((InputStream { stream, counters }, consumer))
 }
 /// Original preparation error and exclusive unchanged endpoint ownership.
@@ -467,6 +470,7 @@ impl Drop for DuplexStream {
     }
 }
 /// Prepare/open matching-rate f32 effect capture/playback with explicit devices.
+/// Both rates are verified after building; mismatch drops both streams.
 /// No hidden default fallback, loopback routing, resampling or automatic recovery.
 pub fn open_duplex<P: Processor + Send + 'static>(
     input: &cpal::Device,
@@ -483,6 +487,7 @@ pub fn open_duplex<P: Processor + Send + 'static>(
     if matches!(output_config.buffer_size, cpal::BufferSize::Fixed(0)) {
         return Err(OpenError::Preparation(PrepareError::InvalidMaximumFrames));
     }
+    let input_rate = input_config.sample_rate;
     let (input_stream, consumer) = open_input(input, input_config, ring_frames)?;
     let renderer = PreparedDuplex::new(
         processor,
@@ -495,8 +500,8 @@ pub fn open_duplex<P: Processor + Send + 'static>(
     let counters = Arc::clone(&renderer.counters);
     let errors = Arc::clone(&counters);
     let mut callback = output_callback(renderer);
-    let stream = output
-        .build_output_stream(
+    let stream = verified_stream(output, Direction::Output, output_config.sample_rate, || {
+        output.build_output_stream(
             output_config,
             move |output: &mut [f32], _| callback(output),
             move |_| {
@@ -504,7 +509,10 @@ pub fn open_duplex<P: Processor + Send + 'static>(
             },
             None,
         )
-        .map_err(OpenError::Backend)?;
+    })
+    .map_err(OpenError::from)?;
+    let input_stream = verified_stream(input, Direction::Input, input_rate, || Ok(input_stream))
+        .map_err(OpenError::from)?;
     Ok(DuplexStream {
         input: input_stream,
         output: OutputStream { stream, counters },

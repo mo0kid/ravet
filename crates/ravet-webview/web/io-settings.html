@@ -17,11 +17,12 @@
  <p id="io-unavailable" class="io-note" hidden>This application does not use audio or MIDI devices.</p>
  <p class="io-note" id="io-routing-note"></p>
  <div class="io-actions"><button id="refresh">Refresh devices</button><button id="stop" disabled>Stop audio</button><button id="start" class="io-start">Start audio</button></div>
+ <button id="use-actual-rate" hidden>Use device rate</button>
  <p id="settings-status" class="io-note" role="status">Choose an output and press Start.</p>
 </dialog>
 <script>
 (()=>{
- 'use strict';const get=id=>document.getElementById(id),dialog=get('io-settings');let io={},running=false,inventory='',starting=false,restored=false;
+ 'use strict';const get=id=>document.getElementById(id),dialog=get('io-settings');let io={},running=false,inventory='',starting=false,restored=false,acceptedMismatch='';
  const send=(action,extra={})=>{try{window.webkit.messageHandlers.ravet.postMessage({type:'action',action,...extra});return true}catch{get('settings-status').textContent='Native settings bridge unavailable';return false}};
  const chosen=id=>Array.from(get(id).querySelectorAll('input:checked'),n=>n.value);
  const select=(id,items,first)=>{const node=get(id),old=node.value;node.replaceChildren();if(first)node.add(new Option(first[1],first[0]));for(const item of items)node.add(new Option(item.name,String(item.id)));if(Array.from(node.options).some(o=>o.value===old))node.value=old;};
@@ -29,7 +30,7 @@
  const device=(direction)=>io[direction]?.find(d=>d.id===get(direction==='outputs'?'audio-output':'audio-input').value);
  function channels(id,count,prefix){const items=[];for(let n=0;n<count;n+=2)items.push({id:n,name:`${prefix} ${n+1}${n+1<count?' + '+(n+2):''}`});checks(id,items,i=>i===0);if(!items.length)get(id).textContent='No active device.';}
  function buffers(){const out=device('outputs'),rate=Number(get('sample-rate').value),old=get('buffer-size').value;get('buffer-size').replaceChildren();get('buffer-size').add(new Option('Device default','0'));for(const frames of out?.buffers||[])get('buffer-size').add(new Option(`${frames} samples (${(1000*frames/rate).toFixed(1)} ms)`,String(frames)));if(Array.from(get('buffer-size').options).some(o=>o.value===old))get('buffer-size').value=old;}
- function configuration(){const out=device('outputs'),input=device('inputs');channels('output-channels',out?.channels||0,'Out');channels('input-channels',input?.channels||0,'In');const rates=(out?.rates||[]).map(rate=>({id:rate,name:`${rate} Hz`}));const oldRate=get('sample-rate').value;select('sample-rate',rates);if(out&&!rates.some(r=>String(r.id)===oldRate))get('sample-rate').value=String(out.default_rate);buffers();get('input-channels-row').hidden=!input;}
+ function configuration(resetRate=false){const out=device('outputs'),input=device('inputs');channels('output-channels',out?.channels||0,'Out');channels('input-channels',input?.channels||0,'In');const rates=(out?.rates||[]).map(rate=>({id:rate,name:`${rate} Hz`}));const oldRate=get('sample-rate').value;select('sample-rate',rates);if(out&&(resetRate||!rates.some(r=>String(r.id)===oldRate)))get('sample-rate').value=String(out.nominal_rate??out.default_rate);buffers();get('input-channels-row').hidden=!input;}
  const selection=()=>({version:1,output:get('audio-output').value,input:get('audio-input').value,sample_rate:Number(get('sample-rate').value),buffer_size:Number(get('buffer-size').value),output_pairs:chosen('output-channels').map(Number),input_pairs:chosen('input-channels').map(Number),midis:chosen('midi-inputs')});
  function save(){try{window.webkit.messageHandlers.ravetSettings.postMessage(selection())}catch{}}
  function restore(saved){if(restored||!saved||saved.version!==1||!inventory)return;restored=true;
@@ -39,18 +40,22 @@
   for(const [id,key] of [['output-channels','output_pairs'],['input-channels','input_pairs'],['midi-inputs','midis']])if(Array.isArray(saved[key])){const selected=new Set(saved[key].map(String));for(const check of get(id).querySelectorAll('input'))check.checked=selected.has(check.value);}
  }
  window.ravetRestoreSettings=saved=>{window.ravetSavedSettings=saved;restore(saved)};
- get('audio-output').onchange=()=>{get('output-channels').replaceChildren();configuration();save()};get('audio-input').onchange=()=>{get('input-channels').replaceChildren();configuration();save()};get('sample-rate').onchange=()=>{buffers();save()};
+ get('audio-output').onchange=()=>{get('output-channels').replaceChildren();configuration(true);save()};get('audio-input').onchange=()=>{get('input-channels').replaceChildren();configuration();save()};get('sample-rate').onchange=()=>{buffers();save()};
  for(const id of ['buffer-size','output-channels','input-channels','midi-inputs'])get(id).addEventListener('change',save);
  window.ravetOpenSettings=()=>{if(typeof window.ravetSettingsWillOpen==='function')window.ravetSettingsWillOpen();if(!dialog.open)dialog.showModal();return true};
  get('close-settings').onclick=()=>dialog.close();dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
  window.ravetStartAudio=()=>{if(!get('audio-output').value){window.ravetOpenSettings();return true}save();starting=send('start',selection());return starting};get('start').onclick=window.ravetStartAudio;
  get('stop').onclick=()=>send('stop');get('refresh').onclick=()=>send('refresh');
+ get('use-actual-rate').onclick=()=>{const actual=get('use-actual-rate').dataset.rate;if(running||!actual)return;get('sample-rate').value=actual;buffers();save();acceptedMismatch=get('use-actual-rate').dataset.mismatch;get('use-actual-rate').hidden=true;};
  window.ravetUpdateSettings=state=>{
   if(!state?.io)return;io=state.io;running=Boolean(state.running);const audio=io.audio!==false,input=io.input!==false,midi=io.midi!==false;
   get('io-audio-fields').hidden=!audio;get('input-device-row').hidden=!audio||!input||!io.inputs?.length;get('midi-inputs-row').hidden=!midi||!io.midis?.length;get('io-unavailable').hidden=audio||midi;get('start').hidden=!audio;get('stop').hidden=!audio;
   const key=JSON.stringify(io);if(key!==inventory){inventory=key;select('audio-output',io.outputs||[],['','Choose an output…']);select('audio-input',io.inputs||[],['','No input']);checks('midi-inputs',io.midis||[],()=>false);configuration();restore(window.ravetSavedSettings);}
   for(const node of dialog.querySelectorAll('select,input'))node.disabled=running;get('start').disabled=running;get('stop').disabled=!running;get('refresh').disabled=running;
-  get('settings-status').textContent=state.status||'';get('io-routing-note').textContent=io.note||'';
+  const mismatch=state.sample_rate_mismatch,actual=Number(mismatch?.actual),requested=Number(mismatch?.requested),retry=get('use-actual-rate');retry.hidden=true;retry.dataset.rate='';retry.dataset.mismatch='';
+  const valid=mismatch&&Number.isInteger(actual)&&actual>0&&Number.isInteger(requested)&&requested>0&&(mismatch.direction==='input'||mismatch.direction==='output')&&mismatch.device===get(mismatch.direction==='input'?'audio-input':'audio-output').value;
+  if(valid&&!running){const appliesToOutput=mismatch.device===get('audio-output').value;const mismatchKey=JSON.stringify(mismatch);retry.hidden=!appliesToOutput||mismatchKey===acceptedMismatch;retry.dataset.mismatch=mismatchKey;retry.disabled=!Array.from(get('sample-rate').options).some(o=>o.value===String(actual));retry.textContent=`Use device rate (${actual} Hz)`;retry.dataset.rate=String(actual);}
+  get('settings-status').textContent=valid&&!running?`Device is currently at ${actual} Hz; requested ${requested} Hz. ${state.status||'Choose the device rate and retry Start.'}`:state.status||'';get('io-routing-note').textContent=io.note||'';
   if(starting){starting=false;if(running)dialog.close();}
  };
  const update=window.ravetUpdate;window.ravetUpdate=state=>{window.ravetUpdateSettings(state);if(typeof update==='function')update(state);};

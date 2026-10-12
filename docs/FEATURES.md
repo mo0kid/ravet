@@ -192,6 +192,7 @@ See [Getting started](getting-started.md) for commands,
 | [Guarded macOS CoreMIDI UMP endpoints](#core-midi-ump-endpoints) | Prototype | Exact-ID protocol-selected native inputs/outputs and owned virtual destinations/sources connect bounded exact-word UMP handoff through guarded native callback lifetime. |
 | [Bounded OSC packet codecs and explicit UDP](#osc-codecs-udp) | Implemented | Explicit worker/control APIs encode/decode padded ASCII OSC messages and nested bundles, preserve borrowed data/timetags and exchange datagrams only with caller-selected numeric endpoints. |
 | [Standalone output audio devices](#standalone-output-devices) | Prototype | Explicit CPAL enumeration/ID selection and configured f32 output streams adapt owned prepared processors through bounded planar scratch; a CLI runs silent callback validation. |
+| [Explicit device nominal-rate admission](#device-rate-admission) | Prototype | Every native stream build verifies the current device rate before returning; explicit mismatches and known-rate update timeouts allow callers to reprepare and retry at the actual rate. |
 | [Input capture and FIFO duplex effects](#input-duplex-devices) | Prototype | Explicit CPAL f32 input streams publish whole-frame prefixes to a prepared ring; duplex rendering zero-fills underflow, partitions variable callbacks and feeds portable effects. |
 | [Prepared explicit clocked duplex conversion](#explicit-clocked-duplex) | Implemented | Opt-in FIFO-depth feedback drives aligned per-input-channel sinc conversion into the output-clock processor, with priming and underrun recovery. |
 | [Caller-scheduled exact-device output recovery](#explicit-output-recovery) | Prototype | An explicit control-thread owner preserves healthy f32 output, releases missing/failed streams and prepares/starts fresh DSP through a caller-supplied factory. |
@@ -215,7 +216,7 @@ See [Getting started](getting-started.md) for commands,
 | [Native web editor backends](#native-web-editor) | Prototype | Local HTML editors use Cocoa/WebKit, Windows HWND/WebView2 or Linux X11/WebKitGTK with finite backing colours, bounded JSON messages, coalesced snapshots and explicit teardown. Cocoa editor views accept initial drags from inactive windows. WebKit browser context menus are suppressed in all frames while consumer right-click actions still receive events. |
 | [Cargo macOS WebKit ownership binding](#native-editor-binding) | Prototype | An explicit native crate builds Cocoa/WebKit through Xcode, checks main-thread creation, owns view and callback context, copies bounded snapshots and destroys native callback machinery before releasing state. |
 | [Rust-owned macOS editor C ABI](#native-editor-c-abi) | Prototype | Native consumers create/attach/resize/show/destroy Rust-owned WebViews with counted UTF-8 callbacks, UI-thread status checks and retained exactly-once foreign-context release. |
-| [Default standalone Audio/MIDI settings popup](#standalone-settings-popup) | Prototype | Reusable main-thread standalone windows resize their embedded page with native content and include a native title-bar settings button and standard device/channel-pair/rate/buffer/MIDI checklist popup with persistent exact device selections by default, with explicit full opt-out. |
+| [Default standalone Audio/MIDI settings popup](#standalone-settings-popup) | Prototype | Reusable main-thread standalone windows resize their embedded page with native content and include a native title-bar settings button and standard device/channel-pair/rate/buffer/MIDI checklist popup with persistent exact device selections by default, with explicit full opt-out; nominal-rate defaults and reported mismatch values offer an explicit actual-rate selection before retry. |
 | [Reusable local web controls](#reusable-web-controls) | Prototype | Shared slider/number, linear/logarithmic rotary knob, polyphonic piano keyboard, toggle, choice, action-button and meter components provide explicit gestures/actions, held-key ownership, nonfeedback host refresh and retryable disposal; piano chords/glissando share lifecycle release, disabled keys remain opaque and meter text retains actual overload levels. Shared styles prevent UI label/body text selection while keeping editable fields and code output selectable. Knob and slider/fader pointer gestures leave numeric editing, suppress label activation and pointer focus outlines, and preserve direct number entry and keyboard focus styling. |
 | [Prepared paragraph source carets, hit tests and selections](#paragraph-source-caret-selection) | Implemented | Immutable source identity and extended-grapheme boundaries map shaped cluster advances to bidi/wrap-aware affinity carets, finite hit tests and transactional caller-buffer selection pen boxes. |
 | [Bounded local-font paragraph wrapping and SVG outlines](#local-font-paragraph-layout) | Implemented | Explicit width, baseline spacing and physical alignment compose Unicode line opportunities with retained paragraph bidi context, source byte clusters and transactional TrueType SVG outlines. |
@@ -3926,6 +3927,20 @@ Explicit CPAL enumeration/ID selection and configured f32 output streams adapt o
 
 **Documentation:** [`docs/audio-devices.md`](../docs/audio-devices.md), [`docs/decisions/0018-output-devices.md`](../docs/decisions/0018-output-devices.md).
 
+<a id="device-rate-admission"></a>
+
+### Explicit device nominal-rate admission
+
+Every native stream build verifies the current device rate before returning; explicit mismatches and known-rate update timeouts allow callers to reprepare and retry at the actual rate.
+
+**Limits:** CoreAudio uses a direct nominal-property query by exact UID; other backends expose only direction-specific CPAL default-config proxies, not measured clocks. Opening-time snapshot only; failed queries reject streams, explicit rate-listener failures preserve equal requested/actual receipts, no implicit retry. Duplex rechecks input after output; reclaimable callback ownership retains pending retirement proofs. No later-rate/route monitoring, physical/virtual-device pitch or new platform/deadline qualification.
+
+**Source:** [`crates/ravet-device/src/sample_rate.rs`](../crates/ravet-device/src/sample_rate.rs), [`crates/ravet-device/src/sample_rate/coreaudio.rs`](../crates/ravet-device/src/sample_rate/coreaudio.rs), [`crates/ravet-device/src/lib.rs`](../crates/ravet-device/src/lib.rs), [`crates/ravet-device/src/input.rs`](../crates/ravet-device/src/input.rs), [`crates/ravet-device/src/clocked.rs`](../crates/ravet-device/src/clocked.rs), [`crates/ravet-device/src/reclaimable.rs`](../crates/ravet-device/src/reclaimable.rs), [`crates/ravet-device/src/reclaimable_clocked.rs`](../crates/ravet-device/src/reclaimable_clocked.rs).
+
+**Tests:** [`crates/ravet-device/src/sample_rate.rs`](../crates/ravet-device/src/sample_rate.rs), [`crates/ravet-device/src/sample_rate/coreaudio.rs`](../crates/ravet-device/src/sample_rate/coreaudio.rs), [`crates/ravet-device/src/reclaimable_tests.rs`](../crates/ravet-device/src/reclaimable_tests.rs), [`crates/ravet-device/src/reclaimable_clocked_tests.rs`](../crates/ravet-device/src/reclaimable_clocked_tests.rs).
+
+**Documentation:** [`docs/audio-devices.md`](../docs/audio-devices.md), [`docs/decisions/0277-device-rate-admission.md`](../docs/decisions/0277-device-rate-admission.md).
+
 <a id="input-duplex-devices"></a>
 
 ### Input capture and FIFO duplex effects
@@ -4028,15 +4043,15 @@ Native consumers create/attach/resize/show/destroy Rust-owned WebViews with coun
 
 ### Default standalone Audio/MIDI settings popup
 
-Reusable main-thread standalone windows resize their embedded page with native content and include a native title-bar settings button and standard device/channel-pair/rate/buffer/MIDI checklist popup with persistent exact device selections by default, with explicit full opt-out.
+Reusable main-thread standalone windows resize their embedded page with native content and include a native title-bar settings button and standard device/channel-pair/rate/buffer/MIDI checklist popup with persistent exact device selections by default, with explicit full opt-out; nominal-rate defaults and reported mismatch values offer an explicit actual-rate selection before retry.
 
 **Limits:** macOS 12+ Cocoa/WebKit and Xcode tools. Trusted local inline HTML up to 1 MiB with one closing body tag, reserved DOM IDs and control-thread snapshot/action contract. Consumer owns device inventory/validation/routing/lifecycle; creation opens no devices. Optional initial content aspect-ratio lock; programmatic resize fits the requested rectangle and native minimum size applies. Versioned preferences up to 8 KiB use a stable window-title key; hidden fixtures use process-local memory. Missing devices are unselected, restored settings never start audio. Plug-in editors and headless fixtures retain their own host/window policy. Programmatic native UI evidence, no broader platform or assistive-technology claim.
 
 **Source:** [`crates/ravet-webview/src/standalone.rs`](../crates/ravet-webview/src/standalone.rs), [`crates/ravet-webview/native/StandaloneWindow.mm`](../crates/ravet-webview/native/StandaloneWindow.mm), [`crates/ravet-webview/web/io-settings.html`](../crates/ravet-webview/web/io-settings.html).
 
-**Tests:** [`crates/ravet-webview/src/standalone.rs`](../crates/ravet-webview/src/standalone.rs), [`examples/tutorials/src/ui/mod.rs`](../examples/tutorials/src/ui/mod.rs).
+**Tests:** [`crates/ravet-webview/src/standalone.rs`](../crates/ravet-webview/src/standalone.rs), [`examples/tutorials/src/ui/mod.rs`](../examples/tutorials/src/ui/mod.rs), [`crates/ravet-webview/web/io-settings.test.js`](../crates/ravet-webview/web/io-settings.test.js), [`scripts/tests/test_io_settings.py`](../scripts/tests/test_io_settings.py).
 
-**Documentation:** [`docs/native-editor.md`](../docs/native-editor.md), [`docs/project-starters.md`](../docs/project-starters.md), [`docs/decisions/0132-standalone-settings-and-knobs.md`](../docs/decisions/0132-standalone-settings-and-knobs.md).
+**Documentation:** [`docs/native-editor.md`](../docs/native-editor.md), [`docs/project-starters.md`](../docs/project-starters.md), [`docs/decisions/0132-standalone-settings-and-knobs.md`](../docs/decisions/0132-standalone-settings-and-knobs.md), [`docs/decisions/0277-device-rate-admission.md`](../docs/decisions/0277-device-rate-admission.md).
 
 <a id="reusable-web-controls"></a>
 

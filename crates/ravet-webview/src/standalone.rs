@@ -99,6 +99,10 @@ pub struct StandaloneWindowState {
 /// Owned macOS standalone window; neither Send nor Sync. Pump and drop on main.
 /// The standard popup emits device-selection actions; the consumer owns opening,
 /// validation, lifecycle and snapshots. It opens no devices on window creation.
+/// Consumers supply `io.outputs[].nominal_rate` for the initial rate selection
+/// (falling back to `default_rate`) and may publish `sample_rate_mismatch` to
+/// show the actual rate and offer an explicit selection before retrying Start.
+/// See `docs/native-editor.md` for that snapshot contract.
 pub struct StandaloneWindow {
     handle: NonNull<c_void>,
     _main: PhantomData<Rc<()>>,

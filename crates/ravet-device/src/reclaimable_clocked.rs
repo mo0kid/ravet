@@ -1,5 +1,6 @@
 //! Paired callback retirement; stopped ownership needs all four callback guards.
 #![allow(unsafe_code)]
+use crate::sample_rate::{Direction, StreamOpenError, verified_stream};
 use crate::{
     ClockedDuplexError, ClockedDuplexOptions, ClockedDuplexStatistics, Counters, DeviceRenderer,
     InputStatistics, OutputStatistics, PreparedCapture, PreparedClockedDuplex,
@@ -50,6 +51,11 @@ pub enum ReclaimableClockedOpenError {
     ClockedPreparation(ClockedDuplexError),
     InputBackend(cpal::Error),
     OutputBackend(cpal::Error),
+    /// Either device failed rate admission; paired callback ownership retires.
+    SampleRateMismatch {
+        requested: u32,
+        actual: u32,
+    },
     WorkerSpawn(std::io::Error),
 }
 impl std::fmt::Display for ReclaimableClockedOpenError {
@@ -64,7 +70,19 @@ impl std::error::Error for ReclaimableClockedOpenError {
             Self::ClockedPreparation(e) => e,
             Self::InputBackend(e) | Self::OutputBackend(e) => e,
             Self::WorkerSpawn(e) => e,
+            Self::SampleRateMismatch { .. } => return None,
         })
+    }
+}
+fn rate_error(error: StreamOpenError, direction: Direction) -> ReclaimableClockedOpenError {
+    match error {
+        StreamOpenError::Backend(error) => match direction {
+            Direction::Input => ReclaimableClockedOpenError::InputBackend(error),
+            Direction::Output => ReclaimableClockedOpenError::OutputBackend(error),
+        },
+        StreamOpenError::SampleRateMismatch { requested, actual } => {
+            ReclaimableClockedOpenError::SampleRateMismatch { requested, actual }
+        }
     }
 }
 /// Exclusive original processor or proof pending asynchronous callback teardown.
@@ -482,6 +500,8 @@ impl<P: Processor> Drop for ReclaimableClockedDuplex<P> {
     }
 }
 /// Open a matched clocked capture/render pair with original processor ownership.
+/// Both device rates are verified after construction, including input after
+/// output may have changed a shared device. Mismatch drops the pair.
 /// All four callback owners must retire before recovery. No format/device fallback,
 /// inferred timestamp alignment or native deadline/support guarantee follows.
 pub fn open_reclaimable_clocked_duplex<P: Processor + Send + 'static>(
@@ -545,22 +565,29 @@ pub fn open_reclaimable_clocked_duplex<P: Processor + Send + 'static>(
     let ((input_stream, output_stream), statistics, retirement) = start_prepared(
         StoppedClockedDuplex { renderer, capture },
         |mut data, errors, mut output_data, output_errors| {
-            let input_stream = input
-                .build_input_stream(
+            let input_rate = input_config.sample_rate;
+            let input_stream = verified_stream(input, Direction::Input, input_rate, || {
+                input.build_input_stream(
                     input_config,
                     move |pcm: &[f32], _| data.capture(pcm),
                     move |_| errors.report(),
                     None,
                 )
-                .map_err(ReclaimableClockedOpenError::InputBackend)?;
-            let output_stream = output
-                .build_output_stream(
-                    output_config,
-                    move |pcm: &mut [f32], _| output_data.render(pcm),
-                    move |_| output_errors.report(),
-                    None,
-                )
-                .map_err(ReclaimableClockedOpenError::OutputBackend)?;
+            })
+            .map_err(|e| rate_error(e, Direction::Input))?;
+            let output_stream =
+                verified_stream(output, Direction::Output, output_config.sample_rate, || {
+                    output.build_output_stream(
+                        output_config,
+                        move |pcm: &mut [f32], _| output_data.render(pcm),
+                        move |_| output_errors.report(),
+                        None,
+                    )
+                })
+                .map_err(|e| rate_error(e, Direction::Output))?;
+            let input_stream =
+                verified_stream(input, Direction::Input, input_rate, || Ok(input_stream))
+                    .map_err(|e| rate_error(e, Direction::Input))?;
             Ok((input_stream, output_stream))
         },
         spawn_worker,

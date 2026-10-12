@@ -505,3 +505,5 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0274](0274-reference-vst3-modules.md) | RAVET reference VST3 modules (Keyed Sidechain, Event Probe) for hosted-VST3 tests | Prototype; SDK validator, direct SDK robustness, native provider and Rust Graph-bank actual-module evidence on macOS arm64, no DAW or deadline claim |
 | [0275](0275-convolution-transition-priming-and-latency-alignment.md) | History priming and latency alignment for live convolution transitions | Implemented; offline exact-reference, allocation and concurrency evidence only, no deadline claim |
 | [0276](0276-graph-bank-editors-and-edit-gestures.md) | Graph-bank child editors and controller edit gestures | Implemented; prototype (R3); fixture, mock-provider, ThreadSanitizer and actual Gain hidden-window evidence, no DAW, third-party editor, single-component plug-in, accessibility or deadline claim |
+
+| [0277](0277-device-rate-admission.md) | Device nominal-rate admission before playback | Implemented; device-free comparison, error mapping, retirement and popup evidence; physical/virtual-device validation pending |

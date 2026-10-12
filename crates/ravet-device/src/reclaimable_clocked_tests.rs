@@ -295,6 +295,33 @@ fn original_spawn_error_before_handoff_and_both_async_build_errors_retain_unique
     }
 }
 #[test]
+fn rate_mismatch_drops_paired_fake_stream_and_recovers_all_callback_owners() {
+    let failure = start_prepared(
+        prepare(Probe::new(96)),
+        |i, ie, o, oe| {
+            crate::sample_rate::verify_result(Ok((i, ie, o, oe)), 48000, || Ok(96000))
+                .map_err(|e| rate_error(e, Direction::Output))
+        },
+        spawn_worker,
+        None,
+    )
+    .err()
+    .unwrap();
+    let (error, owner) = failure.into_parts();
+    assert!(matches!(
+        error,
+        ReclaimableClockedOpenError::SampleRateMismatch {
+            requested: 48000,
+            actual: 96000
+        }
+    ));
+    let FailedClockedOwner::Pending(retirement) = owner else {
+        panic!("paired retirement required")
+    };
+    assert_eq!(normal(retirement.wait().unwrap()).0.into_processor().id, 96);
+}
+
+#[test]
 fn caught_poll_and_real_processing_panic_preserve_proof_and_disable_only_guard() {
     let mut probe = Probe::new(13);
     probe.panic_process = true;

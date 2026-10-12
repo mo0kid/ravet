@@ -2,6 +2,7 @@
 //! data callback's temporary mutable renderer borrow; extraction is safe ownership.
 #![allow(unsafe_code)]
 
+use crate::sample_rate::{Direction, StreamOpenError, verified_stream};
 use crate::{Counters, OutputStatistics, PreparedOutput};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use ravet_foundation::{PrepareError, Processor};
@@ -21,6 +22,11 @@ use std::{
 pub enum ReclaimableOutputOpenError {
     Preparation(PrepareError),
     Backend(cpal::Error),
+    /// Stream rejected before play; processor retains normal retirement ownership.
+    SampleRateMismatch {
+        requested: u32,
+        actual: u32,
+    },
     WorkerSpawn(std::io::Error),
 }
 impl std::fmt::Display for ReclaimableOutputOpenError {
@@ -28,6 +34,10 @@ impl std::fmt::Display for ReclaimableOutputOpenError {
         match self {
             Self::Preparation(e) => e.fmt(f),
             Self::Backend(e) => e.fmt(f),
+            Self::SampleRateMismatch { requested, actual } => write!(
+                f,
+                "Device sample rate mismatch: requested {requested} Hz, actual {actual} Hz"
+            ),
             Self::WorkerSpawn(e) => e.fmt(f),
         }
     }
@@ -37,8 +47,19 @@ impl std::error::Error for ReclaimableOutputOpenError {
         Some(match self {
             Self::Preparation(e) => e,
             Self::Backend(e) => e,
+            Self::SampleRateMismatch { .. } => return None,
             Self::WorkerSpawn(e) => e,
         })
+    }
+}
+impl From<StreamOpenError> for ReclaimableOutputOpenError {
+    fn from(error: StreamOpenError) -> Self {
+        match error {
+            StreamOpenError::Backend(error) => Self::Backend(error),
+            StreamOpenError::SampleRateMismatch { requested, actual } => {
+                Self::SampleRateMismatch { requested, actual }
+            }
+        }
     }
 }
 /// Opening failure keeps the original processor immediately or an explicitly
@@ -291,7 +312,7 @@ fn retire<P: Processor + Send + 'static>(
 }
 fn start_prepared<P: Processor + Send + 'static, S>(
     renderer: PreparedOutput<P>,
-    build: impl FnOnce(DataGuard<P>, ErrorGuard<P>) -> Result<S, cpal::Error>,
+    build: impl FnOnce(DataGuard<P>, ErrorGuard<P>) -> Result<S, ReclaimableOutputOpenError>,
     spawn: impl FnOnce(SpawnJob) -> std::io::Result<JoinHandle<()>>,
     poll_hook: Option<Box<dyn FnOnce() + Send>>,
 ) -> Result<(S, Arc<Counters>, OutputRetirement<P>), ReclaimableOutputFailure<P>> {
@@ -341,7 +362,7 @@ fn start_prepared<P: Processor + Send + 'static, S>(
     match stream {
         Ok(stream) => Ok((stream, counters, retirement)),
         Err(error) => Err(ReclaimableOutputFailure {
-            error: ReclaimableOutputOpenError::Backend(error),
+            error,
             owner: FailedOutputOwner::Pending(retirement),
         }),
     }
@@ -379,7 +400,8 @@ impl<P: Processor> Drop for ReclaimableOutput<P> {
 }
 /// Open explicit f32 output with recoverable processor ownership and a dedicated
 /// control retirement worker. Preflight/spawn failures return the original owner;
-/// backend failures can return pending ownership. No implicit rate fallback,
+/// backend/rate-query/mismatch failures can return pending ownership. Post-build
+/// rate verification follows [`crate::open_output`]. No implicit rate fallback,
 /// scheduling/drift/physical support or teardown deadline is promised. Processing
 /// panic permanently silences the data callback and has exceptional runtime cost.
 pub fn open_reclaimable_output<P: Processor + Send + 'static>(
@@ -410,12 +432,15 @@ pub fn open_reclaimable_output<P: Processor + Send + 'static>(
     let (stream, counters, retirement) = start_prepared(
         renderer,
         |mut data, errors| {
-            device.build_output_stream(
-                config,
-                move |output: &mut [f32], _| data.render(output),
-                move |_| errors.report(),
-                None,
-            )
+            verified_stream(device, Direction::Output, config.sample_rate, || {
+                device.build_output_stream(
+                    config,
+                    move |output: &mut [f32], _| data.render(output),
+                    move |_| errors.report(),
+                    None,
+                )
+            })
+            .map_err(ReclaimableOutputOpenError::from)
         },
         spawn_worker,
         None,

@@ -1825,6 +1825,16 @@ tests = ["crates/ravet-device/tests/output.rs", "tools/device-probe/src/main.rs"
 docs = ["docs/audio-devices.md", "docs/decisions/0018-output-devices.md"]
 
 [[feature]]
+id = "device-rate-admission"
+title = "Explicit device nominal-rate admission"
+status = "prototype"
+summary = "Every native stream build verifies the current device rate before returning; explicit mismatches and known-rate update timeouts allow callers to reprepare and retry at the actual rate."
+limits = "CoreAudio uses a direct nominal-property query by exact UID; other backends expose only direction-specific CPAL default-config proxies, not measured clocks. Opening-time snapshot only; failed queries reject streams, explicit rate-listener failures preserve equal requested/actual receipts, no implicit retry. Duplex rechecks input after output; reclaimable callback ownership retains pending retirement proofs. No later-rate/route monitoring, physical/virtual-device pitch or new platform/deadline qualification."
+sources = ["crates/ravet-device/src/sample_rate.rs", "crates/ravet-device/src/sample_rate/coreaudio.rs", "crates/ravet-device/src/lib.rs", "crates/ravet-device/src/input.rs", "crates/ravet-device/src/clocked.rs", "crates/ravet-device/src/reclaimable.rs", "crates/ravet-device/src/reclaimable_clocked.rs"]
+tests = ["crates/ravet-device/src/sample_rate.rs", "crates/ravet-device/src/sample_rate/coreaudio.rs", "crates/ravet-device/src/reclaimable_tests.rs", "crates/ravet-device/src/reclaimable_clocked_tests.rs"]
+docs = ["docs/audio-devices.md", "docs/decisions/0277-device-rate-admission.md"]
+
+[[feature]]
 id = "input-duplex-devices"
 title = "Input capture and FIFO duplex effects"
 status = "prototype"
@@ -2062,11 +2072,11 @@ docs = ["docs/native-editor.md", "docs/decisions/0076-native-editor-abi.md"]
 id = "standalone-settings-popup"
 title = "Default standalone Audio/MIDI settings popup"
 status = "prototype"
-summary = "Reusable main-thread standalone windows resize their embedded page with native content and include a native title-bar settings button and standard device/channel-pair/rate/buffer/MIDI checklist popup with persistent exact device selections by default, with explicit full opt-out."
+summary = "Reusable main-thread standalone windows resize their embedded page with native content and include a native title-bar settings button and standard device/channel-pair/rate/buffer/MIDI checklist popup with persistent exact device selections by default, with explicit full opt-out; nominal-rate defaults and reported mismatch values offer an explicit actual-rate selection before retry."
 limits = "macOS 12+ Cocoa/WebKit and Xcode tools. Trusted local inline HTML up to 1 MiB with one closing body tag, reserved DOM IDs and control-thread snapshot/action contract. Consumer owns device inventory/validation/routing/lifecycle; creation opens no devices. Optional initial content aspect-ratio lock; programmatic resize fits the requested rectangle and native minimum size applies. Versioned preferences up to 8 KiB use a stable window-title key; hidden fixtures use process-local memory. Missing devices are unselected, restored settings never start audio. Plug-in editors and headless fixtures retain their own host/window policy. Programmatic native UI evidence, no broader platform or assistive-technology claim."
 sources = ["crates/ravet-webview/src/standalone.rs", "crates/ravet-webview/native/StandaloneWindow.mm", "crates/ravet-webview/web/io-settings.html"]
-tests = ["crates/ravet-webview/src/standalone.rs", "examples/tutorials/src/ui/mod.rs"]
-docs = ["docs/native-editor.md", "docs/project-starters.md", "docs/decisions/0132-standalone-settings-and-knobs.md"]
+tests = ["crates/ravet-webview/src/standalone.rs", "examples/tutorials/src/ui/mod.rs", "crates/ravet-webview/web/io-settings.test.js", "scripts/tests/test_io_settings.py"]
+docs = ["docs/native-editor.md", "docs/project-starters.md", "docs/decisions/0132-standalone-settings-and-knobs.md", "docs/decisions/0277-device-rate-admission.md"]
 
 [[feature]]
 id = "reusable-web-controls"

@@ -18,6 +18,7 @@ fn device_info(
     name: String,
     ranges: Vec<cpal::SupportedStreamConfigRange>,
     default: cpal::SupportedStreamConfig,
+    nominal_rate: u32,
 ) -> Result<Value> {
     let channels = default.channels();
     let ranges = ranges
@@ -36,7 +37,7 @@ fn device_info(
         96000,
         176400,
         192000,
-        default.sample_rate(),
+        nominal_rate,
     ];
     rates.sort_unstable();
     rates.dedup();
@@ -56,7 +57,7 @@ fn device_info(
         })
         .collect::<Vec<_>>();
     Ok(
-        json!({"id":id,"name":name,"channels":channels.min(64),"rates":rates,"default_rate":default.sample_rate(),"buffers":buffers}),
+        json!({"id":id,"name":name,"channels":channels.min(64),"rates":rates,"default_rate":default.sample_rate(),"nominal_rate":nominal_rate,"buffers":buffers}),
     )
 }
 fn selected_output_config(device: &cpal::Device, message: &Value) -> Result<cpal::StreamConfig> {
@@ -152,6 +153,7 @@ struct State {
     demo: bool,
     rate: f64,
     status: String,
+    sample_rate_mismatch: Option<Value>,
     outputs: Vec<Value>,
     inputs: Vec<Value>,
     midis: Vec<Value>,
@@ -171,6 +173,7 @@ impl State {
             delay: crate::delay::DEFAULT_VALUES,
             demo: true,
             rate: 48_000.,
+            sample_rate_mismatch: None,
             status: "Ready · choose an output and press Start".into(),
             outputs: Vec::new(),
             inputs: Vec::new(),
@@ -215,6 +218,7 @@ impl State {
                     d.name,
                     d.configurations,
                     device.default_output_config()?,
+                    ravet_device::device_nominal_sample_rate(&device)?,
                 )
             })
             .collect::<Result<Vec<_>>>()?;
@@ -227,6 +231,7 @@ impl State {
                     d.name,
                     d.configurations,
                     device.default_input_config()?,
+                    ravet_device::device_nominal_sample_rate(&device)?,
                 )
             })
             .collect::<Result<Vec<_>>>()?;
@@ -237,6 +242,7 @@ impl State {
         Ok(())
     }
     fn stop(&mut self) {
+        self.sample_rate_mismatch = None;
         if let Some(running) = self.running.take() {
             running.stop();
             drop(running);
@@ -260,6 +266,33 @@ impl State {
             return Err("Control queue full · notes cleared; retry the control".into());
         }
         Ok(())
+    }
+    fn record_rate_mismatch(
+        &mut self,
+        error: &(dyn std::error::Error + 'static),
+        output: &str,
+        input: &str,
+    ) {
+        use ravet_device::{ClockedDuplexOpenError, OpenError};
+        let mismatch = match (
+            error.downcast_ref::<OpenError>(),
+            error.downcast_ref::<ClockedDuplexOpenError>(),
+        ) {
+            (Some(OpenError::SampleRateMismatch { requested, actual }), _)
+            | (_, Some(ClockedDuplexOpenError::SampleRateMismatch { requested, actual })) => {
+                Some(("output", output, *requested, *actual))
+            }
+            (
+                _,
+                Some(ClockedDuplexOpenError::Input(OpenError::SampleRateMismatch {
+                    requested,
+                    actual,
+                })),
+            ) => Some(("input", input, *requested, *actual)),
+            _ => None,
+        };
+        self.sample_rate_mismatch = mismatch.map(|(direction, device, requested, actual)|
+            json!({"direction":direction,"device":device,"requested":requested,"actual":actual}));
     }
     fn start(&mut self, message: &Value) -> Result<()> {
         self.stop();
@@ -364,7 +397,10 @@ impl State {
                 Ok(Running::Duplex(open_clocked_duplex(
                     &input,
                     &output,
-                    input_config.config(),
+                    cpal::StreamConfig {
+                        sample_rate: ravet_device::device_nominal_sample_rate(&input)?,
+                        ..input_config.config()
+                    },
                     config,
                     options.clock.capacity_frames,
                     audio,
@@ -380,6 +416,7 @@ impl State {
             Ok(r) => self.running = Some(r),
             Err(e) => {
                 self.stop();
+                self.record_rate_mismatch(e.as_ref(), output_id, source);
                 return Err(e);
             }
         }
@@ -570,7 +607,7 @@ impl State {
         let voices=(0..8).filter_map(|i|{let s=12+i*8;let id=self.words[s];let phase=(id>>16)&255;
             (phase!=0).then(||json!({"channel":id&255,"key":(id>>8)&255,"phase":(["Idle","Held","Sustained","Released"][phase as usize]),
                 "velocity":word(s+1),"bend":word(s+2)+word(s+3),"pressure":word(s+4),"timbre":word(s+5),"envelope":word(s+6)}))}).collect::<Vec<_>>();
-        json!({"mode":self.mode,"values":self.values,"delay":self.delay,"demo":self.demo,"running":self.running.is_some(),"status":self.status,
+        json!({"mode":self.mode,"values":self.values,"delay":self.delay,"demo":self.demo,"running":self.running.is_some(),"status":self.status,"sample_rate_mismatch":self.sample_rate_mismatch,
             "io":{"outputs":self.outputs,"inputs":self.inputs,"midis":self.midis,"audio":self.mode!="midi2","midi":self.mode=="synth"||self.mode=="mpe","input":self.mode!="midi2","note":if self.mode=="effect" {"Stop audio to change settings. Selected input pairs are mixed to stereo."} else {"Stop audio to change settings. Audio input is optional; notes come from MIDI or the keyboard."}},"meters":meters,"voices":voices,"packets":self.packets,
             "frames":u64::from(self.words[0])|(u64::from(self.words[1])<<32),"midiDrops":self.words[10],"ranges":RANGES})
     }
@@ -820,6 +857,7 @@ fn layout_fixture(
 }
 
 fn settings_fixture() -> Result<()> {
+    rate_settings_fixture()?;
     for pass in 0..3 {
         let state = Rc::new(RefCell::new(State::new("synth", true)));
         let window = StandaloneWindow::new(StandaloneOptions {
@@ -868,6 +906,83 @@ fn settings_fixture() -> Result<()> {
     Ok(())
 }
 
+fn rate_settings_fixture() -> Result<()> {
+    use ravet_device::{ClockedDuplexOpenError, OpenError};
+    let state = Rc::new(RefCell::new(State::new("synth", true)));
+    state.borrow_mut().outputs[0]["nominal_rate"] = json!(96000);
+    state
+        .borrow_mut()
+        .outputs
+        .push(json!({"id":"second-output","name":"Second fixture",
+        "channels":2,"rates":[44100,48000,96000],"default_rate":48000,
+        "nominal_rate":44100,"buffers":[128,256]}));
+    let window = StandaloneWindow::new(StandaloneOptions {
+        hidden: true,
+        title: "RAVET · nominal rate fixture".into(),
+        ..Default::default()
+    })?;
+    let editor = window.embed(
+        &ravet_surface::embed_web_controls(include_str!("../../editor/index.html")).unwrap(),
+        Bridge(state.clone()),
+    )?;
+    editor.set_visible(true);
+    for _ in 0..80 {
+        if window.eval("window.ravetExampleReady===true")? {
+            break;
+        }
+        window.pump(0.05);
+    }
+    assert!(window.eval(r#"(()=>{
+        const out=document.getElementById('audio-output'),rate=document.getElementById('sample-rate');
+        for(const [id,expected] of [['test-output','96000'],['second-output','44100'],['test-output','96000']]){
+            out.value=id;out.dispatchEvent(new Event('change'));if(rate.value!==expected)return false;
+        }
+        document.getElementById('audio-input').value='test-input';
+        document.getElementById('audio-input').dispatchEvent(new Event('change'));
+        rate.value='48000';window.ravetOpenSettings();return true;
+    })()"#)?);
+    for actual in [96000, 48000, 192000] {
+        state.borrow_mut().record_rate_mismatch(
+            &OpenError::SampleRateMismatch {
+                requested: 48000,
+                actual,
+            },
+            "test-output",
+            "test-input",
+        );
+        let snapshot = state.borrow_mut().snapshot();
+        assert!(window.eval(&format!("window.ravetUpdateSettings({snapshot});true"))?);
+        assert!(window.eval(&format!(
+            "document.getElementById('settings-status').textContent.includes('{actual} Hz')&&document.getElementById('io-settings').open&&!document.getElementById('use-actual-rate').hidden&&document.getElementById('use-actual-rate').disabled==={}",
+            actual == 192000
+        ))?);
+        if actual != 192000 {
+            assert!(window.eval(&format!("document.getElementById('use-actual-rate').click();document.getElementById('sample-rate').value==='{actual}'"))?);
+        }
+        assert!(state.borrow().running.is_none());
+    }
+    state.borrow_mut().record_rate_mismatch(
+        &ClockedDuplexOpenError::Input(OpenError::SampleRateMismatch {
+            requested: 48000,
+            actual: 44100,
+        }),
+        "test-output",
+        "test-input",
+    );
+    let snapshot = state.borrow_mut().snapshot();
+    assert!(window.eval(&format!("window.ravetUpdateSettings({snapshot});document.getElementById('use-actual-rate').hidden&&document.getElementById('settings-status').textContent.includes('44100 Hz')&&document.getElementById('sample-rate').value==='48000'"))?);
+    // Old-device errors do not rewrite selections after a device switch.
+    state.borrow_mut().sample_rate_mismatch.as_mut().unwrap()["device"] = json!("missing-output");
+    let snapshot = state.borrow_mut().snapshot();
+    assert!(window.eval(&format!(
+        "window.ravetUpdateSettings({snapshot});document.getElementById('use-actual-rate').hidden"
+    ))?);
+    drop(editor);
+    drop(window);
+    println!("PASS nominal rate defaults and explicit mismatch retry without device opening");
+    Ok(())
+}
+
 fn knob_fixture(window: &StandaloneWindow) -> Result<()> {
     assert!(window.eval(r#"(()=>{
         if(document.querySelectorAll('input[type=range]').length!==0)return false;
@@ -911,4 +1026,55 @@ fn piano_fixture(window: &StandaloneWindow) -> Result<()> {
         piano.dispose();outer.remove();return true;
     })()"#)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod rate_tests {
+    use super::*;
+    use ravet_device::{ClockedDuplexOpenError, OpenError};
+
+    #[test]
+    fn typed_rate_failures_publish_exact_direction_and_stop_clears_the_signal() {
+        let mut state = State::new("synth", true);
+        for error in [
+            Box::new(OpenError::SampleRateMismatch {
+                requested: 48000,
+                actual: 96000,
+            }) as Box<dyn std::error::Error>,
+            Box::new(ClockedDuplexOpenError::SampleRateMismatch {
+                requested: 48000,
+                actual: 96000,
+            }),
+        ] {
+            state.record_rate_mismatch(error.as_ref(), "test-output", "test-input");
+            assert_eq!(
+                state.snapshot()["sample_rate_mismatch"],
+                json!({"direction":"output", "device":"test-output", "requested":48000, "actual":96000})
+            );
+        }
+        state.record_rate_mismatch(
+            &ClockedDuplexOpenError::Input(OpenError::SampleRateMismatch {
+                requested: 48000,
+                actual: 44100,
+            }),
+            "test-output",
+            "test-input",
+        );
+        assert_eq!(
+            state.snapshot()["sample_rate_mismatch"]["direction"],
+            "input"
+        );
+        assert_eq!(
+            state.snapshot()["sample_rate_mismatch"]["device"],
+            "test-input"
+        );
+        state.stop();
+        assert!(state.snapshot()["sample_rate_mismatch"].is_null());
+        state.record_rate_mismatch(
+            &OpenError::Backend(cpal::Error::new(cpal::ErrorKind::DeviceBusy)),
+            "test-output",
+            "test-input",
+        );
+        assert!(state.snapshot()["sample_rate_mismatch"].is_null());
+    }
 }

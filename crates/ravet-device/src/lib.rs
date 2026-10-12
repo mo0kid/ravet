@@ -20,6 +20,9 @@ use std::sync::{
 };
 
 pub use cpal;
+mod sample_rate;
+pub use sample_rate::device_nominal_sample_rate;
+use sample_rate::{Direction, StreamOpenError, verified_stream};
 mod graph_events;
 mod graph_output;
 pub use graph_events::{
@@ -351,12 +354,22 @@ impl OutputStream {
 pub enum OpenError {
     Preparation(PrepareError),
     Backend(cpal::Error),
+    /// The built stream was dropped, or a rate update failed with a known rate.
+    /// A timeout may report equal rates; callers must explicitly decide to retry.
+    SampleRateMismatch {
+        requested: u32,
+        actual: u32,
+    },
 }
 impl std::fmt::Display for OpenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Preparation(error) => error.fmt(f),
             Self::Backend(error) => error.fmt(f),
+            Self::SampleRateMismatch { requested, actual } => write!(
+                f,
+                "Device sample rate mismatch: requested {requested} Hz, actual {actual} Hz"
+            ),
         }
     }
 }
@@ -365,12 +378,27 @@ impl std::error::Error for OpenError {
         Some(match self {
             Self::Preparation(error) => error,
             Self::Backend(error) => error,
+            Self::SampleRateMismatch { .. } => return None,
         })
+    }
+}
+
+impl From<StreamOpenError> for OpenError {
+    fn from(error: StreamOpenError) -> Self {
+        match error {
+            StreamOpenError::Backend(error) => Self::Backend(error),
+            StreamOpenError::SampleRateMismatch { requested, actual } => {
+                Self::SampleRateMismatch { requested, actual }
+            }
+        }
     }
 }
 
 /// Open an explicitly configured f32 output stream; unsupported device settings
 /// are returned by CPAL. No implicit sample format conversion or rate fallback.
+/// The device rate is checked after construction; mismatch drops the stream
+/// before returning [`OpenError::SampleRateMismatch`]. A failed rate query also
+/// rejects the stream. See [`device_nominal_sample_rate`] for backend limits.
 /// Fixed buffer size is a backend request, not a guaranteed callback size.
 /// Processors are moved into the callback after preparation. A panic silences
 /// output and permanently disables DSP for this stream; reopen to recover.
@@ -394,8 +422,8 @@ pub fn open_output<P: Processor + Send + 'static>(
     let counters = Arc::clone(&renderer.counters);
     let errors = Arc::clone(&counters);
     let mut callback = output_callback(renderer);
-    let stream = device
-        .build_output_stream(
+    let stream = verified_stream(device, Direction::Output, config.sample_rate, || {
+        device.build_output_stream(
             config,
             move |output: &mut [f32], _| callback(output),
             move |_| {
@@ -403,7 +431,8 @@ pub fn open_output<P: Processor + Send + 'static>(
             },
             None,
         )
-        .map_err(OpenError::Backend)?;
+    })
+    .map_err(OpenError::from)?;
     Ok(OutputStream { stream, counters })
 }
 
