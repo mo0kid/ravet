@@ -72,20 +72,21 @@ jobs:
           ssh-key: ${{ secrets.WEBSITE_READ_KEY }}
           path: website
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.11'
+      # The self-hosted Mac provides Python 3 and Node from Homebrew; the
+      # setup-python/setup-node actions target GitHub's /Users/runner layout.
+      - name: Check build tools
+        run: |
+          python3 --version
+          node --version
       - name: Install stable Rust
         run: rustup toolchain install stable --profile minimal
       - name: Build documentation snapshot
         env:
           RAVET_DOCS_COMMIT: ${{ github.sha }}
         run: |
-          python3 -m pip install -r ravet/scripts/docs/hosted/requirements.txt
-          python3 website/scripts/build-ravet.py --source ravet
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: '22'
+          python3 -m venv "$RUNNER_TEMP/hosted-docs-venv"
+          "$RUNNER_TEMP/hosted-docs-venv/bin/python" -m pip install --quiet -r ravet/scripts/docs/hosted/requirements.txt
+          "$RUNNER_TEMP/hosted-docs-venv/bin/python" website/scripts/build-ravet.py --source ravet
       - name: Test generated site
         run: node --test website/tests/ravet.test.js
       - name: Upload snapshot
