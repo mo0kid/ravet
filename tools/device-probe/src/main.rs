@@ -4,6 +4,8 @@ use ravet_device::{
 };
 use ravet_foundation::{PrepareError, ProcessBlock, ProcessConfig, ProcessStatus, Processor};
 
+// Stream snapshots include xruns/route_changes as diagnostics; failure checks below
+// use backend_errors and panics, preserving the stream recovery contract.
 struct Silence;
 impl Processor for Silence {
     fn prepare(&mut self, _: ProcessConfig) -> Result<(), PrepareError> {

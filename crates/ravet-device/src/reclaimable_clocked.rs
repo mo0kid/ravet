@@ -277,8 +277,8 @@ struct InputError<P: Processor> {
     cell: Arc<Cell<P>>,
 }
 impl<P: Processor> InputError<P> {
-    fn report(&self) {
-        self.cell.statistics.input.report_error();
+    fn report(&self, error: &cpal::Error) {
+        self.cell.statistics.input.report_error(error);
     }
 }
 impl<P: Processor> Drop for InputError<P> {
@@ -327,12 +327,8 @@ struct OutputError<P: Processor> {
     cell: Arc<Cell<P>>,
 }
 impl<P: Processor> OutputError<P> {
-    fn report(&self) {
-        self.cell
-            .statistics
-            .output
-            .backend_errors
-            .fetch_add(1, Ordering::Relaxed);
+    fn report(&self, error: &cpal::Error) {
+        self.cell.statistics.output.stream_errors.report(error);
     }
 }
 impl<P: Processor> Drop for OutputError<P> {
@@ -570,7 +566,7 @@ pub fn open_reclaimable_clocked_duplex<P: Processor + Send + 'static>(
                 input.build_input_stream(
                     input_config,
                     move |pcm: &[f32], _| data.capture(pcm),
-                    move |_| errors.report(),
+                    move |error| errors.report(&error),
                     None,
                 )
             })
@@ -580,7 +576,7 @@ pub fn open_reclaimable_clocked_duplex<P: Processor + Send + 'static>(
                     output.build_output_stream(
                         output_config,
                         move |pcm: &mut [f32], _| output_data.render(pcm),
-                        move |_| output_errors.report(),
+                        move |error| output_errors.report(&error),
                         None,
                     )
                 })

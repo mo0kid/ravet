@@ -507,3 +507,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0276](0276-graph-bank-editors-and-edit-gestures.md) | Graph-bank child editors and controller edit gestures | Implemented; prototype (R3); fixture, mock-provider, ThreadSanitizer and actual Gain hidden-window evidence, no DAW, third-party editor, single-component plug-in, accessibility or deadline claim |
 
 | [0277](0277-device-rate-admission.md) | Device nominal-rate admission before playback | Implemented; device-free comparison, error mapping, retirement and popup evidence; physical/virtual-device validation pending |
+| [0278](0278-stream-error-classification.md) | Separate xruns and automatic route changes from stream failures | Implemented; device-free classification, recovery and retirement evidence; no physical-device or deadline claim |

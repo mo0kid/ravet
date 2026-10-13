@@ -243,11 +243,8 @@ struct ErrorGuard<P: Processor> {
     cell: Arc<RetirementCell<P>>,
 }
 impl<P: Processor> ErrorGuard<P> {
-    fn report(&self) {
-        self.cell
-            .counters
-            .backend_errors
-            .fetch_add(1, Ordering::Relaxed);
+    fn report(&self, error: &cpal::Error) {
+        self.cell.counters.stream_errors.report(error);
     }
 }
 impl<P: Processor> Drop for ErrorGuard<P> {
@@ -436,7 +433,7 @@ pub fn open_reclaimable_output<P: Processor + Send + 'static>(
                 device.build_output_stream(
                     config,
                     move |output: &mut [f32], _| data.render(output),
-                    move |_| errors.report(),
+                    move |error| errors.report(&error),
                     None,
                 )
             })

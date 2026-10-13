@@ -33,6 +33,13 @@ impl std::error::Error for OutputRecoveryError {
         }
     }
 }
+// CPAL xruns and automatic route changes are telemetry, not rebuild requests.
+fn output_unhealthy(output: OutputStatistics) -> bool {
+    output.backend_errors != 0 || output.panics != 0
+}
+fn duplex_unhealthy(input: crate::InputStatistics, output: OutputStatistics) -> bool {
+    input.backend_errors != 0 || output_unhealthy(output)
+}
 trait StreamHandle {
     fn unhealthy(&self) -> bool;
     fn stop(&self);
@@ -40,7 +47,7 @@ trait StreamHandle {
 impl StreamHandle for OutputStream {
     fn unhealthy(&self) -> bool {
         let stats = self.statistics();
-        stats.backend_errors != 0 || stats.panics != 0
+        output_unhealthy(stats)
     }
     fn stop(&self) {
         let _ = self.pause();
@@ -50,7 +57,7 @@ impl StreamHandle for crate::DuplexStream {
     fn unhealthy(&self) -> bool {
         let input = self.input_statistics();
         let output = self.output_statistics();
-        input.backend_errors != 0 || output.backend_errors != 0 || output.panics != 0
+        duplex_unhealthy(input, output)
     }
     fn stop(&self) {
         let _ = self.pause();
@@ -60,7 +67,7 @@ impl StreamHandle for crate::ClockedDuplexStream {
     fn unhealthy(&self) -> bool {
         let input = self.input_statistics();
         let output = self.output_statistics();
-        input.backend_errors != 0 || output.backend_errors != 0 || output.panics != 0
+        duplex_unhealthy(input, output)
     }
     fn stop(&self) {
         let _ = self.pause();
@@ -121,7 +128,8 @@ impl<S: StreamHandle> Drop for Session<S> {
 /// Caller-scheduled output recovery with an exact host-local device ID and fixed
 /// f32 configuration. Construct/service/enable/reopen/drop on a control thread.
 /// Service explicitly enumerates the device, closes missing/failed streams and
-/// opens fresh DSP after return/backend error/panic. No device fallback, timer,
+/// opens fresh DSP after return/backend error/panic. CPAL xruns and automatic
+/// route changes do not reopen streams. No device fallback, timer,
 /// settings changes, state migration, clock compensation or hotplug subscription.
 /// The processor factory runs once per open attempt; it owns restored state and
 /// preparation failures. Poll cadence/retry backoff belong to the application.
@@ -191,7 +199,8 @@ impl<P: Processor + Send + 'static, F: FnMut() -> P> RecoveringOutput<P, F> {
         self.session.stream.as_ref().map(OutputStream::statistics)
     }
     /// Enumerate exact ID and service once; enumeration errors retain live state.
-    /// Removed devices wait; backend errors/panics reopen. Processor block faults
+    /// Removed devices wait; backend errors/panics reopen. CPAL xruns and automatic
+    /// route changes do not reopen. Processor block faults
     /// alone do not reopen. A failed open/start leaves no stream for next retry.
     /// Open generations wrap at u64 exhaustion; counters reset for each stream.
     pub fn service(&mut self) -> Result<OutputRecoveryStatus, OutputRecoveryError> {
@@ -217,6 +226,7 @@ pub type DuplexRecoveryStatus = OutputRecoveryStatus;
 /// retains its output-origin name for existing callers.
 pub type DuplexRecoveryError = OutputRecoveryError;
 /// Exact input/output pair recovery, serviced explicitly on a control thread.
+/// CPAL xruns and automatic route changes leave both streams active.
 /// Both streams/FIFO are released if either device disappears or either backend
 /// fails (or output DSP panics). Every successful reopen uses fresh DSP and FIFO.
 /// Nominal rates must match; no drift correction or sample synchronization.
@@ -314,7 +324,8 @@ impl<P: Processor + Send + 'static, F: FnMut() -> P> RecoveringDuplex<P, F> {
     }
     /// Service exact pair once; enumeration errors retain existing streams.
     /// Missing either waits; failed open/start leaves no pair for later retry.
-    /// FIFO underflow/overflow and ordinary processor faults alone do not reopen.
+    /// CPAL xruns/automatic route changes, FIFO underflow/overflow and ordinary
+    /// processor faults alone do not reopen.
     /// Poll cadence/backoff belong to callers; generations wrap at u64 exhaustion.
     pub fn service(&mut self) -> Result<DuplexRecoveryStatus, DuplexRecoveryError> {
         if !self.session.enabled {
@@ -369,7 +380,8 @@ impl std::error::Error for ClockedDuplexRecoveryError {}
 /// converters/controller and factory-owned DSP are opened. No fallback, settings
 /// changes, polling timer, hotplug subscription, state migration or physical
 /// fault/deadline guarantee. Ordinary underflow/overflow or DSP faults do not
-/// reopen. Native hosted plug-ins retain their own thread/lifecycle obligations.
+/// reopen; neither do CPAL xruns or automatic route changes. Native hosted
+/// plug-ins retain their own thread/lifecycle obligations.
 pub struct RecoveringClockedDuplex<P: Processor + Send + 'static, F: FnMut() -> P> {
     input_id: String,
     output_id: String,
@@ -493,6 +505,80 @@ mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
+
+    #[test]
+    fn callback_notifications_preserve_generation_but_failures_and_panics_reopen() {
+        struct Diagnostics {
+            input: Option<Rc<crate::input::CaptureCounters>>,
+            output: Rc<crate::Counters>,
+        }
+        impl StreamHandle for Diagnostics {
+            fn unhealthy(&self) -> bool {
+                let output = self.output.snapshot();
+                match &self.input {
+                    Some(input) => duplex_unhealthy(input.snapshot(), output),
+                    None => output_unhealthy(output),
+                }
+            }
+            fn stop(&self) {}
+        }
+        // Matching-rate and clocked duplex share this same health predicate.
+        for duplex in [false, true] {
+            for fault in ["input", "output", "panic"] {
+                if fault == "input" && !duplex {
+                    continue;
+                }
+                let mut session = Session::new();
+                let open = || {
+                    Ok::<_, ()>(Diagnostics {
+                        input: duplex.then(Rc::default),
+                        output: Rc::default(),
+                    })
+                };
+                assert_eq!(
+                    session.service(true, open).unwrap(),
+                    OutputRecoveryStatus::Opened { generation: 1 }
+                );
+                let stream = session.stream.as_ref().unwrap();
+                let input = stream.input.clone();
+                let output = Rc::clone(&stream.output);
+                for kind in [cpal::ErrorKind::Xrun, cpal::ErrorKind::DeviceChanged] {
+                    let error = cpal::Error::new(kind);
+                    output.stream_errors.report(&error);
+                    if let Some(input) = &input {
+                        input.report_error(&error);
+                    }
+                    assert_eq!(
+                        session
+                            .service::<()>(true, || panic!("notification must not rebuild"))
+                            .unwrap(),
+                        OutputRecoveryStatus::Running
+                    );
+                    assert_eq!(session.generation, 1);
+                }
+                let failure = cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable);
+                match fault {
+                    "input" => input.as_ref().unwrap().report_error(&failure),
+                    "output" => output.stream_errors.report(&failure),
+                    "panic" => {
+                        output.panics.store(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    _ => unreachable!(),
+                }
+                assert_eq!(
+                    session.service(true, open).unwrap(),
+                    OutputRecoveryStatus::Opened { generation: 2 }
+                );
+                assert_eq!(
+                    session
+                        .service::<()>(true, || panic!("fresh stream must not rebuild"))
+                        .unwrap(),
+                    OutputRecoveryStatus::Running
+                );
+            }
+        }
+    }
+
     struct Silence;
     impl Processor for Silence {
         fn prepare(&mut self, _: ProcessConfig) -> Result<(), PrepareError> {

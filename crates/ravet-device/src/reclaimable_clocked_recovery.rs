@@ -370,6 +370,7 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
         }
     }
 }
+// CPAL xruns and automatic route changes leave the pair live.
 fn unhealthy(statistics: ReclaimableClockedStatistics) -> bool {
     statistics.input.backend_errors != 0
         || statistics.output.backend_errors != 0
@@ -402,6 +403,8 @@ fn recovered<P: Processor>(outcome: ReclaimedClockedDuplex<P>) -> (P, ClockedRec
 /// never invokes restoration or opens while old callbacks are pending. No timer,
 /// fallback, automatic state migration or physical hotplug guarantee. Restoration
 /// runs only after a receipt and before fresh preparation; its error preserves P.
+/// CPAL xruns and automatic route changes are counted without retiring the pair;
+/// backend failures and capture/output panics remain recovery faults.
 /// Foreign restoration/deactivation panic loses recovery, never a false receipt.
 ///
 /// ```

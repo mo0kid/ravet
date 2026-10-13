@@ -23,8 +23,38 @@ format conversion, sample-rate fallback or resampling. The device must support
 f32 at the requested settings. Fixed buffer sizes are backend requests; callbacks
 may have another size. Prepare allocates scratch before building the stream.
 Call `play`, `pause` and drop from the control thread. Pause/resume retains history
-and logical sample position. Backend errors increment a counter; recovery is
-caller-directed stream reopening, not a callback action.
+and logical sample position. Stream callbacks classify CPAL notifications as
+described below; recovery is caller-directed stream reopening, not a callback action.
+
+### Stream statistics and recovery faults
+
+`OutputStatistics` and `InputStatistics` expose three independent counters for
+CPAL error-callback invocations, shared by ordinary, duplex, clocked, reclaimable,
+graph, file and recording paths:
+
+- `xruns`: `ErrorKind::Xrun` buffer underrun/overrun notifications. CoreAudio
+  reports processor overload (including a late startup buffer) this way.
+- `route_changes`: `ErrorKind::DeviceChanged` automatic rerouting notifications;
+  CPAL keeps the stream active.
+- `backend_errors`: every other error kind, including `DeviceNotAvailable`,
+  `StreamInvalidated`, `BackendError`, `Other` and future unrecognized kinds.
+  These remain stream recovery faults.
+
+Previously all error-callback invocations incremented `backend_errors`, so a
+single xrun could latch an application's audio fault and cause an unnecessary
+rebuild. Caller-scheduled output, duplex, clocked and reclaimable clocked recovery
+now leave streams running after xruns and route changes. They still recover on
+`backend_errors` or their existing panic counters; disappearance found by exact-ID
+enumeration and explicit reopen requests retain their existing behavior. Ordinary
+DSP faults and FIFO shortage/drop counters retain their separate policies.
+
+Counts use wrapping relaxed atomics, are not coherent snapshots and only cover
+notifications delivered by CPAL. Zero xruns do not prove glitch-free audio.
+Classification performs no logging, allocation, device queries or stream lifecycle
+work. Applications can inspect the new counters without treating them as permanent
+audio faults. Exhaustive statistics construction/destructuring must include the
+new fields or use `Default`/`..` as appropriate. See
+[decision 0278](decisions/0278-stream-error-classification.md).
 
 ## Sample-rate admission and retry
 

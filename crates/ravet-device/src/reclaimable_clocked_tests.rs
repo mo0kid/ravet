@@ -109,8 +109,14 @@ fn all_24_orders_preserve_original_processor_matching_endpoints_and_callback_dro
             .count_total,
             0
         );
-        input_error.report();
-        output_error.report();
+        for kind in [
+            cpal::ErrorKind::Xrun,
+            cpal::ErrorKind::DeviceChanged,
+            cpal::ErrorKind::DeviceNotAvailable,
+        ] {
+            input_error.report(&cpal::Error::new(kind));
+            output_error.report(&cpal::Error::new(kind));
+        }
         let mut input = Some(input);
         let mut input_error = Some(input_error);
         let mut output = Some(output);
@@ -133,6 +139,8 @@ fn all_24_orders_preserve_original_processor_matching_endpoints_and_callback_dro
         assert_eq!(stats.input.captured_frames, 4);
         assert_eq!(stats.input.backend_errors, 1);
         assert_eq!(stats.output.backend_errors, 1);
+        assert_eq!((stats.input.xruns, stats.input.route_changes), (1, 1));
+        assert_eq!((stats.output.xruns, stats.output.route_changes), (1, 1));
         assert_eq!(stats.output.frames, 4);
         assert_eq!(deactivates.load(Ordering::Relaxed), 0);
         let (probe, mut raw, mut capture) = owner.into_parts();
@@ -431,12 +439,19 @@ impl<P: Processor> SimulatedBackend<P> {
     pub(crate) fn release(&self) {
         self.0.lock().unwrap().take();
     }
+    pub(crate) fn notification(&self, kind: cpal::ErrorKind) {
+        let guard = self.0.lock().unwrap();
+        let (_, input_error, _, output_error) = guard.as_ref().unwrap();
+        let error = cpal::Error::new(kind);
+        input_error.report(&error);
+        output_error.report(&error);
+    }
     pub(crate) fn fault_kind(&self, kind: u8) {
         let guard = self.0.lock().unwrap();
         let (_, input_error, output, output_error) = guard.as_ref().unwrap();
         match kind {
-            0 => input_error.report(),
-            1 => output_error.report(),
+            0 => input_error.report(&cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable)),
+            1 => output_error.report(&cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable)),
             2 => {
                 output
                     .cell
@@ -456,7 +471,13 @@ impl<P: Processor> SimulatedBackend<P> {
         }
     }
     pub(crate) fn fault(&self) {
-        self.0.lock().unwrap().as_ref().unwrap().1.report();
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .1
+            .report(&cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable));
     }
 }
 pub(crate) fn simulated_pair<P: Processor + Send + 'static>(

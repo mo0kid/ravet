@@ -46,14 +46,22 @@ pub fn input_device(id: Option<&str>) -> Result<Option<cpal::Device>, cpal::Erro
         Ok(host.default_input_device())
     }
 }
-/// Relaxed counters, not a coherent sample/latency measurement.
+/// Relaxed counters, not a coherent sample/latency measurement. Counters wrap
+/// on overflow; notifications are counted only when reported by CPAL.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InputStatistics {
     pub callbacks: u64,
     pub captured_frames: u64,
     pub dropped_frames: u64,
     pub invalid_buffers: u64,
+    /// CPAL error-callback failures other than xruns and automatic route changes.
+    /// A nonzero count is a stream recovery fault.
     pub backend_errors: u64,
+    /// CPAL buffer underrun/overrun notifications; do not trigger recovery.
+    pub xruns: u64,
+    /// CPAL automatic rerouting notifications; the stream remains active.
+    /// These do not trigger recovery.
+    pub route_changes: u64,
 }
 #[derive(Default)]
 pub(super) struct CaptureCounters {
@@ -61,11 +69,11 @@ pub(super) struct CaptureCounters {
     captured: AtomicU64,
     dropped: AtomicU64,
     invalid: AtomicU64,
-    errors: AtomicU64,
+    stream_errors: crate::StreamErrorCounters,
 }
 impl CaptureCounters {
-    pub(super) fn report_error(&self) {
-        self.errors.fetch_add(1, Ordering::Relaxed);
+    pub(super) fn report_error(&self, error: &cpal::Error) {
+        self.stream_errors.report(error);
     }
     pub(super) fn snapshot(&self) -> InputStatistics {
         InputStatistics {
@@ -73,7 +81,9 @@ impl CaptureCounters {
             captured_frames: self.captured.load(Ordering::Relaxed),
             dropped_frames: self.dropped.load(Ordering::Relaxed),
             invalid_buffers: self.invalid.load(Ordering::Relaxed),
-            backend_errors: self.errors.load(Ordering::Relaxed),
+            backend_errors: self.stream_errors.backend_errors.load(Ordering::Relaxed),
+            xruns: self.stream_errors.xruns.load(Ordering::Relaxed),
+            route_changes: self.stream_errors.route_changes.load(Ordering::Relaxed),
         }
     }
 }
@@ -161,9 +171,7 @@ pub fn open_input(
         device.build_input_stream(
             config,
             move |input: &[f32], _| capture.capture(input),
-            move |_| {
-                errors.errors.fetch_add(1, Ordering::Relaxed);
-            },
+            move |error| errors.report_error(&error),
             None,
         )
     })
@@ -504,9 +512,7 @@ pub fn open_duplex<P: Processor + Send + 'static>(
         output.build_output_stream(
             output_config,
             move |output: &mut [f32], _| callback(output),
-            move |_| {
-                errors.backend_errors.fetch_add(1, Ordering::Relaxed);
-            },
+            move |error| errors.stream_errors.report(&error),
             None,
         )
     })

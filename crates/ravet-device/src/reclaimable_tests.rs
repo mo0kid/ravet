@@ -72,7 +72,13 @@ fn both_retirement_orders_wait_for_last_closure_fields_without_callback_destruct
         let ((mut data, errors), _, mut retirement) =
             start_prepared(prepare(probe), |d, e| Ok((d, e)), spawn_worker, None).unwrap();
         data.render(&mut [0.0; 64]);
-        errors.report();
+        for kind in [
+            cpal::ErrorKind::Xrun,
+            cpal::ErrorKind::DeviceChanged,
+            cpal::ErrorKind::DeviceNotAvailable,
+        ] {
+            errors.report(&cpal::Error::new(kind));
+        }
         assert!(retirement.try_reclaim().unwrap().is_none());
         if data_first {
             drop(data);
@@ -87,6 +93,8 @@ fn both_retirement_orders_wait_for_last_closure_fields_without_callback_destruct
         assert_eq!(probe.id, 7);
         assert_eq!(stats.frames, 32);
         assert_eq!(stats.backend_errors, 1);
+        assert_eq!(stats.xruns, 1);
+        assert_eq!(stats.route_changes, 1);
         assert_eq!(inactive.load(Ordering::Relaxed), 1);
         assert!(dropped.lock().unwrap().is_none());
         drop(probe);
@@ -326,7 +334,8 @@ fn complete_normal_callback_captures_render_and_drop_without_allocation_or_deall
         // These are the full framework captures of the native data/error closures;
         // backend closure allocation itself has a separate native teardown policy.
         let mut data_callback = move |output: &mut [f32]| data.render(output);
-        let error_callback = move || errors.report();
+        let error_callback =
+            move || errors.report(&cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable));
         let mut output = [1.0; 64];
         let info = allocation_counter::measure(|| {
             data_callback(&mut output);

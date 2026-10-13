@@ -557,9 +557,7 @@ pub fn open_clocked_duplex<P: Processor + Send + 'static>(
         output.build_output_stream(
             output_config,
             move |data: &mut [f32], _| callback(data),
-            move |_| {
-                errors.backend_errors.fetch_add(1, Ordering::Relaxed);
-            },
+            move |error| errors.stream_errors.report(&error),
             None,
         )
     })

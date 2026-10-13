@@ -143,6 +143,7 @@ impl Running {
             Self::Duplex(s) => s.output_statistics(),
             Self::Test(s) => s.statistics(),
         };
+        // CPAL xruns and automatic route changes are diagnostics, not persistent audio faults.
         s.processor_faults != 0 || s.panics != 0 || s.backend_errors != 0
     }
 }

@@ -20,6 +20,8 @@ use std::sync::{
 };
 
 pub use cpal;
+mod stream_errors;
+use stream_errors::StreamErrorCounters;
 mod sample_rate;
 pub use sample_rate::device_nominal_sample_rate;
 use sample_rate::{Direction, StreamOpenError, verified_stream};
@@ -84,13 +86,21 @@ pub fn output_device(id: Option<&str>) -> Result<Option<cpal::Device>, cpal::Err
 /// Relaxed atomic diagnostics, sampled on a control thread. Fields may come
 /// from adjacent callbacks; this is not a coherent meter or latency measurement.
 /// Frames count completed DSP sub-blocks; callbacks include permanently disabled
-/// callbacks after a panic. Counters wrap on overflow.
+/// callbacks after a panic. Counters wrap on overflow. Stream notifications are
+/// counted only when reported by CPAL; zero xruns do not prove glitch-free audio.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OutputStatistics {
     pub callbacks: u64,
     pub frames: u64,
     pub processor_faults: u64,
+    /// CPAL error-callback failures other than xruns and automatic route changes.
+    /// A nonzero count is a stream recovery fault.
     pub backend_errors: u64,
+    /// CPAL buffer underrun/overrun notifications; do not trigger recovery.
+    pub xruns: u64,
+    /// CPAL automatic rerouting notifications; the stream remains active.
+    /// These do not trigger recovery.
+    pub route_changes: u64,
     pub panics: u64,
     /// Frames zero-filled because a duplex input ring was short.
     pub input_underflow_frames: u64,
@@ -101,7 +111,7 @@ struct Counters {
     callbacks: AtomicU64,
     frames: AtomicU64,
     processor_faults: AtomicU64,
-    backend_errors: AtomicU64,
+    stream_errors: StreamErrorCounters,
     panics: AtomicU64,
     input_underflow_frames: AtomicU64,
 }
@@ -111,7 +121,9 @@ impl Counters {
             callbacks: self.callbacks.load(Ordering::Relaxed),
             frames: self.frames.load(Ordering::Relaxed),
             processor_faults: self.processor_faults.load(Ordering::Relaxed),
-            backend_errors: self.backend_errors.load(Ordering::Relaxed),
+            backend_errors: self.stream_errors.backend_errors.load(Ordering::Relaxed),
+            xruns: self.stream_errors.xruns.load(Ordering::Relaxed),
+            route_changes: self.stream_errors.route_changes.load(Ordering::Relaxed),
             panics: self.panics.load(Ordering::Relaxed),
             input_underflow_frames: self.input_underflow_frames.load(Ordering::Relaxed),
         }
@@ -426,9 +438,7 @@ pub fn open_output<P: Processor + Send + 'static>(
         device.build_output_stream(
             config,
             move |output: &mut [f32], _| callback(output),
-            move |_| {
-                errors.backend_errors.fetch_add(1, Ordering::Relaxed);
-            },
+            move |error| errors.stream_errors.report(&error),
             None,
         )
     })

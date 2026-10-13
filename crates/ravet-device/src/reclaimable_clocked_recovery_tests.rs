@@ -70,6 +70,56 @@ fn drain(c: &mut Coordinator<Child, SimulatedPair<Child>>) -> ClockedRecoveryRec
     }
 }
 #[test]
+fn xruns_and_route_changes_preserve_live_pair_and_generation() {
+    let child = Child::new();
+    let prepares = Arc::clone(&child.prepares);
+    let mut c = Coordinator::new(child);
+    let mut backend = None;
+    c.service(
+        true,
+        |p| {
+            let (s, b) = simulated_pair(p);
+            backend = Some(b);
+            Ok(s)
+        },
+        no_restore,
+    )
+    .unwrap();
+    for kind in [cpal::ErrorKind::Xrun, cpal::ErrorKind::DeviceChanged] {
+        backend.as_ref().unwrap().notification(kind);
+        assert_eq!(
+            c.service(true, no_open, no_restore).unwrap(),
+            ReclaimableClockedRecoveryStatus::Running
+        );
+    }
+    assert_eq!(prepares.load(Ordering::Relaxed), 1);
+    assert_eq!(c.generation, 1);
+    // Genuine failure still retires the pair and preserves notification telemetry.
+    backend.as_ref().unwrap().fault();
+    assert_eq!(
+        c.service(true, no_open, no_restore).unwrap(),
+        ReclaimableClockedRecoveryStatus::Retiring
+    );
+    backend.take().unwrap().release();
+    let receipt = drain(&mut c);
+    assert_eq!(receipt.statistics.input.backend_errors, 1);
+    assert_eq!(receipt.statistics.output.backend_errors, 0);
+    assert_eq!(
+        (
+            receipt.statistics.input.xruns,
+            receipt.statistics.input.route_changes
+        ),
+        (1, 1)
+    );
+    assert_eq!(
+        (
+            receipt.statistics.output.xruns,
+            receipt.statistics.output.route_changes
+        ),
+        (1, 1)
+    );
+}
+#[test]
 fn asynchronous_fault_recovery_never_opens_or_restores_pending_then_restores_original_owner_once() {
     let child = Child::new();
     let prepares = Arc::clone(&child.prepares);

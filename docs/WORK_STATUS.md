@@ -7326,3 +7326,47 @@ Receipt target/w265-linux-validation.md.
 
 Ten public paths were adopted after base and staged hash verification; the macOS
 adoption stage passed all eighteen public gates with the fixes applied.
+
+### Stream notification classification (2026-10-13)
+
+Completed the user-reported startup-xrun fault/rebuild fix on
+`fix/xrun-classification`. All seven CPAL error callbacks now use shared kind-based
+classification: `Xrun` increments `xruns`, `DeviceChanged` increments
+`route_changes`, and every other kind increments `backend_errors`. Both public
+input/output statistics expose the new wrapping relaxed counters, including nested
+stream snapshots and retirement receipts. Recovery continues checking backend
+errors and existing panics, preserving stream generations after notifications.
+Graph/file/recording adapters inherit their opener's classification. Workspace
+statistics consumers, including tutorials, probes and `ravet-webview`, were
+reviewed; no additional exhaustive constructors/patterns needed changes. Guide,
+Rustdoc, feature registry/catalogue and
+[decision 0278](decisions/0278-stream-error-classification.md) were updated together.
+
+Device-free fixtures cover every current CPAL error kind using constructed errors,
+misleading message text, repeated notifications, overflow, heap-free classification,
+ordinary/duplex recovery generations and failures/panics, and original-owner
+retirement with retained notification counts in both callback directions.
+
+Local macOS 27.0.1 arm64, rustc 1.99.0 validation (all Cargo commands offline and
+locked; no real audio devices enumerated or opened):
+
+- `cargo test -p ravet-device --offline --locked`: 91 runtime tests and 3 doctests
+  passed, including the four new classification/recovery tests.
+- `cargo test --workspace --offline --no-fail-fast` (integrator, outside the
+  agent sandbox): all 1,306 tests passed across 327 test binaries, with no
+  failures. An agent run inside a network/GPU-restricted sandbox had reported 14
+  environment-only failures (localhost sockets, Metal and video decode); none
+  reproduced outside it.
+- `cargo check --workspace --offline --locked` and
+  `cargo clippy --workspace --all-targets --offline --locked -- -D warnings`: passed.
+- `cargo test --workspace --doc --offline --locked`: all 64 doctests passed.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --offline --locked`:
+  passed.
+- `cargo fmt --all -- --check`, `python3 scripts/check-docs.py --write`,
+  `python3 scripts/check-docs.py` and `git diff --check`: passed.
+- `python3 -m unittest discover -s scripts/tests -v`: all 68 tests passed.
+
+These results
+establish the classification/recovery contract offline, without qualifying real
+CoreAudio overload/rerouting, audible output, physical devices, platforms or
+callback deadlines.
