@@ -12,6 +12,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetWebView.mm");
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetWebView.h");
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetAccessibility.inc");
+    println!("cargo:rerun-if-changed=../ravet-surface/native/RavetObjcNames.h");
     println!("cargo:rerun-if-changed=native/StandaloneWindow.mm");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
@@ -22,11 +23,22 @@ fn main() {
         _ => panic!("unsupported macOS architecture"),
     };
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    // Distinct Objective-C class names per build tree (see RavetObjcNames.h):
+    // FNV-1a of OUT_DIR, which differs between an app and any plugin it hosts.
+    let hash = out
+        .as_os_str()
+        .as_encoded_bytes()
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        });
+    let suffix = format!("-DRAVET_OBJC_SUFFIX=cargo_{hash:016x}");
     run(Command::new("xcrun")
         .args([
             "--sdk",
             "macosx",
             "clang++",
+            suffix.as_str(),
             "-std=c++17",
             "-fobjc-arc",
             "-mmacosx-version-min=12.0",
