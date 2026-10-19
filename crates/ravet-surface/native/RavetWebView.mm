@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #include "RavetWebView.h"
+#include "RavetObjcNames.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
