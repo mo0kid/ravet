@@ -22,7 +22,6 @@ watch:
   - CONTRIBUTING.md
   - LICENSING.md
   - AGENTS.md
-  - PROJECT_HANDOFF.md
 theme:
   name: material
   font: false

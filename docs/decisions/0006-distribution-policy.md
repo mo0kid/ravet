@@ -53,8 +53,8 @@ record supplies no alternative legal permissions.
 
 ## Commercial agreement drafting — 8 October 2026
 
-The owner requested a draft commercial agreement. [Draft 0.1](../legal/COMMERCIAL_LICENSE_DRAFT.md)
-implements the accepted policy and proposes remaining details, including
+The owner requested a draft commercial agreement. Draft 0.1, kept privately
+until it is final, implements the accepted policy and proposes remaining details, including
 Starter retained rights, revenue/group calculations, seats, warranties,
 liability, termination, and governing law. These additional drafting choices
 remain proposals for owner and legal review. A completed, accepted final

@@ -3098,7 +3098,7 @@ summary = "Run the portable processor through a separate audio-device adapter."
 limits = "The gain executable remains offline. Explicit CPAL output/input/FIFO duplex adapters exist separately; a complete user-facing standalone application, hotplug and MIDI integration remain pending."
 sources = []
 tests = []
-docs = ["docs/WORK_STATUS.md", "PROJECT_HANDOFF.md"]
+docs = ["docs/WORK_STATUS.md"]
 
 [[feature]]
 id = "additional-integrations"
@@ -3108,7 +3108,7 @@ summary = "Extend formats, mobile/UI, graph, DSP/codec and application facilitie
 limits = "Planned work; no usable additional integrations are claimed. SDK access and target-platform validation remain necessary."
 sources = []
 tests = []
-docs = ["PROJECT_HANDOFF.md"]
+docs = ["docs/WORK_STATUS.md"]
 
 [[feature]]
 id = "vst2"
@@ -3118,7 +3118,7 @@ summary = "VST2 is explicitly outside the project's scope."
 limits = "Do not add adapters, bindings, compatibility layers, exports, templates, or validation targets."
 sources = []
 tests = []
-docs = ["PROJECT_HANDOFF.md"]
+docs = ["docs/WORK_STATUS.md"]
 
 [[feature]]
 id = "shine-reverb"

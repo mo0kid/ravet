@@ -92,7 +92,6 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Work status](WORK_STATUS.md) | Validation history and the next bounded work packages |
 | [Decision records](decisions/README.md) | Reasons for architectural and distribution choices |
 | [Licensing](../LICENSING.md) | GPL edition and accepted commercial pricing/policy |
-| [Commercial agreement draft](legal/COMMERCIAL_LICENSE_DRAFT.md) | Proposed contract, Order Form, and owner/legal review notes; no commercial grant |
 
 Caller-owned [local font fallback](font-fallback.md) retains exact selected faces
 through shaping and SVG/CPU rendering.
@@ -118,5 +117,4 @@ generate the catalogue; CI checks freshness and local references, tests Rustdoc
 examples, and builds an API reference artifact for each push and pull request.
 See [maintenance](maintenance.md) for the commands and review responsibilities.
 
-[PROJECT_HANDOFF.md](../PROJECT_HANDOFF.md) preserves the longer planning history.
 Use the catalogue for current capabilities and work status for execution progress.
