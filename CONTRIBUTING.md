@@ -1,6 +1,6 @@
 # Contributing to RAVET
 
-RAVET is an unpublished framework with provisional APIs. Start with the
+RAVET is an early source preview with provisional APIs. Start with the
 [documentation index](docs/README.md), [architecture](docs/architecture.md), and
 [feature catalogue](docs/FEATURES.md) before changing a contract or integration.
 See [LICENSING.md](LICENSING.md) for contribution and dependency requirements;

@@ -84,6 +84,13 @@ this review, and AGENTS.md applies the same rule to future coding sessions.
 
 ## Continuous checks and reference artifacts
 
+Pull requests, including those from untrusted forks, never run on the
+project's self-hosted runners. Self-hosted jobs either switch to a GitHub-hosted
+runner for the `pull_request` event or are skipped for it, and the omarchy Linux
+workspace job runs only after merge. Because a fork's pull request can edit
+workflow files, the repository also requires maintainer approval before
+workflows from outside contributors run. Keep both guards when adding jobs.
+
 [The documentation workflow](../.github/workflows/documentation.yml) runs on
 pushes, pull requests, and manual dispatch. It checks the registry, generated
 catalogue, local links, and checker regression tests. It also tests Rustdoc

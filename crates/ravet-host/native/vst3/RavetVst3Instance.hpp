@@ -48,7 +48,9 @@ template<class Interface> Steinberg::IPtr<Interface> queried(Steinberg::FUnknown
     try { status=from.queryInterface(Interface::iid,reinterpret_cast<void**>(&pointer));returned=true; }
     catch (...) {auto owner=Steinberg::owned(pointer);throw InstanceFailure{Stage::Query,0,false,FailureOrigin::Thrown};}
     auto owner=Steinberg::owned(pointer); // valid unexpected pointers are released on failure
-    if (optional && status==Steinberg::kNoInterface && !pointer) return nullptr;
+    // Absent: kNoInterface per the SDK; JUCE's wrappers answer an interface
+    // they do not implement with kResultFalse and no pointer.
+    if (optional && !pointer && (status==Steinberg::kNoInterface||status==Steinberg::kResultFalse)) return nullptr;
     accepted(status,Stage::Query,returned);
     if (!pointer) throw InstanceFailure{Stage::Query,Steinberg::kInternalError};
     return owner;

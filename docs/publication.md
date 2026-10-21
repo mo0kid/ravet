@@ -50,5 +50,16 @@ A post-rewrite GitHub API check still resolves the original private root commit
 by SHA. Keep the existing remote private until its remaining hosted copies are
 removed, or publish only the cleaned history to a new repository.
 
+## New public repository — 21 October 2026
+
+A GitHub hosted-history purge was requested, but more than a week later the
+original private root and main tip still resolved by SHA. Publication therefore
+uses a new repository instead. The original repository was renamed to a private
+archive, which must never be made public, forked or used as a push target. A new
+repository under the original name received only the cleaned `main` branch and
+release tag, pushed by explicit refspec. Never push local checkpoint refs, or use
+`--all` or `--mirror`, to the public remote. Its Actions secrets and self-hosted
+runner registrations are configured separately from the archive.
+
 The publication checker makes no visibility changes, history rewrites or public
 pushes. Private consumer validation is not a public support claim.
