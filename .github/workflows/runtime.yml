@@ -21,8 +21,12 @@ jobs:
   # pkg-config and the Rust toolchain are installed on the machine, so there is
   # no apt step. CARGO_TARGET_DIR, RUSTUP_HOME and CARGO_HOME come from the
   # runner's .env: one shared, size-capped target dir reused across jobs.
+  # Never runs for pull requests, so untrusted fork code cannot reach the
+  # machine; pull requests use the GitHub-hosted jobs below and Linux is
+  # checked after merge.
   linux:
     name: Workspace (omarchy Linux)
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 40
     env:

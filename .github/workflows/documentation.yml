@@ -14,11 +14,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Self-hosted Arch Linux runner `omarchy`. Uses the machine's python3 (the
-  # checker needs only the standard library); setup-python has no Arch builds.
+  # Self-hosted Arch Linux runner `omarchy` for pushes. Uses the machine's
+  # python3 (the checker needs only the standard library); setup-python has no
+  # Arch builds. Pull requests, including untrusted forks, never reach the
+  # self-hosted runner: they use a GitHub-hosted Ubuntu runner instead.
   documentation-checks:
     name: Documentation checks
-    runs-on: [self-hosted, linux, omarchy]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted", "linux", "omarchy"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

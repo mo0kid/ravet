@@ -6,6 +6,27 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+## Public repository preparation — 21 October 2026
+
+The hosted-history purge had not taken effect after more than a week, so the
+0.0.1 source preview is published from a new repository holding only the
+cleaned history; see [publication policy](publication.md). Self-hosted CI jobs
+no longer run for pull requests: documentation and embedded checks use a
+GitHub-hosted Ubuntu runner for them, and the omarchy Linux workspace job runs
+only after merge. See [maintenance](maintenance.md#continuous-checks-and-reference-artifacts).
+
+Two small native fixes are included. Optional VST3 interface queries treat
+`kResultFalse` with no pointer as an absent interface, as JUCE-built plug-ins
+answer that way instead of `kNoInterface`; this is source review against those
+wrappers, not new hosted-plug-in evidence. The standalone window's Quit menu
+item names the window title instead of a fixed "RAVET Examples" string.
+
+Local validation of this tree on macOS arm64 before the public push: formatting,
+all-target/all-feature workspace tests, Clippy with warnings denied, all-feature
+doctests and warning-free Rustdoc pass (1,679 Rust tests passed, none failed,
+four ignored), as do 68 Python script tests, `actionlint`, the documentation
+checker and the publication path checker. This is local evidence only.
+
 ## Device nominal-rate admission — 13 October 2026
 
 Completed shared control-thread sample-rate admission for all seven direct CPAL

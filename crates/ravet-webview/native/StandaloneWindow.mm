@@ -76,7 +76,7 @@ extern "C" void* ravet_standalone_create(bool hidden,bool settings,const char* t
     if(!hidden) {
         NSMenu* menu=[[NSMenu alloc] init]; NSMenuItem* app=[[NSMenuItem alloc] init]; [menu addItem:app];
         NSMenu* submenu=[[NSMenu alloc] init];
-        NSMenuItem* quit=[[NSMenuItem alloc] initWithTitle:@"Quit RAVET Examples" action:@selector(performClose:) keyEquivalent:@"q"];
+        NSMenuItem* quit=[[NSMenuItem alloc] initWithTitle:[@"Quit " stringByAppendingString:window.title] action:@selector(performClose:) keyEquivalent:@"q"];
         quit.target=window; [submenu addItem:quit]; app.submenu=submenu; NSApp.mainMenu=menu;
         [NSApp finishLaunching]; [window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
     }
