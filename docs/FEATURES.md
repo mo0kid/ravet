@@ -4844,7 +4844,7 @@ Run the portable processor through a separate audio-device adapter.
 
 **Limits:** The gain executable remains offline. Explicit CPAL output/input/FIFO duplex adapters exist separately; a complete user-facing standalone application, hotplug and MIDI integration remain pending.
 
-**Documentation:** [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md), [`PROJECT_HANDOFF.md`](../PROJECT_HANDOFF.md).
+**Documentation:** [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md).
 
 <a id="additional-integrations"></a>
 
@@ -4854,7 +4854,7 @@ Extend formats, mobile/UI, graph, DSP/codec and application facilities beyond th
 
 **Limits:** Planned work; no usable additional integrations are claimed. SDK access and target-platform validation remain necessary.
 
-**Documentation:** [`PROJECT_HANDOFF.md`](../PROJECT_HANDOFF.md).
+**Documentation:** [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md).
 
 ## Excluded capabilities
 
@@ -4866,7 +4866,7 @@ VST2 is explicitly outside the project's scope.
 
 **Limits:** Do not add adapters, bindings, compatibility layers, exports, templates, or validation targets.
 
-**Documentation:** [`PROJECT_HANDOFF.md`](../PROJECT_HANDOFF.md).
+**Documentation:** [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md).
 
 <a id="shine-reverb"></a>
 

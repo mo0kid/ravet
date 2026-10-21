@@ -153,8 +153,8 @@ Offline tests do not establish real-time deadlines.
 ## Project direction
 
 [Work status](docs/WORK_STATUS.md) records the implementation and next work.
-[PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) contains the longer architecture and
-milestone plan, including historical scaffold details.
+The [architecture guide](docs/architecture.md) and
+[decision records](docs/decisions/README.md) describe the design and its reasons.
 
 Extended processing, MIDI short messages and standalone output have scoped
 implementations and validation. The [feature catalogue](docs/FEATURES.md)

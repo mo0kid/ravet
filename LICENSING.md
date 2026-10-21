@@ -65,7 +65,7 @@ at purchase or renewal. These bands identify the minimum qualifying tier.
 
 ### Commercial agreement draft
 
-[Commercial Licence Agreement — draft 0.1](docs/legal/COMMERCIAL_LICENSE_DRAFT.md)
+A Commercial Licence Agreement draft 0.1, kept privately until it is final,
 contains the proposed contract and Order Form. It preserves the approved policy
 and lists additional drafting choices for owner and legal review. It is not an
 executed licence, and its proposed defaults have not been adopted merely by

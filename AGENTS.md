@@ -18,7 +18,7 @@ Read [docs/README.md](docs/README.md), [docs/FEATURES.md](docs/FEATURES.md), and
 - Record significant contract or backend decisions under `docs/decisions/` and
   link them from its index. Keep implementation status separate from plans.
 - Update `docs/WORK_STATUS.md` for completed work packages or new validation
-  evidence. Preserve historical observations in `PROJECT_HANDOFF.md`.
+  evidence. Preserve earlier entries there as historical observations.
 
 Follow [docs/maintenance.md](docs/maintenance.md) for ownership and review rules.
 Do not claim a platform, DAW, device, or real-time deadline is supported from

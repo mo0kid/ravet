@@ -471,7 +471,7 @@ package. See [decision 0006](decisions/0006-distribution-policy.md).
 
 ## Commercial agreement draft — 8 October 2026
 
-Prepared [draft 0.1](legal/COMMERCIAL_LICENSE_DRAFT.md) at the owner's request.
+Prepared draft 0.1 at the owner's request; it is now kept privately.
 It includes the accepted prices and permanent version rights, an Order Form,
 and proposed details for seats, Starter registration, group revenue,
 third-party scope, support, verification, liability, and breach termination.

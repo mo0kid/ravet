@@ -61,5 +61,10 @@ release tag, pushed by explicit refspec. Never push local checkpoint refs, or us
 `--all` or `--mirror`, to the public remote. Its Actions secrets and self-hosted
 runner registrations are configured separately from the archive.
 
+Before the first public push, the internal planning handoff and the unreviewed
+commercial agreement draft were moved to private notes and removed from every
+commit of the publishable history. The licensing policy and accepted prices
+remain public in [LICENSING.md](../LICENSING.md).
+
 The publication checker makes no visibility changes, history rewrites or public
 pushes. Private consumer validation is not a public support claim.
