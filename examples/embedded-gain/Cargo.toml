@@ -1,9 +1,16 @@
 [package]
 name = "ravet-embedded-gain"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Allocation-free stereo gain reference for embedded Rust and C consumers"
 
 [features]
@@ -12,8 +19,8 @@ std = ["ravet-foundation/std"]
 firmware-panic = []
 
 [dependencies]
-ravet-foundation = { path = "../../crates/ravet-foundation", default-features = false }
-ravet-embedded = { path = "../../crates/ravet-embedded" }
+ravet-foundation = { path = "../../crates/ravet-foundation", version = "0.0.1", default-features = false }
+ravet-embedded.workspace = true
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"

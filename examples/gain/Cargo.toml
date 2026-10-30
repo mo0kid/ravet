@@ -2,15 +2,22 @@
 license.workspace = true
 name = "ravet-gain"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Portable gain reference processor and offline harness for RAVET"
 
 [lints]
 workspace = true
 
 [dependencies]
-ravet = { path = "../../crates/ravet" }
+ravet.workspace = true
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"

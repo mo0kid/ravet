@@ -1,7 +1,6 @@
-use ravet_data::{
-    crypto::{LegacyIntegerPublicKey, sha256},
-    xml::{Element, MAXIMUM_BYTES},
-};
+#[cfg(feature = "crypto")]
+use ravet_data::crypto::{LegacyIntegerPublicKey, sha256};
+use ravet_data::xml::{Element, MAXIMUM_BYTES};
 
 #[test]
 fn attribute_trees_roundtrip_unicode_entities_and_children() {
@@ -31,6 +30,7 @@ fn malformed_unbounded_and_entity_documents_are_rejected() {
     assert!(Element::parse(&children).is_err());
 }
 
+#[cfg(feature = "crypto")]
 #[test]
 fn hash_matches_standard_vector_and_legacy_integer_verification_uses_little_endian() {
     let digest = sha256(b"abc");

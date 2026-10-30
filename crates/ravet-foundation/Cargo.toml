@@ -2,8 +2,15 @@
 license.workspace = true
 name = "ravet-foundation"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Portable processor contracts and shared audio types for RAVET"
 
 [lints]

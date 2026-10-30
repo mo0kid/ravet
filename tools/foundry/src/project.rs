@@ -80,6 +80,20 @@ pub struct Sdks {
     pub lv2: Option<PathBuf>,
 }
 
+/// Where generated Cargo manifests find RAVET. Native CMake builds and copied
+/// templates always use the local checkout in `framework_path`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameworkSource {
+    /// Absolute paths into `framework_path`; works offline and before a release.
+    #[default]
+    Path,
+    /// The public Git repository at the release tag matching the checkout's
+    /// workspace version, for example `v0.1.0`. The tag must exist and be
+    /// fetchable.
+    Tag,
+}
+
 /// Version-one human-readable project settings. Unknown fields are rejected.
 /// Name and kind are immutable after creation; source/template changes are explicit
 /// consumer work. Other settings can be regenerated without rewriting source.
@@ -104,6 +118,9 @@ pub struct Project {
     pub kind: Kind,
     /// Absolute path to a local RAVET checkout, canonicalized during generation.
     pub framework_path: PathBuf,
+    /// Cargo dependency source for RAVET packages; defaults to `path`.
+    #[serde(default)]
+    pub framework_source: FrameworkSource,
     /// Optional macOS effect editor for CLAP/VST3/AU; other editors are format-owned.
     pub native_editor: bool,
     /// Effect or instrument reference. Immutable after creation.
@@ -139,6 +156,7 @@ impl Project {
             plugin_id: format!("com.example.{}", name.replace('_', "-")),
             kind,
             framework_path: framework_root(),
+            framework_source: FrameworkSource::Path,
             native_editor: true,
             plugin_type: PluginType::Effect,
             formats: default_formats(),

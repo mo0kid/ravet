@@ -1,9 +1,16 @@
 [package]
 name = "ravet-device"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Explicit standalone audio device adapter for RAVET"
 
 [features]
@@ -15,8 +22,8 @@ mp3-recording = ["ravet-audio-file/mp3-encode"]
 [dependencies]
 ravet-foundation.workspace = true
 ravet-signal.workspace = true
-ravet-audio-file = { path = "../ravet-audio-file" }
-ravet-graph = { path = "../ravet-graph" }
+ravet-audio-file.workspace = true
+ravet-graph.workspace = true
 cpal = "=0.18.2"
 rtrb = "=0.4.0"
 

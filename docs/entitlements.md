@@ -1,7 +1,8 @@
 # Explicit local signed entitlements
 
 `ravet_data::entitlement` provides bounded local claim encoding and verification
-for consumers that explicitly choose it. No module construction performs network,
+for consumers that explicitly choose it, by enabling the `entitlement` feature of
+`ravet-data` (or of the umbrella `ravet` crate). No module construction performs network,
 file, hardware-identity or clock access. It does not activate a product, gate DSP,
 start a trial, select a purchase endpoint or replace a consumer's licence policy.
 The consumer supplies its permanent product ID, trusted issuer public keys,

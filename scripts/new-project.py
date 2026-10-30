@@ -5,11 +5,35 @@ import json
 from pathlib import Path
 import re
 import shutil
+import tomllib
+
+FRAMEWORK_GIT = "https://github.com/mo0kid/ravet"
+SOURCE_NOTE = {
+    "path": "RAVET dependencies are absolute paths to a local checkout; update them if it moves.",
+    "tag": "RAVET dependencies use one release tag of the public repository; the tag must be fetchable.",
+}
 
 
-def create_project(destination: Path, name: str, license_id: str, kind: str = "offline") -> Path:
+def framework_tag(root: Path) -> str:
+    """Release tag matching the checkout's workspace version, e.g. v0.1.0."""
+    with open(root / "Cargo.toml", "rb") as manifest:
+        return "v" + tomllib.load(manifest)["workspace"]["package"]["version"]
+
+
+def ravet_dep(root: Path, relative: str, source: str, extra: str = "") -> str:
+    """Inline table for one RAVET package; every dependency shares one source."""
+    quote = lambda value: json.dumps(value, ensure_ascii=False)
+    if source == "tag":
+        return f"{{ git = {quote(FRAMEWORK_GIT)}, tag = {quote(framework_tag(root))}{extra} }}"
+    return f"{{ path = {quote(str(root / relative))}{extra} }}"
+
+
+def create_project(destination: Path, name: str, license_id: str, kind: str = "offline",
+                   source: str = "path") -> Path:
     if kind not in {"offline", "embedded-rust", "arduino", "pi-linux"}:
         raise ValueError("unknown project kind")
+    if source not in {"path", "tag"}:
+        raise ValueError("RAVET source must be path or tag")
     root = Path(__file__).resolve().parents[1]
     destination = destination.resolve()
     if destination.is_relative_to(root):
@@ -24,7 +48,7 @@ def create_project(destination: Path, name: str, license_id: str, kind: str = "o
     destination.mkdir()
     try:
         if kind != "offline":
-            write_embedded_project(root, destination, name, license_id, kind)
+            write_embedded_project(root, destination, name, license_id, kind, source)
             return destination
         quote = lambda value: json.dumps(value, ensure_ascii=False)
         manifest = f'''[package]
@@ -37,8 +61,8 @@ license = {quote(license_id)}
 [workspace]
 
 [dependencies]
-ravet = {{ path = {quote(str(root / "crates/ravet"))} }}
-ravet-gain = {{ path = {quote(str(root / "examples/gain"))} }}
+ravet = {ravet_dep(root, "crates/ravet", source)}
+ravet-gain = {ravet_dep(root, "examples/gain", source)}
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -49,7 +73,7 @@ unsafe_code = "forbid"
         (destination / ".gitignore").write_text("/target/\n", encoding="utf-8")
         (destination / "README.md").write_text(f'''# {name}
 
-An independent offline RAVET starter with explicit local framework dependencies.
+An independent offline RAVET starter. {SOURCE_NOTE[source]}
 
 ```sh
 cargo generate-lockfile --offline
@@ -58,7 +82,7 @@ CARGO_BUILD_JOBS=2 cargo run --locked
 
 The fixture processes four synthetic stereo frames and checks gain=2. It opens
 no audio/MIDI device, window, network endpoint or host. Keep Cargo.lock with this
-project. The absolute framework dependency paths require updating if RAVET moves.
+project.
 This manifest's licence is caller-selected; RAVET dependency licensing stays
 under its own terms. Format exports, device/UI integration and release policy
 belong to subsequent consumer work. This project is outside the RAVET workspace.
@@ -69,7 +93,8 @@ belong to subsequent consumer work. This project is outside the RAVET workspace.
     return destination
 
 
-def write_embedded_project(root: Path, destination: Path, name: str, license_id: str, kind: str):
+def write_embedded_project(root: Path, destination: Path, name: str, license_id: str, kind: str,
+                           source: str = "path"):
     quote = lambda value: json.dumps(value, ensure_ascii=False)
     if kind == "arduino":
         shutil.copytree(root / "embedded/arduino", destination / "libraries/RAVETEmbedded")
@@ -89,9 +114,9 @@ license = {quote(license_id)}
 [workspace]
 
 [dependencies]
-ravet-foundation = {{ path = {quote(str(root / "crates/ravet-foundation"))}, default-features = false }}
-ravet-embedded = {{ path = {quote(str(root / "crates/ravet-embedded"))} }}
-ravet-embedded-gain = {{ path = {quote(str(root / "examples/embedded-gain"))}, default-features = false }}
+ravet-foundation = {ravet_dep(root, "crates/ravet-foundation", source, ", default-features = false")}
+ravet-embedded = {ravet_dep(root, "crates/ravet-embedded", source)}
+ravet-embedded-gain = {ravet_dep(root, "examples/embedded-gain", source, ", default-features = false")}
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -113,8 +138,9 @@ unsafe_code = "forbid"
     (destination / "README.md").write_text(f'''# {name}
 
 Independent {kind} RAVET starter, consumer licence selection: {license_id}.
-RAVET dependencies retain their own licence terms. Local framework paths/copies
-must be updated when RAVET changes; keep generated Rust Cargo.lock with the project.
+RAVET dependencies retain their own licence terms. {SOURCE_NOTE[source]}
+Copied Arduino sources must be updated when RAVET changes; keep generated Rust
+Cargo.lock with the project.
 
 ```sh
 {commands}
@@ -138,9 +164,12 @@ def main():
     parser.add_argument("--kind", choices=["offline", "embedded-rust", "arduino", "pi-linux"], default="offline")
     parser.add_argument("--name", required=True)
     parser.add_argument("--license", dest="license_id", required=True)
+    parser.add_argument("--ravet-source", choices=["path", "tag"], default="path",
+                        help="local checkout paths (default) or the release tag matching this checkout")
     args = parser.parse_args()
     try:
-        destination = create_project(args.destination, args.name, args.license_id, args.kind)
+        destination = create_project(args.destination, args.name, args.license_id, args.kind,
+                                     args.ravet_source)
     except (ValueError, OSError) as error:
         parser.error(str(error))
     print(destination)

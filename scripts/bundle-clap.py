@@ -10,11 +10,20 @@ import sys
 import tomllib
 
 
+# Reference plug-ins: bundle name, Cargo package and bundle identifier. "generic"
+# is the gain reference exported through the generic plug-in layer (ravet-plugin).
+PLUGINS = {
+    "gain": ("RAVET Gain", "ravet-gain-clap", "org.ravet.gain"),
+    "sine": ("RAVET Sine", "ravet-sine-clap", "org.ravet.sine"),
+    "sidechain": ("RAVET Sidechain", "ravet-sidechain-clap", "org.ravet.sidechain"),
+    "generic": ("RAVET Gain Generic", "ravet-gain-plugin", "org.ravet.gain-generic"),
+}
+
+
 def bundle(profile: str, plugin: str = "gain") -> pathlib.Path:
-    if plugin not in {"gain", "sine", "sidechain"}:
+    if plugin not in PLUGINS:
         raise ValueError("unknown reference plug-in")
-    name = f"RAVET {plugin.title()}"
-    crate = f"ravet-{plugin}-clap"
+    name, crate, identifier = PLUGINS[plugin]
     library_stem = crate.replace("-", "_")
     root = pathlib.Path(__file__).resolve().parents[1]
     metadata = json.loads(subprocess.check_output(
@@ -37,7 +46,7 @@ def bundle(profile: str, plugin: str = "gain") -> pathlib.Path:
         with (contents / "Info.plist").open("wb") as destination:
             plistlib.dump({
                 "CFBundleExecutable": executable.name,
-                "CFBundleIdentifier": f"org.ravet.{plugin}",
+                "CFBundleIdentifier": identifier,
                 "CFBundleName": name,
                 "CFBundlePackageType": "BNDL",
                 "CFBundleVersion": version,
@@ -54,6 +63,6 @@ def bundle(profile: str, plugin: str = "gain") -> pathlib.Path:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=["debug", "release"], default="release")
-    parser.add_argument("--plugin", choices=["gain", "sine", "sidechain"], default="gain")
+    parser.add_argument("--plugin", choices=sorted(PLUGINS), default="gain")
     args = parser.parse_args()
     print(bundle(args.profile, args.plugin))

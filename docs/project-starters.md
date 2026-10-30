@@ -20,8 +20,13 @@ python3 scripts/new-project.py \
 
 Package names use 1..64 lowercase ASCII Cargo characters. The manifest licence
 is an explicit caller choice and does not change dependency licensing. The
-generator writes a publish-disabled independent manifest, local absolute RAVET
-and public reference-gain dependencies, source, README and target ignore rule.
+generator writes a publish-disabled independent manifest, RAVET and public
+reference-gain dependencies, source, README and target ignore rule.
+`--ravet-source path` (the default) writes absolute paths to this checkout.
+`--ravet-source tag` writes Git dependencies on the release tag matching the
+checkout's workspace version, for example `v0.1.0`. Every RAVET dependency in a
+generated manifest uses the same source, so Cargo builds one copy of the
+framework. The tag must exist in the public repository.
 It runs no Cargo command, device, host, window or network action by itself.
 
 From the new directory, generate its lockfile and run the synthetic fixture:
@@ -33,8 +38,8 @@ CARGO_BUILD_JOBS=2 cargo run --locked
 
 The fixture prepares borrowed stereo audio and a sample-timed gain event,
 processes four frames, verifies known output and deactivates the processor.
-Keep its generated Cargo.lock with the consumer project. Moving RAVET requires
-updating absolute dependency paths. Replace the reference processor as consumer
+Keep its generated Cargo.lock with the consumer project. With path sources,
+moving RAVET requires updating the absolute dependency paths. Replace the reference processor as consumer
 DSP grows. Format exports, MIDI/device/UI integration, product wrappers/assets,
 release signing and installer templates are subsequent consumer work.
 

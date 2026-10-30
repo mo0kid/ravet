@@ -1,9 +1,16 @@
 [package]
 name = "ravet-audio-file"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Bounded WAV/AIFF and optional compressed audio streams with prepared handoff"
 
 [lints]

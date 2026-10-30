@@ -18,6 +18,16 @@ tests = ["crates/ravet-foundation/tests/contracts.rs", "examples/gain/tests/proc
 docs = ["docs/architecture.md", "docs/decisions/0001-portable-processing.md"]
 
 [[feature]]
+id = "umbrella-features"
+title = "Single-dependency umbrella crate"
+status = "implemented"
+summary = "The ravet crate re-exports every component crate except ravet-embedded behind a Cargo feature named after it, and passes component features through under their own names."
+limits = "Distributed by Git tag or revision; no crates.io release. Enabling a feature does not extend a component's platform or host validation. ravet-embedded is excluded because the umbrella requires std. Mixing path and Git sources builds two incompatible copies."
+sources = ["crates/ravet/Cargo.toml", "crates/ravet/src/lib.rs"]
+tests = ["crates/ravet/tests/features.rs"]
+docs = ["docs/getting-started.md", "docs/releases/0.1.0.md", "docs/decisions/0279-release-0-1-0-scope-and-distribution.md"]
+
+[[feature]]
 id = "embedded-foundation"
 title = "Allocation-free no_std processing foundation"
 status = "implemented"
@@ -2307,7 +2317,7 @@ id = "control-data"
 title = "Control-thread XML and cryptographic compatibility"
 status = "implemented"
 summary = "Bounded attribute XML, SHA-256, and existing little-endian unpadded RSA integer verification are available through an explicit data crate."
-limits = "Allocating control/worker-thread services only. XML permits 65,536 bytes, 16 levels, 1,024 elements, ASCII names, and Unicode values; no text content or external entities. Integer keys are bounded to 4,096 bits; no PKCS#1/PSS or product licensing policy."
+limits = "Allocating control/worker-thread services only. Hashing and the integer verifier need the opt-in crypto feature; XML has no cryptographic dependencies. XML permits 65,536 bytes, 16 levels, 1,024 elements, ASCII names, and Unicode values; no text content or external entities. Integer keys are bounded to 4,096 bits; no PKCS#1/PSS or product licensing policy."
 sources = ["crates/ravet-data/src/lib.rs", "crates/ravet-data/src/xml.rs", "crates/ravet-data/src/crypto.rs"]
 tests = ["crates/ravet-data/tests/data.rs"]
 docs = ["docs/control-data.md", "docs/decisions/0007-control-data-services.md"]
@@ -2317,7 +2327,7 @@ id = "local-signed-entitlements"
 title = "Explicit local signed-entitlement verification"
 status = "implemented"
 summary = "Canonical bounded consumer claims and a domain-separated Ed25519 envelope verify against explicit trusted public keys, product IDs and half-open validity, with time-rechecked cached feature grants."
-limits = "8192-byte tokens, 32 trusted keys, 256 subject bytes/64 features; strict verification via pinned ed25519-dalek. No private-key signing API, endpoint, clock/hardware access, stored grant, product gating, trial/account policy, remote revocation or anti-tamper guarantee. Worker/control threads only; synthetic records tested."
+limits = "Opt-in entitlement feature. 8192-byte tokens, 32 trusted keys, 256 subject bytes/64 features; strict verification via pinned ed25519-dalek. No private-key signing API, endpoint, clock/hardware access, stored grant, product gating, trial/account policy, remote revocation or anti-tamper guarantee. Worker/control threads only; synthetic records tested."
 sources = ["crates/ravet-data/src/entitlement.rs", "crates/ravet-data/Cargo.toml"]
 tests = ["crates/ravet-data/tests/entitlement.rs"]
 docs = ["docs/entitlements.md", "docs/decisions/0042-local-signed-entitlements.md"]
@@ -2751,7 +2761,7 @@ id = "offline-project-starter"
 title = "Independent offline project starter"
 status = "implemented"
 summary = "An explicit generator creates a publish-disabled independent consumer workspace outside RAVET with local framework/reference dependencies, borrowed stereo DSP lifecycle and a timed-event fixture."
-limits = "Offline gain starter only; explicit new destination/name/licence, absolute local dependency paths and separately generated lockfile. macOS offline build/run evidence; no format/device/UI/installer or production/platform support claim."
+limits = "Offline gain starter only; explicit new destination/name/licence, absolute local dependency paths by default or one release tag with --ravet-source tag (tag must exist in the public repository), and separately generated lockfile. macOS offline build/run evidence; no format/device/UI/installer or production/platform support claim."
 sources = ["scripts/new-project.py", "templates/offline-gain/main.rs"]
 tests = ["scripts/tests/test_projects.py", "templates/offline-gain/main.rs"]
 docs = ["docs/project-starters.md", "docs/decisions/0036-independent-project-starters.md"]
@@ -2763,7 +2773,7 @@ id = "embedded-project-starters"
 title = "Independent embedded and Pi Linux starters"
 status = "implemented"
 summary = "Explicit embedded-rust, arduino and pi-linux generator kinds create separate consumer projects with no_std libraries, a local C++ sketch/library or headless Linux fixture."
-limits = "Existing offline default and repository/existing-destination protections retained. Local paths/copied headers require deliberate updates. No startup/HAL/linker/codec/DMA/device/UI integration or toolchain installation. Pi target follows OS bitness; Arduino sketch compile/link checked in the recorded environment; board runtime/flashing and workload suitability unvalidated."
+limits = "Existing offline default and repository/existing-destination protections retained. Local paths or one release tag (--ravet-source); copied headers require deliberate updates. No startup/HAL/linker/codec/DMA/device/UI integration or toolchain installation. Pi target follows OS bitness; Arduino sketch compile/link checked in the recorded environment; board runtime/flashing and workload suitability unvalidated."
 sources = ["scripts/new-project.py", "templates/embedded/lib.rs", "embedded/arduino/library.properties"]
 tests = ["scripts/tests/test_projects.py", "templates/embedded/lib.rs"]
 docs = ["docs/project-starters.md", "docs/embedded-projects.md"]
@@ -2773,7 +2783,7 @@ id = "foundry-project-management"
 title = "RAVET Foundry project creation and builds"
 status = "prototype"
 summary = "A RAVET-native wizard and shared Rust CLI create independent offline, standalone and effect/instrument plug-in workspaces, reopen versioned TOML settings, preserve consumer source during conflict-checked regeneration and run explicit background builds/local bundles with native directory pickers."
-limits = "Local checkout paths, offline/application/plug-in templates, immutable package/kind/processing role, bounded settings/messages/logs and one worker. Seven whitelisted directory fields, <=4096-byte paths, native modal choosers with transient sequenced selection and unchanged cancellation; macOS chooser/bridge evidence, Windows/Linux execution pending. Effect CLAP/VST3/AUv2/AUv3/AAX/LV2 and instrument CLAP/VST3/AUv2/LV2 reference adapters; external SDKs and native CMake3.25. Standalone/custom effect editor use macOS Rust window bindings. Windows x64 MSVC and Linux GTK3/WebKitGTK4.1/X11 native Foundry launchers/source-build guides supplied; target runtime validation pending. Per-file replacement, no group crash atomicity or protection against external writers; closing cancels direct child only. No MPE/component/module/platform chooser, instrument AAX/AUv3 exporters, cross/universal builds, global installation, production signing or platform/DAW/deadline claim."
+limits = "Local checkout paths by default, or one fetchable release tag for every RAVET Cargo dependency (framework_source); templates and native builds still read the local checkout. Offline/application/plug-in templates, immutable package/kind/processing role, bounded settings/messages/logs and one worker. Seven whitelisted directory fields, <=4096-byte paths, native modal choosers with transient sequenced selection and unchanged cancellation; macOS chooser/bridge evidence, Windows/Linux execution pending. Effect CLAP/VST3/AUv2/AUv3/AAX/LV2 and instrument CLAP/VST3/AUv2/LV2 reference adapters; external SDKs and native CMake3.25. Standalone/custom effect editor use macOS Rust window bindings. Windows x64 MSVC and Linux GTK3/WebKitGTK4.1/X11 native Foundry launchers/source-build guides supplied; target runtime validation pending. Per-file replacement, no group crash atomicity or protection against external writers; closing cancels direct child only. No MPE/component/module/platform chooser, instrument AAX/AUv3 exporters, cross/universal builds, global installation, production signing or platform/DAW/deadline claim."
 sources = ["tools/foundry/Cargo.toml", "tools/foundry/src/lib.rs", "tools/foundry/src/project.rs", "tools/foundry/src/templates.rs", "tools/foundry/src/native_templates.rs", "tools/foundry/src/exports.rs", "tools/foundry/native/plugin.cmake", "media/ravet_LOGO.svg", "tools/foundry/src/controller.rs", "tools/foundry/src/directories.rs", "tools/foundry/src/picker.rs", "tools/foundry/build.rs", "tools/foundry/native/DirectoryPicker.mm", "tools/foundry/native/DirectoryPicker.cpp", "tools/foundry/native/DirectoryPicker.h", "tools/foundry/src/ffi.rs", "tools/foundry/src/main.rs", "tools/foundry/web/index.html", "tools/foundry/native/main.cpp", "tools/foundry/CMakeLists.txt"]
 tests = ["tools/foundry/tests/projects.rs", "tools/foundry/src/main.rs", "scripts/check-foundry.py"]
 docs = ["docs/foundry.md", "docs/project-starters.md", "docs/decisions/0194-foundry-project-management.md"]
@@ -3081,14 +3091,34 @@ docs = ["docs/control-semantics.md", "docs/web-controls.md", "docs/decisions/020
 # Plans and exclusions
 
 [[feature]]
+id = "plugin-product-description"
+title = "Plug-in product description, versioned state envelope and editor protocol"
+status = "prototype"
+summary = "A const Product describes a plug-in once: category, layouts, notes, precision and keyed parameters. Resolution validates it, assigns explicit or key-derived permanent parameter IDs, derives CLAP/VST3/AU/AAX/LV2 identities with optional overrides, one versioned state envelope supports migration and foreign-state import hooks, and a versioned JSON editor protocol addresses parameters by key with gesture tracking."
+limits = "Control-thread only and allocating. Not yet used by any format adapter, editor or Foundry; no web view transport or JavaScript client yet; incoming editor messages at most 64 KiB; parameter values are f32 physical values. At most 1,024 parameters and 16 MiB extra state. Pinned derivations match Foundry's identities. No host evidence."
+sources = ["crates/ravet-plugin/Cargo.toml", "crates/ravet-plugin/src/lib.rs", "crates/ravet-plugin/src/product.rs", "crates/ravet-plugin/src/identity.rs", "crates/ravet-plugin/src/state.rs", "crates/ravet-plugin/src/editor.rs"]
+tests = ["crates/ravet-plugin/tests/product.rs", "crates/ravet-plugin/tests/state.rs", "crates/ravet-plugin/tests/editor.rs"]
+docs = ["docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md", "docs/compatibility.md"]
+
+[[feature]]
+id = "generic-clap-export"
+title = "Generic CLAP export and web editor through export_plugin!"
+status = "prototype"
+summary = "A PluginExport marker names any f32 Processor and its Product; export_plugin! emits a CLAP entry whose descriptor, ports, note input, parameters, versioned state with hooks, latency, tail and denormal flushing come from the product. Host values are snapped to range and kept in a shared parameter cache updated immediately by main-thread flushes. Products may add a web editor: RAVET injects a protocol client (window.ravetPlugin), and on macOS the CLAP GUI extension carries editor gestures to the host through a bounded lock-free queue."
+limits = "First layout only, f32 only, no note output, no product extra state. Editor on macOS only, messages limited to 64 KiB (no info for very large parameter lists), 256-edit queue drops edits when full. Automation reflection racing a state load can keep the automated value. clap-validator on macOS arm64 only (33 passed, 0 failed, 11 skipped for f64, audio-port configurations, preset discovery and note tests); no DAW, Linux or Windows evidence yet."
+sources = ["crates/ravet-plugin/src/export.rs", "crates/ravet-plugin/src/clap.rs", "crates/ravet-plugin/src/clap_gui.rs", "crates/ravet-plugin/editor/client.js", "examples/gain-plugin/editor/index.html", "crates/ravet-plugin/src/lib.rs", "examples/gain-plugin/src/lib.rs", "examples/gain-plugin/Cargo.toml", "scripts/bundle-clap.py"]
+tests = ["examples/gain-plugin/src/lib.rs", "crates/ravet-plugin/tests/export.rs", "crates/ravet-plugin/tests/client.mjs", "scripts/tests/test_editor_client.py", "tools/editor-smoke/src/macos/generic.rs"]
+docs = ["docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md"]
+
+[[feature]]
 id = "release-support"
 title = "Production distribution and compatibility"
 status = "planned"
-summary = "Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates."
-limits = "Packages are unpublished; MSRV and support matrices are unset. Commercial agreement and release dependency notices remain pending."
+summary = "Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates. The 0.1.0 plan targets VST3, CLAP and LV2 on macOS, Windows and Linux, AU on macOS and AAX on macOS and Windows, distributed through immutable Git tags."
+limits = "In progress; see the release plan for met criteria. Packages are unpublished and crates.io publication is deferred. Minimum supported Rust 1.88 (CI-checked); platform and host support matrices are unset. Commercial agreement and release dependency notices remain pending."
 sources = []
 tests = []
-docs = ["docs/WORK_STATUS.md", "LICENSING.md", "docs/decisions/0006-distribution-policy.md"]
+docs = ["docs/releases/0.1.0.md", "docs/decisions/0279-release-0-1-0-scope-and-distribution.md", "docs/WORK_STATUS.md", "LICENSING.md", "docs/decisions/0006-distribution-policy.md"]
 
 [[feature]]
 id = "standalone-device"

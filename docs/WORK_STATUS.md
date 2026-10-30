@@ -7391,3 +7391,221 @@ These results
 establish the classification/recovery contract offline, without qualifying real
 CoreAudio overload/rerouting, audible output, physical devices, platforms or
 callback deadlines.
+
+### 0.1.0 plan and versioned internal dependencies (2026-10-23)
+
+The owner set the 0.1.0 scope: VST3, CLAP and LV2 on macOS, Windows and Linux,
+AU on macOS and AAX on macOS and Windows, distributed through an immutable
+`v0.1.0` Git tag instead of crates.io. [Decision 0279](decisions/0279-release-0-1-0-scope-and-distribution.md)
+records the choice, and the [0.1.0 release plan](releases/0.1.0.md) lists the
+criteria. Private consumer products built on 0.0.1 informed the criteria. Their
+own validation is not a public support claim.
+
+First criterion completed: all 24 library crates are declared in
+`[workspace.dependencies]` with `path` and `version = "0.0.1"`, and members
+inherit them. The two `default-features = false` uses of `ravet-foundation` keep
+explicit paths with the same version requirement. Dev-dependencies on unpublished
+examples and tools stay path-only.
+
+Local macOS arm64 validation: `cargo metadata --locked` passed with
+`Cargo.lock` unchanged; a `cargo metadata` scan found no unversioned normal
+dependency between library crates; `cargo check --workspace --all-targets --locked`
+and `python3 scripts/check-docs.py` passed. Starter and Foundry manifests still
+generate absolute paths; that remains an open criterion.
+
+### Umbrella crate features (2026-10-23)
+
+The `ravet` crate now depends optionally on every component crate except
+`ravet-embedded`. Each has a feature named after the crate without its `ravet-`
+prefix and a module re-export (`ravet::midi_device`). Component features pass
+through under their original names: audio-file and device codecs, convolution
+transitions, AU/VST3 hosting, webview fonts and surface image/text. Foundation,
+signal and surface remain unconditional, so existing umbrella users are
+unaffected. `Cargo.lock` gained the umbrella's new optional dependency edges only;
+no external package versions changed. Getting started documents single-source
+dependencies and local `[patch]` redirection.
+
+Local macOS arm64 validation: `cargo test -p ravet` with default features and
+with `--all-features` passed (`crates/ravet/tests/features.rs` imports every
+re-export); `cargo clippy -p ravet --all-features --all-targets -- -D warnings`,
+`RUSTDOCFLAGS="-D warnings" cargo doc -p ravet --all-features --no-deps`,
+`cargo fmt -p ravet -- --check` and `cargo check --workspace --all-targets` passed,
+all offline and locked after the lockfile update. Linux and Windows all-features
+builds are not yet checked.
+
+### Single-source starter and Foundry dependencies (2026-10-23)
+
+Foundry projects gain `framework_source` (`path` default, or `tag`), exposed in
+`ravet-project.toml`, the **RAVET dependencies** selector and
+`new --framework-source`. `scripts/new-project.py` gains `--ravet-source`. In
+tag mode every RAVET Cargo dependency, including reference example packages, uses
+`git = "https://github.com/mo0kid/ravet"` with the tag `v<workspace version>`;
+path mode keeps the previous absolute paths. Settings without the field load as
+`path`. Starters keep depending on the public reference packages until the
+generic export layer replaces them.
+
+Two limits found while probing: a `[patch]` redirect of a Git dependency still
+fetches the original tag (it failed offline and for a missing tag), so getting
+started now recommends replacing the source with a path instead; and the
+repository is private, so anonymous HTTPS fetches fail without credentials.
+
+Local macOS arm64 validation: `cargo test -p ravet-foundry --offline --locked`
+passed 12 integration tests including `every_ravet_dependency_shares_one_source`
+(both sources × offline, standalone, effect and instrument plug-ins);
+`python3 -m unittest scripts.tests.test_projects` passed 4 tests including the
+tag-source test. Tag-mode projects were not built: no `v0.1.0` tag exists yet.
+
+### Minimum supported Rust version 1.88 (2026-10-23)
+
+The workspace declares `rust-version = "1.88"` and all 38 packages inherit it.
+The floor comes from locked dependencies (`encoding_rs` 0.8.42 requires 1.88;
+the 2024 edition needs 1.85). RAVET code used one newer API: `AtomicU64::try_update`,
+which is unstable in 1.88 while `fetch_update` is deprecated on current stable. The
+two uses (`ravet-surface` editing owner claims and the gain CLAP restore) now use
+explicit `compare_exchange_weak` loops with the same orderings and results. The
+omarchy Linux CI job installs 1.88.0 and checks every target with all features.
+
+Local macOS arm64 validation: `cargo +1.88.0 check --workspace --all-targets`
+passed with default and with all features (offline, locked, separate target
+directory); on rustc 1.99.0, clippy `-D warnings` and tests for `ravet-surface`
+and `ravet-gain-clap` passed. The workspace test suite was not run on 1.88, and
+the new CI step has not run yet.
+
+### Opt-in ravet-data cryptography (2026-10-23)
+
+`ravet-data` now has no default features. `crypto` enables the `crypto` module
+(sha2, num-bigint) and `entitlement` enables signed local entitlements
+(ed25519-dalek); XML depends only on quick-xml. This is a breaking change for
+direct users of those modules, who must enable the features. The umbrella crate
+passes both through, and Foundry enables `crypto` for its own hashing. The
+entitlement integration test requires its feature; the SHA-256/integer test is
+gated on `crypto`.
+
+Local macOS arm64 validation: `cargo test -p ravet-data` passed with no features
+(2 XML tests) and with all features (3 data and 3 entitlement tests);
+`cargo tree -p ravet-data -e normal --depth 1` lists only quick-xml by default.
+
+Combined check after the 2026-10-23 dependency, MSRV and feature changes:
+`cargo test --workspace --all-targets --offline --locked --no-fail-fast` (default
+features) passed 1,241 tests with no failures; workspace clippy with all features
+and `-D warnings`, and `cargo +1.88.0 check --workspace --all-targets --all-features`
+passed.
+
+### Public repository and package metadata (2026-10-23)
+
+The owner made `mo0kid/ravet` public. A disposable consumer outside the checkout
+depending on `ravet = { git = "https://github.com/mo0kid/ravet", tag = "v0.0.1" }`
+resolved its lockfile with interactive Git prompts disabled and no credentials.
+Starter, Foundry and getting-started guidance no longer describes credentials.
+
+All 38 packages inherit `repository`, `homepage` (`https://djwaudio.co/ravet/`),
+`documentation` (`https://djwaudio.co/ravet/docs/`), `keywords` and the
+`multimedia::audio` category from the workspace. All except the two examples with
+their own README inherit the root `README.md`. Packages stay `publish = false`.
+`cargo package -p ravet-foundation --list` includes the README, and
+`cargo check --workspace --locked` passed.
+
+### Versioning and compatibility policy accepted (2026-10-23)
+
+The owner accepted [versioning and compatibility](compatibility.md), recorded as
+[decision 0280](decisions/0280-versioning-and-compatibility.md). It covers shared
+versions and immutable tags, minor/patch break rules, status-based deprecation,
+versioned saved state, caller-keyed parameter IDs and stable plug-in identities.
+A new release-plan item tracks bringing existing state formats and parameter
+numbering into line. Documentation only; no code changed.
+
+### Generic export layer design accepted (2026-10-23)
+
+The owner accepted [decision 0281](decisions/0281-generic-export-layer.md):
+native AUv2 and AAX adapters, a RAVET-defined editor protocol with a product
+channel, and DW-303 as the pilot and open-source example product, kept in its
+own repository. Design only; nothing is implemented. A preliminary read-only
+survey found the processor contract, native tables and CLAP/LV2/AUv3 helpers
+already generic, and identity, VST3 state, bus setup, editor codecs, Turtle,
+AAX descriptors, bundle scripts and Foundry bindings tied to the gain and sine
+references.
+
+### Export layer step 1a/1b: ravet-plugin product description and state (2026-10-23)
+
+New prototype crate `ravet-plugin` (umbrella feature `plugin`), the first part of
+[decision 0281](decisions/0281-generic-export-layer.md):
+
+- `Product` and `Parameter` const builders: category, layouts, note ports,
+  precision, keyed parameters with explicit or FNV-1a-derived permanent IDs,
+  a single bypass toggle, and read-only/hidden/non-automatable flags.
+  `Product::resolve` validates all of it.
+- `Identities`: CLAP, VST3, AU, AAX and LV2 identities derived exactly as Foundry
+  derives them, with `IdentityOverrides` for earlier products.
+- `state`: the `RAVETSTA` envelope with migration and foreign-import hooks,
+  matching by ID, no clamping and no partial application.
+
+Local macOS arm64 validation: `cargo test -p ravet-plugin` passed 5 product
+tests, 5 state tests and the crate doctest. Identity and parameter-ID vectors
+were computed independently in Python from Foundry's algorithm. Byte layout is
+pinned by a golden test. Clippy with `-D warnings`, rustdoc with `-D warnings`,
+`cargo fmt`, `cargo +1.88.0 check` and the umbrella all-features test passed. No
+format adapter uses the crate yet.
+
+### Export layer step 1c: editor protocol (2026-10-23)
+
+`ravet_plugin::editor` adds version-1 JSON editor messages addressed by parameter
+key: `ready`, `begin`, `set`, `end`, `commit` and `product` from the editor;
+`info`, `snapshot`, `changes` and `product` to it. It also adds `Gestures`
+tracking for balanced, multi-parameter gestures and closing them all when an
+editor closes. The crate gains a pinned `serde_json` 1.0.151 dependency, already
+in the lockfile. No web view transport or JavaScript client exists yet.
+
+Local macOS arm64 validation: `cargo test -p ravet-plugin` passed 13 tests
+(3 new editor tests) and the doctest; clippy and rustdoc with `-D warnings`,
+`cargo fmt` and `cargo +1.88.0 check -p ravet-plugin --all-targets` passed.
+
+### Export layer step 1d: generic CLAP export (2026-10-23)
+
+`ravet-plugin` gains `PluginExport` (a marker naming any `Processor<f32>` and
+its `Product`), `ParameterCache`, and a `clap` feature with `export_plugin!`.
+The generic CLAP plug-in derives its descriptor, audio ports, note input,
+parameter metadata and text, versioned state with product hooks, latency
+(restart on change) and tail from the product, and runs the processor inside
+`DenormalProcessor`. Host parameter values are snapped and cached; main-thread
+flushes update the cache immediately. `examples/gain-plugin` exports the
+unchanged gain reference, and `scripts/bundle-clap.py --plugin generic` bundles
+it. The umbrella crate gains `plugin-clap`.
+
+Local macOS arm64 validation: clap-validator (0.3.2-127) on the release bundle
+ran 44 tests, 33 passed, 0 failed, 11 skipped. The skips are f64 audio,
+audio-port configurations, preset discovery and note-port tests that do not
+apply to an effect (`target/gain-generic-clap-validator.json`). `cargo test`
+passed for `ravet-plugin` (all features), `ravet-gain-plugin` and `ravet`;
+clippy `-D warnings`, `cargo fmt` and `cargo +1.88.0 check` passed. No DAW, Linux
+or Windows run yet.
+
+### Export layer step 4b: editor for the generic CLAP export (2026-10-23)
+
+Products gain `Product::with_editor`. RAVET injects `crates/ravet-plugin/editor/client.js`
+into the page, exposing `window.ravetPlugin` over editor protocol 1. On macOS
+the generic CLAP plug-in registers the GUI extension. Editor edits update the
+parameter cache at once and pass through `EditQueue` (256 edits, lock-free
+SPSC, all-or-nothing pushes). The audio or inactive flush delivers them as
+gesture-begin/value/end host events and as processor values at block start.
+Closing the editor ends open gestures. `PluginExport::editor_message` answers
+product-channel messages. `examples/gain-plugin` has an editor page.
+`ravet-plugin` now denies, rather than forbids, unsafe code for its one reviewed
+`WebView::attach` call.
+
+Local macOS 27.0.1 arm64 validation:
+
+- `ravet-editor-smoke --generic` on the release bundle passed two cycles of
+  create, attach, `info`, complete edit (host saw B/V/E), gesture (B/V/V/E),
+  clamped/unknown/unbalanced messages, host change reaching the page, state load
+  reaching the page and closing mid-gesture (B/E). It saved a screenshot.
+- clap-validator: 33 passed, 0 failed, 11 skipped, unchanged by the GUI extension.
+- New tests: queue wraparound and a 20,000-edit cross-thread order test, cache
+  generations, page injection, and a Node check of the client
+  (`scripts/tests/test_editor_client.py`).
+- Workspace clippy with all features, `cargo +1.88.0 check`, rustdoc and tests passed.
+
+Observation, not caused by this change: the existing gain editor probe
+(`ravet-editor-smoke "RAVET Gain.clap"`) now times out in its reusable-controls
+JavaScript self-test. A clean build of committed HEAD `e1c712c` in a temporary
+worktree fails the same way, so it predates this work. The likely cause is the
+WebKit in macOS 27.0.1; it is open.

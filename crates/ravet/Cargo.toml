@@ -2,23 +2,107 @@
 license.workspace = true
 name = "ravet"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Rust Audio Visual Engineering Toolkit"
 
 [lints]
 workspace = true
 
+# One feature per optional component crate, named after the crate without its
+# `ravet-` prefix. Pass-through features keep the component crate's own name.
+# `ravet-embedded` is excluded: no_std consumers depend on it directly.
 [features]
 default = []
+
+# Components
+audio-file = ["dep:ravet-audio-file"]
+clap = ["dep:ravet-clap"]
+core-midi = ["dep:ravet-core-midi"]
+data = ["dep:ravet-data"]
+device = ["dep:ravet-device"]
+graph = ["dep:ravet-graph"]
+host = ["dep:ravet-host"]
+instrument = ["dep:ravet-instrument"]
+media = ["dep:ravet-media"]
+metal = ["dep:ravet-metal"]
+midi-device = ["dep:ravet-midi-device"]
+native = ["dep:ravet-native"]
+native-dsp = ["dep:ravet-native-dsp", "ravet-native-dsp/std", "ravet-native-dsp/processor"]
+osc = ["dep:ravet-osc"]
+plugin = ["dep:ravet-plugin"]
+preset = ["dep:ravet-preset"]
+runtime = ["dep:ravet-runtime"]
+runtime-ffi = ["dep:ravet-runtime-ffi"]
+state = ["dep:ravet-state"]
+webview = ["dep:ravet-webview"]
+
+# ravet-surface
+gif-image = ["ravet-surface/gif-image"]
 image = ["ravet-surface/image"]
 jpeg-encode = ["ravet-surface/jpeg-encode"]
-gif-image = ["ravet-surface/gif-image"]
+postscript-outlines = ["ravet-surface/postscript-outlines"]
 raster = ["ravet-surface/raster"]
 svg-image = ["ravet-surface/svg-image"]
 text = ["ravet-surface/text"]
+
+# ravet-audio-file and ravet-device
+compressed = ["audio-file", "ravet-audio-file/compressed"]
+flac-encode = ["audio-file", "ravet-audio-file/flac-encode"]
+mp3-encode = ["audio-file", "ravet-audio-file/mp3-encode"]
+vorbis-encode = ["audio-file", "ravet-audio-file/vorbis-encode"]
+resampled-playback = ["audio-file", "ravet-audio-file/resampled-playback", "ravet-device?/resampled-playback"]
+mp3-recording = ["device", "ravet-device/mp3-recording"]
+vorbis-recording = ["device", "ravet-device/vorbis-recording"]
+
+# ravet-data
+crypto = ["data", "ravet-data/crypto"]
+entitlement = ["data", "ravet-data/entitlement"]
+
+# ravet-plugin
+plugin-clap = ["plugin", "ravet-plugin/clap"]
+
+# ravet-graph
+convolution-transitions = ["graph", "ravet-graph/convolution-transitions"]
+
+# ravet-host
+au-hosting = ["host", "ravet-host/au-hosting"]
+vst3-catalogue = ["host", "ravet-host/vst3-catalogue"]
+vst3-editor = ["host", "ravet-host/vst3-editor"]
+vst3-hosted-audio = ["host", "ravet-host/vst3-hosted-audio"]
+
+# ravet-webview
+system-fonts = ["webview", "ravet-webview/system-fonts"]
+postscript-fonts = ["webview", "ravet-webview/postscript-fonts"]
 
 [dependencies]
 ravet-foundation.workspace = true
 ravet-signal.workspace = true
 ravet-surface.workspace = true
+ravet-audio-file = { workspace = true, optional = true }
+ravet-clap = { workspace = true, optional = true }
+ravet-core-midi = { workspace = true, optional = true }
+ravet-data = { workspace = true, optional = true }
+ravet-device = { workspace = true, optional = true }
+ravet-graph = { workspace = true, optional = true }
+ravet-host = { workspace = true, optional = true }
+ravet-instrument = { workspace = true, optional = true }
+ravet-media = { workspace = true, optional = true }
+ravet-metal = { workspace = true, optional = true }
+ravet-midi-device = { workspace = true, optional = true }
+ravet-native = { workspace = true, optional = true }
+ravet-native-dsp = { workspace = true, optional = true }
+ravet-osc = { workspace = true, optional = true }
+ravet-plugin = { workspace = true, optional = true }
+ravet-preset = { workspace = true, optional = true }
+ravet-runtime = { workspace = true, optional = true }
+ravet-runtime-ffi = { workspace = true, optional = true }
+ravet-state = { workspace = true, optional = true }
+ravet-webview = { workspace = true, optional = true }

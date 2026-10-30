@@ -12,9 +12,8 @@ build recipe is not a platform-support claim. See [work status](WORK_STATUS.md).
 
 ## Build Foundry for your platform
 
-Start from a trusted RAVET source checkout. Use Rust/Cargo with edition 2024
-support; the local validation compiler is rustc 1.99.0. The framework has no
-established MSRV. Keep the supplied Cargo.lock and use `--locked`.
+Start from a trusted RAVET source checkout. Use Rust 1.88 or newer, RAVET's
+minimum supported Rust version. Keep the supplied Cargo.lock and use `--locked`.
 
 ### macOS
 
@@ -137,10 +136,21 @@ before Cargo dependency resolution. Format selection does not enable another
 operating system: builds target the current machine. Platform matrices, module
 selection (including MPE), cross-compilation and universal binaries remain plans.
 
-All consumers have their own `[workspace]`, `publish = false`, local framework
-paths, a readable version-one `ravet-project.toml`, editable source and template
+All consumers have their own `[workspace]`, `publish = false`, RAVET
+dependencies from one source, a readable version-one `ravet-project.toml`, editable source and template
 licence text. Creation performs no build, network, installation or device action.
 Consumer/package names, template and effect/instrument role stay fixed after creation.
+
+**RAVET dependencies** (`framework_source` in `ravet-project.toml`) selects how
+Cargo finds RAVET. **Local checkout** (`path`, the default) writes absolute
+paths into the framework checkout and works offline and between releases.
+**Release tag** (`tag`) writes Git dependencies on the public repository at the
+tag matching the checkout's workspace version, for example `v0.1.0`; that tag
+must exist in the public repository.
+Either way, every RAVET package in the manifest shares one source. Copied
+templates and native CMake builds always read the local checkout, so keep it at
+the same release as the tag. Regeneration rewrites dependencies when the setting
+changes.
 
 | Template | Starting point and limits |
 |---|---|
@@ -220,7 +230,7 @@ The CLI supports the same operations:
 ```
 
 Add `--framework /absolute/path/to/ravet` to `new` when the compiled-in checkout
-path differs. Add `--offline` to `build` only when its dependency cache is ready.
+path differs, and `--framework-source tag` to depend on the matching release tag. Add `--offline` to `build` only when its dependency cache is ready.
 For native SDK paths, `new` also accepts `--vst3-sdk`, `--audio-unit-sdk`,
 `--aax-sdk` and `--lv2-sdk`; later changes use settings and regeneration.
 CLI `--bundle` packages CLAP; native builds always produce their local bundle.

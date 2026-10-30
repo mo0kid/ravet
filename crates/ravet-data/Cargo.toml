@@ -2,15 +2,36 @@
 license.workspace = true
 name = "ravet-data"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Bounded control-thread XML and legacy data compatibility primitives"
 
 [lints]
 workspace = true
 
+# XML is always available. Cryptography is opt-in, so XML-only consumers do not
+# compile hashing, big-integer or Ed25519 code.
+[features]
+default = []
+crypto = ["dep:sha2", "dep:num-bigint"]
+entitlement = ["dep:ed25519-dalek"]
+
 [dependencies]
 quick-xml = "=0.38.3"
-sha2 = "=0.10.9"
-num-bigint = "=0.4.6"
+sha2 = { version = "=0.10.9", optional = true }
+num-bigint = { version = "=0.4.6", optional = true }
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast"], optional = true }
+
+[dev-dependencies]
 ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast"] }
+
+[[test]]
+name = "entitlement"
+required-features = ["entitlement"]
