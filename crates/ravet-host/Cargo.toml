@@ -1,9 +1,16 @@
 [package]
 name = "ravet-host"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Explicit CLAP hosting and optional VST3/AUv3 native ownership"
 
 [features]
@@ -28,7 +35,7 @@ features = ["clack-host", "audio-ports", "state"]
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
-ravet-graph = { path = "../ravet-graph" }
+ravet-graph.workspace = true
 clack-plugin.workspace = true
 clack-host = { workspace = true, features = ["clack-plugin"] }
 ravet-gain-clap = { path = "../../examples/gain-clap" }

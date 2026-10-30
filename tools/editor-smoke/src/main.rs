@@ -23,6 +23,7 @@ mod macos {
         fn editor_probe_pump(seconds: f64);
         fn editor_probe_destroy(parent: *mut c_void);
     }
+    mod generic;
     struct Parent(*mut c_void);
     impl Parent {
         fn eval(&self, script: &str) -> bool {
@@ -50,14 +51,17 @@ mod macos {
         }
     }
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-        let mut args = std::env::args_os().skip(1);
-        let path = PathBuf::from(
-            args.next()
-                .ok_or("usage: ravet-editor-smoke <trusted CLAP bundle> [screenshot.png]")?,
-        );
+        let mut args = std::env::args_os().skip(1).peekable();
+        let generic = args.next_if(|arg| arg == "--generic").is_some();
+        let path = PathBuf::from(args.next().ok_or(
+            "usage: ravet-editor-smoke [--generic] <trusted CLAP bundle> [screenshot.png]",
+        )?);
         let screenshot = args.next().map(PathBuf::from);
         if args.next().is_some() {
             return Err("too many arguments".into());
+        }
+        if generic {
+            return generic::run(path, screenshot);
         }
         // SAFETY: caller chooses the trusted workspace-built bundle. Clack keeps
         // its library alive through all instance, GUI and processor lifetimes.

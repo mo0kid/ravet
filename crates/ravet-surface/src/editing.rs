@@ -351,11 +351,14 @@ impl TextEditBuffer {
     }
 }
 fn claim_owner(counter: &AtomicU64) -> Result<u64, EditError> {
-    counter
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            value.checked_add(1)
-        })
-        .map_err(|_| EditError::OwnerExhausted)
+    let mut value = counter.load(Ordering::Relaxed);
+    loop {
+        let next = value.checked_add(1).ok_or(EditError::OwnerExhausted)?;
+        match counter.compare_exchange_weak(value, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(previous) => return Ok(previous),
+            Err(current) => value = current,
+        }
+    }
 }
 fn boundary(text: &str, byte: usize) -> bool {
     byte == text.len()

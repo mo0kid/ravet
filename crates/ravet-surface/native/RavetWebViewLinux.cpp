@@ -93,8 +93,22 @@ gboolean poll(gpointer data) {
         },pending);
     return G_SOURCE_CONTINUE;
 }
+// GObject's type registry is process-wide. A host built on another GDK (GTK 2,
+// Ardour's YTK fork, GTK 4) has already registered GdkDisplay and friends, and
+// GTK 3 cannot register them again, so the first GDK 3 call corrupts the host.
+// Decline before any GTK 3 call; hosts then fall back to generic controls.
+bool foreignGdkLoaded() {
+    return dl_iterate_phdr(+[](dl_phdr_info* info,size_t,void*)->int {
+        const char* name=info->dlpi_name;
+        const char* base=strrchr(name,'/'); base=base?base+1:name;
+        for(const char* prefix:{"libgdk-x11-2.0.so","libydk.so","libgtk-4.so"})
+            if(!strncmp(base,prefix,strlen(prefix))) return 1;
+        return 0;
+    },nullptr)!=0;
+}
 Owner create(double width,double height,void* context,RavetWebMessage message,RavetWebSnapshot snapshot,RavetWebSnapshotBuffer buffer) {
     if(!ravet_web_is_main_thread()||!std::isfinite(width)||!std::isfinite(height)||width<=0||height<=0||width>32767||height>32767) return {};
+    if(foreignGdkLoaded()) return {};
     // VST3 Linux parents are X11 windows, including those supplied by XWayland.
     // Select X11 when we initialize GTK; an already initialized Wayland GTK
     // context cannot be repurposed, so fail rather than attach to the wrong display.
@@ -172,9 +186,12 @@ extern "C" void ravet_web_detach(void* view) {
 extern "C" void ravet_web_attach(void* view,void* parent) {
     if(!view||!parent) return; ravet_web_detach(view); auto& s=**static_cast<Owner*>(view);
     s.plug=gtk_plug_new(reinterpret_cast<uintptr_t>(parent)); gtk_container_add(GTK_CONTAINER(s.plug),s.box); gtk_widget_show_all(s.plug);
+    // XEmbed leaves mapping the client to the embedder. Parents that are plain
+    // X11 windows (LV2 UIs, CLAP/VST3 hosts without XEmbed) never map it.
+    if(auto* window=gtk_widget_get_window(s.plug)) gdk_window_show(window);
 }
 extern "C" void ravet_web_set_visible(void* view,bool visible) {
-    if(view) { auto& s=**static_cast<Owner*>(view); if(s.plug) { if(visible) gtk_widget_show_all(s.plug); else gtk_widget_hide(s.plug); } }
+    if(view) { auto& s=**static_cast<Owner*>(view); if(s.plug) { if(visible) { gtk_widget_show_all(s.plug); if(auto* window=gtk_widget_get_window(s.plug)) gdk_window_show(window); } else gtk_widget_hide(s.plug); } }
 }
 extern "C" void ravet_web_destroy(void* view) {
     if(!view) return; auto s=*static_cast<Owner*>(view); s->closed=true; s->context=nullptr; s->message=nullptr; s->snapshot=nullptr; s->bufferSnapshot=nullptr;

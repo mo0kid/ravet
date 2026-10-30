@@ -1366,9 +1366,29 @@ dependencies = [
 name = "ravet"
 version = "0.0.1"
 dependencies = [
+ "ravet-audio-file",
+ "ravet-clap",
+ "ravet-core-midi",
+ "ravet-data",
+ "ravet-device",
  "ravet-foundation",
+ "ravet-graph",
+ "ravet-host",
+ "ravet-instrument",
+ "ravet-media",
+ "ravet-metal",
+ "ravet-midi-device",
+ "ravet-native",
+ "ravet-native-dsp",
+ "ravet-osc",
+ "ravet-plugin",
+ "ravet-preset",
+ "ravet-runtime",
+ "ravet-runtime-ffi",
  "ravet-signal",
+ "ravet-state",
  "ravet-surface",
+ "ravet-webview",
 ]
 
 [[package]]
@@ -1566,6 +1586,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-gain-plugin"
+version = "0.0.1"
+dependencies = [
+ "ravet-foundation",
+ "ravet-gain",
+ "ravet-plugin",
+]
+
+[[package]]
 name = "ravet-graph"
 version = "0.0.1"
 dependencies = [
@@ -1653,6 +1682,20 @@ dependencies = [
  "ravet-foundation",
  "ravet-instrument",
  "ravet-native",
+]
+
+[[package]]
+name = "ravet-plugin"
+version = "0.0.1"
+dependencies = [
+ "clack-extensions",
+ "clack-plugin",
+ "ravet-clap",
+ "ravet-foundation",
+ "ravet-native-dsp",
+ "ravet-webview",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

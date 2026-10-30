@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RAVET Gain</title>
+<style>
+  :root { color-scheme: dark; font: 14px -apple-system, system-ui, sans-serif; }
+  body { margin: 0; height: 100vh; display: grid; place-items: center;
+         background: #171d24; color: #e8edf2; overflow: hidden; }
+  main { width: min(360px, 90vw); display: grid; gap: 18px; }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  label { display: grid; gap: 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; }
+  input[type=range] { width: 100%; accent-color: #f2b544; }
+  output { font-variant-numeric: tabular-nums; color: #f2b544; }
+  #status { font-size: 12px; color: #8a96a3; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">RAVET Gain</h1>
+  <label for="gain">
+    <span class="row"><span>Gain</span><output id="gain-value">–</output></span>
+    <input id="gain" type="range" step="0.01">
+  </label>
+  <label class="row" for="bypass"><span>Bypass</span><input id="bypass" type="checkbox"></label>
+  <div id="status">Connecting…</div>
+</main>
+<script>
+  const plugin = window.ravetPlugin;
+  const gain = document.getElementById("gain");
+  const gainValue = document.getElementById("gain-value");
+  const bypass = document.getElementById("bypass");
+  let dragging = false;
+
+  plugin.on("info", (info) => {
+    const p = info.parameters.find((p) => p.key === "gain");
+    gain.min = p.minimum;
+    gain.max = p.maximum;
+    document.getElementById("title").textContent = info.product.name;
+    document.getElementById("status").textContent = "Ready";
+  });
+  plugin.on("values", ({ values }) => {
+    if (!dragging) gain.value = values.gain;
+    gainValue.textContent = `${values.gain.toFixed(2)} x`;
+    bypass.checked = values.bypass >= 0.5;
+  });
+
+  gain.addEventListener("pointerdown", () => { dragging = true; plugin.begin("gain"); });
+  gain.addEventListener("input", () => {
+    if (dragging) plugin.update("gain", Number(gain.value));
+    else plugin.set("gain", Number(gain.value));
+  });
+  const release = () => { if (dragging) { dragging = false; plugin.end("gain"); } };
+  gain.addEventListener("pointerup", release);
+  gain.addEventListener("pointercancel", release);
+  window.addEventListener("blur", release);
+  bypass.addEventListener("change", () => plugin.set("bypass", bypass.checked ? 1 : 0));
+</script>
+</body>
+</html>

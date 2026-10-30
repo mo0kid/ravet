@@ -1,6 +1,6 @@
 use ravet_foundry::{
-    Controller, DirectoryRequest, Format, Kind, PluginType, Project, create, framework_root, load,
-    regenerate,
+    Controller, DirectoryRequest, FRAMEWORK_GIT, Format, FrameworkSource, Kind, PluginType,
+    Project, create, framework_root, framework_tag, load, regenerate,
 };
 use std::{
     fs,
@@ -150,6 +150,54 @@ fn destinations_and_validation_reject_without_overwriting() {
     let mut p = settings(Kind::Offline);
     p.display_name = "bad\nline".into();
     assert!(create(&temp.0.join("invalid"), p).is_err());
+}
+#[test]
+fn every_ravet_dependency_shares_one_source() {
+    let tag = framework_tag(&framework_root()).unwrap();
+    assert_eq!(tag, format!("v{}", env!("CARGO_PKG_VERSION")));
+    for source in [FrameworkSource::Path, FrameworkSource::Tag] {
+        for (kind, plugin_type) in [
+            (Kind::Offline, PluginType::Effect),
+            (Kind::Standalone, PluginType::Effect),
+            (Kind::Plugin, PluginType::Effect),
+            (Kind::Plugin, PluginType::Instrument),
+        ] {
+            let temp = Temp::new();
+            let mut p = settings(kind);
+            p.plugin_type = plugin_type;
+            p.framework_source = source;
+            let root = create(&temp.project(), p.clone()).unwrap();
+            assert_eq!(load(&root).unwrap().framework_source, source);
+            let manifest: toml::Table =
+                toml::from_str(&fs::read_to_string(root.join("Cargo.toml")).unwrap()).unwrap();
+            let mut tables = vec![manifest["dependencies"].as_table().unwrap()];
+            if let Some(target) = manifest.get("target") {
+                for platform in target.as_table().unwrap().values() {
+                    tables.push(platform["dependencies"].as_table().unwrap());
+                }
+            }
+            let mut count = 0;
+            for (name, spec) in tables.into_iter().flatten() {
+                if !name.starts_with("ravet") {
+                    continue;
+                }
+                count += 1;
+                match source {
+                    FrameworkSource::Path => {
+                        let path = spec["path"].as_str().unwrap();
+                        assert!(PathBuf::from(path).starts_with(framework_root()), "{name}");
+                        assert!(spec.get("git").is_none());
+                    }
+                    FrameworkSource::Tag => {
+                        assert_eq!(spec["git"].as_str(), Some(FRAMEWORK_GIT), "{name}");
+                        assert_eq!(spec["tag"].as_str(), Some(tag.as_str()));
+                        assert!(spec.get("path").is_none());
+                    }
+                }
+            }
+            assert!(count >= 2, "{kind:?} declares its RAVET dependencies");
+        }
+    }
 }
 #[test]
 fn settings_escaping_roundtrips_without_injecting_manifests() {

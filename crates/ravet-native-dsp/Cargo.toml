@@ -1,9 +1,16 @@
 [package]
 name = "ravet-native-dsp"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Explicit native floating policy, packed values and prepared vector operations"
 
 [features]
@@ -13,12 +20,12 @@ processor = ["dep:ravet-foundation"]
 
 [dependencies]
 libm = { version = "=0.2.16", default-features = false }
-ravet-foundation = { path = "../ravet-foundation", default-features = false, optional = true }
+ravet-foundation = { path = "../ravet-foundation", version = "0.0.1", default-features = false, optional = true }
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
 ravet-foundation.workspace = true
-ravet-graph = { path = "../ravet-graph" }
+ravet-graph.workspace = true
 ravet-signal.workspace = true
 
 # Native boundary alone: deny is weakened only inside its private register and

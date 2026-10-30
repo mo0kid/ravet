@@ -1,9 +1,15 @@
 [package]
 name = "ravet-examples"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Interactive subtractive synth, effect, MPE and MIDI 2.0 examples"
 
 [features]
@@ -19,13 +25,13 @@ live-ui = ["dep:ravet-webview", "dep:serde_json", "dep:ravet-device", "dep:ravet
 ravet-foundation.workspace = true
 ravet-signal.workspace = true
 ravet-surface.workspace = true
-ravet-instrument = { path = "../../crates/ravet-instrument" }
-ravet-audio-file = { path = "../../crates/ravet-audio-file" }
+ravet-instrument.workspace = true
+ravet-audio-file.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-ravet-webview = { path = "../../crates/ravet-webview", optional = true }
-ravet-device = { path = "../../crates/ravet-device", optional = true }
-ravet-midi-device = { path = "../../crates/ravet-midi-device", optional = true }
+ravet-webview = { workspace = true, optional = true }
+ravet-device = { workspace = true, optional = true }
+ravet-midi-device = { workspace = true, optional = true }
 serde_json = { version = "=1.0.151", optional = true }
 rtrb = { version = "=0.4.0", optional = true }
 

@@ -1,9 +1,16 @@
 [package]
 name = "ravet-core-midi"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Explicit macOS CoreMIDI UMP ports and bounded callback handoff"
 
 [lints.rust]
@@ -11,7 +18,7 @@ unsafe_code = "deny"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 ravet-foundation.workspace = true
-ravet-midi-device = { path = "../ravet-midi-device" }
+ravet-midi-device.workspace = true
 
 [target.'cfg(target_os = "macos")'.build-dependencies]
 cc = "=1.6.0"

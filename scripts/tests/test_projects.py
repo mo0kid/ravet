@@ -26,6 +26,27 @@ class ProjectTemplates(unittest.TestCase):
                 MODULE.create_project(destination, "another", "GPL-3.0-only")
             self.assertEqual(sentinel.read_text(), "preserve existing consumer")
 
+    def test_tag_source_uses_one_release_tag_for_every_ravet_dependency(self):
+        tag = MODULE.framework_tag(ROOT)
+        with open(ROOT / "Cargo.toml", "rb") as workspace:
+            self.assertEqual(tag, "v" + tomllib.load(workspace)["workspace"]["package"]["version"])
+        for kind in ["offline", "embedded-rust", "pi-linux"]:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(prefix="ravet-project-fixture-") as temporary:
+                destination = Path(temporary) / "consumer"
+                MODULE.create_project(destination, "public-fixture", "GPL-3.0-only", kind, "tag")
+                manifest = tomllib.loads((destination / "Cargo.toml").read_text())
+                ravet = {k: v for k, v in manifest["dependencies"].items() if k.startswith("ravet")}
+                self.assertGreaterEqual(len(ravet), 2)
+                for name, spec in ravet.items():
+                    self.assertEqual(spec["git"], MODULE.FRAMEWORK_GIT, name)
+                    self.assertEqual(spec["tag"], tag, name)
+                    self.assertNotIn("path", spec, name)
+                self.assertNotIn(str(ROOT), (destination / "Cargo.toml").read_text())
+        with tempfile.TemporaryDirectory(prefix="ravet-project-fixture-") as temporary:
+            with self.assertRaises(ValueError):
+                MODULE.create_project(Path(temporary) / "consumer", "x", "GPL-3.0-only", "offline", "crates")
+            self.assertFalse((Path(temporary) / "consumer").exists())
+
     def test_invalid_scope_names_and_licence_fail_before_creation(self):
         with tempfile.TemporaryDirectory(prefix="ravet-project-fixture-") as temporary:
             destination = Path(temporary) / "consumer"

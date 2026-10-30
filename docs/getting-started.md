@@ -10,8 +10,9 @@ also links to the existing CLAP exports.
 
 ## Requirements
 
-- Rust and Cargo supporting edition 2024 and Cargo resolver 3. The observed
-  development toolchain is 1.99.0; a minimum supported Rust version is not set.
+- Rust 1.88 or newer (the minimum supported Rust version, `rust-version` in
+  the workspace manifest). CI checks every target and feature with 1.88.0;
+  tests, lints and documentation run on the current stable toolchain.
 - Python 3.11 or newer for bundling and documentation checks. These scripts
   use only the Python standard library.
 - On macOS, Xcode command-line tools (`xcrun clang++` and `ar`) for native
@@ -77,6 +78,41 @@ Run separately from other WebKit startup probes. See [native editor](native-edit
 for ownership, build requirements and current support limits. GUI-free export
 builds can use `cargo build -p ravet-gain-clap --no-default-features --locked`;
 the bundler builds the default editor-enabled configuration.
+
+## Depend on RAVET from another project
+
+Depend on the umbrella `ravet` crate alone, and enable components with Cargo
+features:
+
+```toml
+[dependencies]
+ravet = { git = "https://github.com/mo0kid/ravet", tag = "v0.1.0", features = ["clap", "webview", "device"] }
+```
+
+`ravet::foundation`, `ravet::signal` and `ravet::surface` are always available.
+Each other component has a feature named after its crate without the `ravet-`
+prefix (`audio-file`, `clap`, `core-midi`, `data`, `device`, `graph`, `host`,
+`instrument`, `media`, `metal`, `midi-device`, `native`, `native-dsp`, `osc`,
+`plugin`, `preset`, `runtime`, `runtime-ffi`, `state`, `webview`). Each is re-exported as
+a module, with hyphens replaced by underscores, for example `ravet::midi_device`.
+Component features pass through under their own names and turn on their
+component: `compressed`, `flac-encode`, `mp3-encode`, `vorbis-encode`,
+`resampled-playback`, `mp3-recording`, `vorbis-recording`,
+`crypto`, `entitlement`, `plugin-clap`, `convolution-transitions`, `au-hosting`, `vst3-catalogue`, `vst3-editor`,
+`vst3-hosted-audio`, `system-fonts`, `postscript-fonts` and the surface image
+and text features. `no_std` projects depend on `ravet-foundation` and
+`ravet-embedded` directly, from the same tag.
+
+Take every RAVET crate from a single source: one tag, or one local path.
+Mixing a path with a Git source, or two revisions, builds two copies of the
+framework, and their traits and types do not match. To develop against a local
+checkout, replace the Git source with `path = "../ravet/crates/ravet"`. A
+`[patch]` redirect is not a substitute offline: Cargo still fetches the tag
+before applying it.
+
+The `v0.1.0` tag does not exist yet; see the [release plan](releases/0.1.0.md).
+Until it does, pin an exact `rev` of `main`. Released tags are never moved.
+The repository is public, so Git dependencies need no credentials.
 
 ## Read and check the documentation
 

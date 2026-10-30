@@ -18,15 +18,17 @@ impl SharedGain {
     /// Control thread may retry. A new generation is published even for the
     /// same value: restoring that value must still reset smoothing.
     pub fn restore(&self, gain: f32, bypassed: bool) {
-        let _ = self
-            .0
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some(Self::pack(
-                    Self::generation(old).wrapping_add(1),
-                    gain,
-                    bypassed,
-                ))
-            });
+        let mut old = self.0.load(Ordering::Acquire);
+        loop {
+            let new = Self::pack(Self::generation(old).wrapping_add(1), gain, bypassed);
+            match self
+                .0
+                .compare_exchange_weak(old, new, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => break,
+                Err(current) => old = current,
+            }
+        }
     }
     pub fn bypassed(snapshot: u64) -> bool {
         snapshot & (1 << 32) != 0

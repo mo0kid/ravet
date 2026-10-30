@@ -1,9 +1,16 @@
 [package]
 name = "ravet-foundry"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "RAVET project creation, configuration and build application"
 
 [lib]
@@ -11,13 +18,13 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 ravet-surface.workspace = true
-ravet-data = { path = "../../crates/ravet-data" }
+ravet-data = { workspace = true, features = ["crypto"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 toml = "=1.1.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-ravet-webview = { path = "../../crates/ravet-webview" }
+ravet-webview.workspace = true
 
 [lints.rust]
 unsafe_code = "deny"

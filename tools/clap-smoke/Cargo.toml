@@ -2,8 +2,15 @@
 license.workspace = true
 name = "ravet-clap-smoke"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Development host that loads and exercises a built RAVET CLAP bundle"
 
 [lints.rust]

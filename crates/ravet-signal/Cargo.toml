@@ -2,13 +2,20 @@
 license.workspace = true
 name = "ravet-signal"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Audio processing building blocks for RAVET"
 
 [dev-dependencies]
-ravet-foundation = { path = "../ravet-foundation" }
-ravet-graph = { path = "../ravet-graph" }
+ravet-foundation.workspace = true
+ravet-graph.workspace = true
 allocation-counter = "=0.8.1"
 
 [lints]

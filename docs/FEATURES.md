@@ -15,6 +15,7 @@ See [Getting started](getting-started.md) for commands,
 | Feature | Status | Behavior or intent |
 |---|---|---|
 | [Portable processor lifecycle](#portable-processing) | Implemented | Validated preparation, variable and zero-frame blocks, reset, deactivation, and atomic rejection with silence on faults. |
+| [Single-dependency umbrella crate](#umbrella-features) | Implemented | The ravet crate re-exports every component crate except ravet-embedded behind a Cargo feature named after it, and passes component features through under their own names. |
 | [Allocation-free no_std processing foundation](#embedded-foundation) | Implemented | Existing portable audio/event/lifecycle/schema contracts work without std or an allocator, with pure-Rust parameter math and target-gated snapshots. |
 | [Fixed-capacity embedded audio adaptation](#embedded-fixed-block-adapter) | Implemented | An explicit no_std adapter owns fixed planar f32 scratch, preflights complete interleaved f32/i16/i32 blocks and preserves event timing, fault silence and backing tails. |
 | [Embedded gain and native Arduino processing subset](#embedded-reference-bridges) | Prototype | An allocation-free Rust stereo gain and caller-owned C ABI accompany a header-only C++11 stereo adapter/reference for Arduino cores without a Rust archive. |
@@ -316,7 +317,9 @@ See [Getting started](getting-started.md) for commands,
 | [Prepared AUv2 native f64 mapping and complete formats](#auv2-native-f64-formats) | Prototype | Explicit float/double prepared main/aux pointer mappings and complete stopped native/ASBD profiles validate exact sample precision, whole directional formats and output ranges before publication; an actual fixed-f64 synthetic AudioComponent proves native64 rendering and stopped complete Level recall. |
 | [Explicit native semantic companion for custom editor content](#explicit-native-semantic-companion) | Implemented | Copied checked flat button/slider/static-text snapshots, native AppKit protocol getters/frames/actions and original-editor revision/callback retirement; complete opt-in content traversal with None/default WebKit restoration. |
 | [Local control disabled and label ownership](#local-control-semantic-ownership) | Implemented | Custom knobs coordinate disabled Tab/input state and retryable parameter ownership; meters preserve explicit label precedence and reject retired formatter writes. |
-| [Production distribution and compatibility](#release-support) | Planned | Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates. |
+| [Plug-in product description, versioned state envelope and editor protocol](#plugin-product-description) | Prototype | A const Product describes a plug-in once: category, layouts, notes, precision and keyed parameters. Resolution validates it, assigns explicit or key-derived permanent parameter IDs, derives CLAP/VST3/AU/AAX/LV2 identities with optional overrides, one versioned state envelope supports migration and foreign-state import hooks, and a versioned JSON editor protocol addresses parameters by key with gesture tracking. |
+| [Generic CLAP export and web editor through export_plugin!](#generic-clap-export) | Prototype | A PluginExport marker names any f32 Processor and its Product; export_plugin! emits a CLAP entry whose descriptor, ports, note input, parameters, versioned state with hooks, latency, tail and denormal flushing come from the product. Host values are snapped to range and kept in a shared parameter cache updated immediately by main-thread flushes. Products may add a web editor: RAVET injects a protocol client (window.ravetPlugin), and on macOS the CLAP GUI extension carries editor gestures to the host through a bounded lock-free queue. |
+| [Production distribution and compatibility](#release-support) | Planned | Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates. The 0.1.0 plan targets VST3, CLAP and LV2 on macOS, Windows and Linux, AU on macOS and AAX on macOS and Windows, distributed through immutable Git tags. |
 | [Standalone device playback](#standalone-device) | Planned | Run the portable processor through a separate audio-device adapter. |
 | [Additional formats and advanced tooling](#additional-integrations) | Planned | Extend formats, mobile/UI, graph, DSP/codec and application facilities beyond the current scoped implementations. |
 | [VST2 support](#vst2) | Excluded | VST2 is explicitly outside the project's scope. |
@@ -355,6 +358,20 @@ Validated preparation, variable and zero-frame blocks, reset, deactivation, and 
 **Tests:** [`crates/ravet-foundation/tests/contracts.rs`](../crates/ravet-foundation/tests/contracts.rs), [`examples/gain/tests/processing.rs`](../examples/gain/tests/processing.rs).
 
 **Documentation:** [`docs/architecture.md`](../docs/architecture.md), [`docs/decisions/0001-portable-processing.md`](../docs/decisions/0001-portable-processing.md).
+
+<a id="umbrella-features"></a>
+
+### Single-dependency umbrella crate
+
+The ravet crate re-exports every component crate except ravet-embedded behind a Cargo feature named after it, and passes component features through under their own names.
+
+**Limits:** Distributed by Git tag or revision; no crates.io release. Enabling a feature does not extend a component's platform or host validation. ravet-embedded is excluded because the umbrella requires std. Mixing path and Git sources builds two incompatible copies.
+
+**Source:** [`crates/ravet/Cargo.toml`](../crates/ravet/Cargo.toml), [`crates/ravet/src/lib.rs`](../crates/ravet/src/lib.rs).
+
+**Tests:** [`crates/ravet/tests/features.rs`](../crates/ravet/tests/features.rs).
+
+**Documentation:** [`docs/getting-started.md`](../docs/getting-started.md), [`docs/releases/0.1.0.md`](../docs/releases/0.1.0.md), [`docs/decisions/0279-release-0-1-0-scope-and-distribution.md`](../docs/decisions/0279-release-0-1-0-scope-and-distribution.md).
 
 <a id="embedded-foundation"></a>
 
@@ -2266,7 +2283,7 @@ Bounded binary files/atomic replacement, explicit HTTPS POST, owned bounded seri
 
 Bounded attribute XML, SHA-256, and existing little-endian unpadded RSA integer verification are available through an explicit data crate.
 
-**Limits:** Allocating control/worker-thread services only. XML permits 65,536 bytes, 16 levels, 1,024 elements, ASCII names, and Unicode values; no text content or external entities. Integer keys are bounded to 4,096 bits; no PKCS#1/PSS or product licensing policy.
+**Limits:** Allocating control/worker-thread services only. Hashing and the integer verifier need the opt-in crypto feature; XML has no cryptographic dependencies. XML permits 65,536 bytes, 16 levels, 1,024 elements, ASCII names, and Unicode values; no text content or external entities. Integer keys are bounded to 4,096 bits; no PKCS#1/PSS or product licensing policy.
 
 **Source:** [`crates/ravet-data/src/lib.rs`](../crates/ravet-data/src/lib.rs), [`crates/ravet-data/src/xml.rs`](../crates/ravet-data/src/xml.rs), [`crates/ravet-data/src/crypto.rs`](../crates/ravet-data/src/crypto.rs).
 
@@ -2280,7 +2297,7 @@ Bounded attribute XML, SHA-256, and existing little-endian unpadded RSA integer 
 
 Canonical bounded consumer claims and a domain-separated Ed25519 envelope verify against explicit trusted public keys, product IDs and half-open validity, with time-rechecked cached feature grants.
 
-**Limits:** 8192-byte tokens, 32 trusted keys, 256 subject bytes/64 features; strict verification via pinned ed25519-dalek. No private-key signing API, endpoint, clock/hardware access, stored grant, product gating, trial/account policy, remote revocation or anti-tamper guarantee. Worker/control threads only; synthetic records tested.
+**Limits:** Opt-in entitlement feature. 8192-byte tokens, 32 trusted keys, 256 subject bytes/64 features; strict verification via pinned ed25519-dalek. No private-key signing API, endpoint, clock/hardware access, stored grant, product gating, trial/account policy, remote revocation or anti-tamper guarantee. Worker/control threads only; synthetic records tested.
 
 **Source:** [`crates/ravet-data/src/entitlement.rs`](../crates/ravet-data/src/entitlement.rs), [`crates/ravet-data/Cargo.toml`](../crates/ravet-data/Cargo.toml).
 
@@ -2476,7 +2493,7 @@ A prepared stereo delay replaces gain in the live effect example, with time/feed
 
 An explicit generator creates a publish-disabled independent consumer workspace outside RAVET with local framework/reference dependencies, borrowed stereo DSP lifecycle and a timed-event fixture.
 
-**Limits:** Offline gain starter only; explicit new destination/name/licence, absolute local dependency paths and separately generated lockfile. macOS offline build/run evidence; no format/device/UI/installer or production/platform support claim.
+**Limits:** Offline gain starter only; explicit new destination/name/licence, absolute local dependency paths by default or one release tag with --ravet-source tag (tag must exist in the public repository), and separately generated lockfile. macOS offline build/run evidence; no format/device/UI/installer or production/platform support claim.
 
 **Source:** [`scripts/new-project.py`](../scripts/new-project.py), [`templates/offline-gain/main.rs`](../templates/offline-gain/main.rs).
 
@@ -2490,7 +2507,7 @@ An explicit generator creates a publish-disabled independent consumer workspace 
 
 Explicit embedded-rust, arduino and pi-linux generator kinds create separate consumer projects with no_std libraries, a local C++ sketch/library or headless Linux fixture.
 
-**Limits:** Existing offline default and repository/existing-destination protections retained. Local paths/copied headers require deliberate updates. No startup/HAL/linker/codec/DMA/device/UI integration or toolchain installation. Pi target follows OS bitness; Arduino sketch compile/link checked in the recorded environment; board runtime/flashing and workload suitability unvalidated.
+**Limits:** Existing offline default and repository/existing-destination protections retained. Local paths or one release tag (--ravet-source); copied headers require deliberate updates. No startup/HAL/linker/codec/DMA/device/UI integration or toolchain installation. Pi target follows OS bitness; Arduino sketch compile/link checked in the recorded environment; board runtime/flashing and workload suitability unvalidated.
 
 **Source:** [`scripts/new-project.py`](../scripts/new-project.py), [`templates/embedded/lib.rs`](../templates/embedded/lib.rs), [`embedded/arduino/library.properties`](../embedded/arduino/library.properties).
 
@@ -4550,7 +4567,7 @@ Native synth/effect/MPE windows use knobs, a layered piano widget, default Audio
 
 A RAVET-native wizard and shared Rust CLI create independent offline, standalone and effect/instrument plug-in workspaces, reopen versioned TOML settings, preserve consumer source during conflict-checked regeneration and run explicit background builds/local bundles with native directory pickers.
 
-**Limits:** Local checkout paths, offline/application/plug-in templates, immutable package/kind/processing role, bounded settings/messages/logs and one worker. Seven whitelisted directory fields, <=4096-byte paths, native modal choosers with transient sequenced selection and unchanged cancellation; macOS chooser/bridge evidence, Windows/Linux execution pending. Effect CLAP/VST3/AUv2/AUv3/AAX/LV2 and instrument CLAP/VST3/AUv2/LV2 reference adapters; external SDKs and native CMake3.25. Standalone/custom effect editor use macOS Rust window bindings. Windows x64 MSVC and Linux GTK3/WebKitGTK4.1/X11 native Foundry launchers/source-build guides supplied; target runtime validation pending. Per-file replacement, no group crash atomicity or protection against external writers; closing cancels direct child only. No MPE/component/module/platform chooser, instrument AAX/AUv3 exporters, cross/universal builds, global installation, production signing or platform/DAW/deadline claim.
+**Limits:** Local checkout paths by default, or one fetchable release tag for every RAVET Cargo dependency (framework_source); templates and native builds still read the local checkout. Offline/application/plug-in templates, immutable package/kind/processing role, bounded settings/messages/logs and one worker. Seven whitelisted directory fields, <=4096-byte paths, native modal choosers with transient sequenced selection and unchanged cancellation; macOS chooser/bridge evidence, Windows/Linux execution pending. Effect CLAP/VST3/AUv2/AUv3/AAX/LV2 and instrument CLAP/VST3/AUv2/LV2 reference adapters; external SDKs and native CMake3.25. Standalone/custom effect editor use macOS Rust window bindings. Windows x64 MSVC and Linux GTK3/WebKitGTK4.1/X11 native Foundry launchers/source-build guides supplied; target runtime validation pending. Per-file replacement, no group crash atomicity or protection against external writers; closing cancels direct child only. No MPE/component/module/platform chooser, instrument AAX/AUv3 exporters, cross/universal builds, global installation, production signing or platform/DAW/deadline claim.
 
 **Source:** [`tools/foundry/Cargo.toml`](../tools/foundry/Cargo.toml), [`tools/foundry/src/lib.rs`](../tools/foundry/src/lib.rs), [`tools/foundry/src/project.rs`](../tools/foundry/src/project.rs), [`tools/foundry/src/templates.rs`](../tools/foundry/src/templates.rs), [`tools/foundry/src/native_templates.rs`](../tools/foundry/src/native_templates.rs), [`tools/foundry/src/exports.rs`](../tools/foundry/src/exports.rs), [`tools/foundry/native/plugin.cmake`](../tools/foundry/native/plugin.cmake), [`media/ravet_LOGO.svg`](../media/ravet_LOGO.svg), [`tools/foundry/src/controller.rs`](../tools/foundry/src/controller.rs), [`tools/foundry/src/directories.rs`](../tools/foundry/src/directories.rs), [`tools/foundry/src/picker.rs`](../tools/foundry/src/picker.rs), [`tools/foundry/build.rs`](../tools/foundry/build.rs), [`tools/foundry/native/DirectoryPicker.mm`](../tools/foundry/native/DirectoryPicker.mm), [`tools/foundry/native/DirectoryPicker.cpp`](../tools/foundry/native/DirectoryPicker.cpp), [`tools/foundry/native/DirectoryPicker.h`](../tools/foundry/native/DirectoryPicker.h), [`tools/foundry/src/ffi.rs`](../tools/foundry/src/ffi.rs), [`tools/foundry/src/main.rs`](../tools/foundry/src/main.rs), [`tools/foundry/web/index.html`](../tools/foundry/web/index.html), [`tools/foundry/native/main.cpp`](../tools/foundry/native/main.cpp), [`tools/foundry/CMakeLists.txt`](../tools/foundry/CMakeLists.txt).
 
@@ -4726,6 +4743,34 @@ Explicit float/double prepared main/aux pointer mappings and complete stopped na
 
 **Documentation:** [`docs/native-au.md`](../docs/native-au.md), [`docs/decisions/0199-auv2-native-f64-formats.md`](../docs/decisions/0199-auv2-native-f64-formats.md).
 
+<a id="plugin-product-description"></a>
+
+### Plug-in product description, versioned state envelope and editor protocol
+
+A const Product describes a plug-in once: category, layouts, notes, precision and keyed parameters. Resolution validates it, assigns explicit or key-derived permanent parameter IDs, derives CLAP/VST3/AU/AAX/LV2 identities with optional overrides, one versioned state envelope supports migration and foreign-state import hooks, and a versioned JSON editor protocol addresses parameters by key with gesture tracking.
+
+**Limits:** Control-thread only and allocating. Not yet used by any format adapter, editor or Foundry; no web view transport or JavaScript client yet; incoming editor messages at most 64 KiB; parameter values are f32 physical values. At most 1,024 parameters and 16 MiB extra state. Pinned derivations match Foundry's identities. No host evidence.
+
+**Source:** [`crates/ravet-plugin/Cargo.toml`](../crates/ravet-plugin/Cargo.toml), [`crates/ravet-plugin/src/lib.rs`](../crates/ravet-plugin/src/lib.rs), [`crates/ravet-plugin/src/product.rs`](../crates/ravet-plugin/src/product.rs), [`crates/ravet-plugin/src/identity.rs`](../crates/ravet-plugin/src/identity.rs), [`crates/ravet-plugin/src/state.rs`](../crates/ravet-plugin/src/state.rs), [`crates/ravet-plugin/src/editor.rs`](../crates/ravet-plugin/src/editor.rs).
+
+**Tests:** [`crates/ravet-plugin/tests/product.rs`](../crates/ravet-plugin/tests/product.rs), [`crates/ravet-plugin/tests/state.rs`](../crates/ravet-plugin/tests/state.rs), [`crates/ravet-plugin/tests/editor.rs`](../crates/ravet-plugin/tests/editor.rs).
+
+**Documentation:** [`docs/plugin-export.md`](../docs/plugin-export.md), [`docs/decisions/0281-generic-export-layer.md`](../docs/decisions/0281-generic-export-layer.md), [`docs/compatibility.md`](../docs/compatibility.md).
+
+<a id="generic-clap-export"></a>
+
+### Generic CLAP export and web editor through export_plugin!
+
+A PluginExport marker names any f32 Processor and its Product; export_plugin! emits a CLAP entry whose descriptor, ports, note input, parameters, versioned state with hooks, latency, tail and denormal flushing come from the product. Host values are snapped to range and kept in a shared parameter cache updated immediately by main-thread flushes. Products may add a web editor: RAVET injects a protocol client (window.ravetPlugin), and on macOS the CLAP GUI extension carries editor gestures to the host through a bounded lock-free queue.
+
+**Limits:** First layout only, f32 only, no note output, no product extra state. Editor on macOS only, messages limited to 64 KiB (no info for very large parameter lists), 256-edit queue drops edits when full. Automation reflection racing a state load can keep the automated value. clap-validator on macOS arm64 only (33 passed, 0 failed, 11 skipped for f64, audio-port configurations, preset discovery and note tests); no DAW, Linux or Windows evidence yet.
+
+**Source:** [`crates/ravet-plugin/src/export.rs`](../crates/ravet-plugin/src/export.rs), [`crates/ravet-plugin/src/clap.rs`](../crates/ravet-plugin/src/clap.rs), [`crates/ravet-plugin/src/clap_gui.rs`](../crates/ravet-plugin/src/clap_gui.rs), [`crates/ravet-plugin/editor/client.js`](../crates/ravet-plugin/editor/client.js), [`examples/gain-plugin/editor/index.html`](../examples/gain-plugin/editor/index.html), [`crates/ravet-plugin/src/lib.rs`](../crates/ravet-plugin/src/lib.rs), [`examples/gain-plugin/src/lib.rs`](../examples/gain-plugin/src/lib.rs), [`examples/gain-plugin/Cargo.toml`](../examples/gain-plugin/Cargo.toml), [`scripts/bundle-clap.py`](../scripts/bundle-clap.py).
+
+**Tests:** [`examples/gain-plugin/src/lib.rs`](../examples/gain-plugin/src/lib.rs), [`crates/ravet-plugin/tests/export.rs`](../crates/ravet-plugin/tests/export.rs), [`crates/ravet-plugin/tests/client.mjs`](../crates/ravet-plugin/tests/client.mjs), [`scripts/tests/test_editor_client.py`](../scripts/tests/test_editor_client.py), [`tools/editor-smoke/src/macos/generic.rs`](../tools/editor-smoke/src/macos/generic.rs).
+
+**Documentation:** [`docs/plugin-export.md`](../docs/plugin-export.md), [`docs/decisions/0281-generic-export-layer.md`](../docs/decisions/0281-generic-export-layer.md).
+
 <a id="standalone-measured-grid-workspace"></a>
 
 ### Measured standalone content size and grid workspace consumption
@@ -4830,11 +4875,11 @@ The explicit local note-routing LV2 profile consumes canonical Rust NoteRouting 
 
 ### Production distribution and compatibility
 
-Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates.
+Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates. The 0.1.0 plan targets VST3, CLAP and LV2 on macOS, Windows and Linux, AU on macOS and AAX on macOS and Windows, distributed through immutable Git tags.
 
-**Limits:** Packages are unpublished; MSRV and support matrices are unset. Commercial agreement and release dependency notices remain pending.
+**Limits:** In progress; see the release plan for met criteria. Packages are unpublished and crates.io publication is deferred. Minimum supported Rust 1.88 (CI-checked); platform and host support matrices are unset. Commercial agreement and release dependency notices remain pending.
 
-**Documentation:** [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md), [`LICENSING.md`](../LICENSING.md), [`docs/decisions/0006-distribution-policy.md`](../docs/decisions/0006-distribution-policy.md).
+**Documentation:** [`docs/releases/0.1.0.md`](../docs/releases/0.1.0.md), [`docs/decisions/0279-release-0-1-0-scope-and-distribution.md`](../docs/decisions/0279-release-0-1-0-scope-and-distribution.md), [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md), [`LICENSING.md`](../LICENSING.md), [`docs/decisions/0006-distribution-policy.md`](../docs/decisions/0006-distribution-policy.md).
 
 <a id="standalone-device"></a>
 
@@ -4907,6 +4952,7 @@ roles; feature records above determine implementation status.
 | `ravet-gain` | Portable gain reference processor and offline harness for RAVET | [`examples/gain/Cargo.toml`](../examples/gain/Cargo.toml) |
 | `ravet-gain-clap` | CLAP export of the RAVET gain reference processor | [`examples/gain-clap/Cargo.toml`](../examples/gain-clap/Cargo.toml) |
 | `ravet-gain-native` | Narrow native ABI for the portable RAVET gain reference | [`examples/gain-native/Cargo.toml`](../examples/gain-native/Cargo.toml) |
+| `ravet-gain-plugin` | Gain reference exported through RAVET's generic plug-in layer | [`examples/gain-plugin/Cargo.toml`](../examples/gain-plugin/Cargo.toml) |
 | `ravet-graph` | Explicit prepared acyclic audio routing and processor scheduling | [`crates/ravet-graph/Cargo.toml`](../crates/ravet-graph/Cargo.toml) |
 | `ravet-host` | Explicit CLAP hosting and optional VST3/AUv3 native ownership | [`crates/ravet-host/Cargo.toml`](../crates/ravet-host/Cargo.toml) |
 | `ravet-instrument` | Portable bounded MIDI/native performance voices, RPN negotiation and reference sine synthesis | [`crates/ravet-instrument/Cargo.toml`](../crates/ravet-instrument/Cargo.toml) |
@@ -4917,6 +4963,7 @@ roles; feature records above determine implementation status.
 | `ravet-native-dsp` | Explicit native floating policy, packed values and prepared vector operations | [`crates/ravet-native-dsp/Cargo.toml`](../crates/ravet-native-dsp/Cargo.toml) |
 | `ravet-osc` | Explicit bounded OSC packet codecs and worker-thread UDP transport | [`crates/ravet-osc/Cargo.toml`](../crates/ravet-osc/Cargo.toml) |
 | `ravet-performance-native` | Public native f32/f64 identified-performance sine reference | [`examples/performance-native/Cargo.toml`](../examples/performance-native/Cargo.toml) |
+| `ravet-plugin` | Product descriptions, format identities and versioned state for RAVET plug-in exports | [`crates/ravet-plugin/Cargo.toml`](../crates/ravet-plugin/Cargo.toml) |
 | `ravet-preset` | Explicit bounded preset-file libraries for RAVET observable state | [`crates/ravet-preset/Cargo.toml`](../crates/ravet-preset/Cargo.toml) |
 | `ravet-runtime` | Explicit control-thread files, HTTP, owned tasks and timers for RAVET | [`crates/ravet-runtime/Cargo.toml`](../crates/ravet-runtime/Cargo.toml) |
 | `ravet-runtime-ffi` | Narrow native ABI for Rust RAVET control-thread runtime services | [`crates/ravet-runtime-ffi/Cargo.toml`](../crates/ravet-runtime-ffi/Cargo.toml) |

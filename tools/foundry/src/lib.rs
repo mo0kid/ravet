@@ -28,8 +28,10 @@ mod project;
 mod templates;
 pub use controller::{Controller, Snapshot, doctor};
 pub use project::{
-    Format, Kind, PluginType, Project, Sdks, create, framework_root, load, regenerate,
+    Format, FrameworkSource, Kind, PluginType, Project, Sdks, create, framework_root, load,
+    regenerate,
 };
+pub use templates::{FRAMEWORK_GIT, framework_tag};
 
 /// Owned errors from validation, filesystem operations and build processes.
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
