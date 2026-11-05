@@ -7694,7 +7694,10 @@ Local macOS 27 arm64 validation:
   `pass_through` tests pass.
 - Clippy with warnings denied for `ravet-plugin` (no features, `clap`, `native`
   and all features), `ravet-foundation`, `ravet-delay-plugin` and
-  `ravet-gain-plugin`; `cargo fmt --check`; warning-free Rustdoc for
+  `ravet-gain-plugin`; library Clippy for `ravet-plugin` cross-checked for
+  `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` (compile-only; this
+  removed pre-existing dead-code errors in macOS-GUI-only CLAP items);
+  `cargo fmt --check`; warning-free Rustdoc for
   `ravet-plugin`; `cargo +1.88.0 check -p ravet-plugin --all-features`; the
   documentation checker.
 - CLAP regression after the policy wrapper and shared editor host: the release
