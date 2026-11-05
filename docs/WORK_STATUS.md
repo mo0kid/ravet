@@ -9828,3 +9828,10 @@ failures, each new to these runners:
   `img/knob.png` and `style.css` as attributes were read as missing files;
   reworded.
 - omarchy runtime job: formatting of the new `cfg_attr`.
+- Windows export-layer step: `ravet-webview` needs the WebView2 SDK to build.
+  The hosted Windows job now fetches Microsoft.Web.WebView2 1.0.3650.58 from
+  nuget.org with `scripts/fetch-webview2-sdk.py`, which checks a SHA-256 pin
+  (computed from a download whose SHA-512 matched nuget.org's published package
+  hash) before opening it and extracts only the headers, x64 loaders and
+  licence files; it sets `RAVET_WEBVIEW2_SDK`. Offline tests cover the hash
+  check and member selection.
