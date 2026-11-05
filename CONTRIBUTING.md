@@ -5,20 +5,16 @@ RAVET is an early source preview with provisional APIs. Start with the
 [feature catalogue](docs/FEATURES.md) before changing a contract or integration.
 See [LICENSING.md](LICENSING.md) for contribution and dependency requirements.
 
-## Contributor terms
+## Pull requests
 
-External contributions are accepted under the
-[RAVET Contributor Terms](CONTRIBUTOR_TERMS.md). You keep your copyright and
-grant a licence that lets RAVET be distributed under the GPL and under its
-commercial licence; contributions stay available under the GPL. Accept the terms
-by adding this line to the message of every commit you contribute:
+RAVET does not accept pull requests or other code contributions from outside
+the project. Pull requests from outside contributors are closed automatically.
 
-```
-RAVET-Contributor-Terms: 1.0 <Your Name> <your@email>
-```
+Bug reports, questions and host test results are welcome as GitHub issues. Code
+in an issue is read as a description of the problem; maintainers write any
+change themselves.
 
-Add `on behalf of <Entity Name>` when you contribute for an employer or other
-organisation. Pull requests with commits that lack the line cannot be merged.
+The rest of this guide is for maintainers.
 
 Proprietary consumer products must remain in separate private sibling projects.
 Do not add their implementations, assets, session/licence fixtures, or wrappers
