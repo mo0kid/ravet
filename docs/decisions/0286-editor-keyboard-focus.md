@@ -1,7 +1,7 @@
 # 0286: Keyboard focus for web-editor text fields in hosts that keep key status
 
-Status: implemented in the Cocoa/WebKit backend; macOS AppKit fixture evidence
-only. Not yet confirmed in Pro Tools.
+Status: implemented in the Cocoa/WebKit backend; macOS AppKit fixture evidence,
+and confirmed by the owner in Pro Tools 26.4 on macOS arm64 (5 November 2026).
 
 ## Context
 

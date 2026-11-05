@@ -9477,3 +9477,14 @@ fix, the REAPER 7.82 AU delay harness passes on arm64 and under Rosetta with
 exact echo positions (see the entry above). The design question of whether a
 malformed transport callback should still process audio without transport,
 instead of silencing the block, is left open under decision 0188.
+
+### Pro Tools keyboard check passes (owner, 2026-11-05)
+
+The owner loaded the vendor-signed rebuild of the macOS AAX delay containing
+the keyboard-focus fix (decision 0286) in Pro Tools 26.4 on macOS arm64 and ran
+the five-step check: Space starts and stops the transport while nothing is
+being edited; clicking the Time value, typing 250 and pressing Enter sets
+250 ms, after which Space again reaches the transport; Escape cancels a typed
+Mix value; clicking away commits a typed Feedback value; Command-S saves the
+session while a value is being edited. The owner reports that the check passes.
+This is a manual single-host check; Pro Tools for Windows is not covered.
