@@ -9835,3 +9835,19 @@ failures, each new to these runners:
   hash) before opening it and extracts only the headers, x64 loaders and
   licence files; it sets `RAVET_WEBVIEW2_SDK`. Offline tests cover the hash
   check and member selection.
+
+### RAVET 0.1.0 released (2026-11-05)
+
+With all release workflows green on `d433668` (Runtime, Embedded, Documentation
+and the hosted portable checks on `macos-latest` and `windows-latest`; hosted
+documentation built and passed its site tests on `c487884`), the annotated tag
+`v0.1.0` was created on `d433668` and pushed. A fresh Cargo project depending on
+`ravet = { git = "https://github.com/mo0kid/ravet", tag = "v0.1.0" }` resolved
+`ravet` 0.1.0 from the tag and built. DW-303 moved all ten RAVET dependencies
+from sibling paths to the tag (DW-303 `d63a944`, pushed); its 161 workspace
+tests pass on macOS arm64. DW-303 still uses its own CLAP layer rather than
+`ravet-plugin`.
+
+Open after the release: live documentation publishing from omarchy has timed
+out (45 minutes) during the FTP upload since 30 October, leaving the previous
+snapshot live; the build and site tests pass.
