@@ -139,7 +139,15 @@ impl PreparedUmpInput {
         let mut accepted = 0;
         while let Some(&first) = remaining.first() {
             let size = UmpPacket::word_count(first);
-            let packet = UmpPacket::from_words(&remaining[..size]).expect("preflighted framing");
+            // Unreachable: the preflight above framed every packet. This runs
+            // on native MIDI callback threads, so refuse the suffix, not panic.
+            let Some(Ok(packet)) = remaining.get(..size).map(UmpPacket::from_words) else {
+                return Ok(UmpDelivery {
+                    accepted,
+                    discarded: count - accepted,
+                    reason: Some(UmpInputError::Malformed),
+                });
+            };
             match self.try_push(TimedUmp {
                 timestamp,
                 protocol,
@@ -150,6 +158,7 @@ impl PreparedUmpInput {
                     remaining = &remaining[size..];
                 }
                 Err(reason) => {
+                    // `accepted < count`: a refused packet remains.
                     if reason == UmpInputError::Full {
                         self.statistics
                             .dropped

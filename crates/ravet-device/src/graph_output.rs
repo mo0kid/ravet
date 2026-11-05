@@ -338,12 +338,16 @@ impl GraphOutputSession<'_> {
                     iter.next()
                         .map_or(&[] as &[f32], |samples| samples.as_slice())
                 });
+                // Unreachable error: scratch was allocated from this config.
                 let audio = AudioBuffer::separate(
                     &inputs[..self.config.layout().input_channels()],
                     &mut outputs[..channels],
                     frames,
                 )
-                .expect("prepared graph IO");
+                .map_err(|_| GraphStatus::Fault {
+                    node: None,
+                    error: ProcessError::LayoutMismatch,
+                })?;
                 let mut block = ProcessBlock::new(audio, events, transport);
                 if !storage.is_empty() || self.config.maximum_output_events() != 0 {
                     block.output_events = Some(OutputEvents::new(storage, frames));
@@ -354,10 +358,10 @@ impl GraphOutputSession<'_> {
             }
             if let Some(consumer) = self.consumer.as_mut() {
                 self.input_interleaved.fill(0.);
-                input_frames_consumed = consumer
-                    .pop(self.input_interleaved)
-                    .expect("prepared input frames");
-                input_underflow_frames = frames - input_frames_consumed;
+                // Unreachable error: interleaved scratch holds whole frames;
+                // reading nothing is reported as underflow.
+                input_frames_consumed = consumer.pop(self.input_interleaved).unwrap_or(0);
+                input_underflow_frames = frames.saturating_sub(input_frames_consumed);
                 let input_channels = self.config.layout().input_channels();
                 for frame in 0..frames {
                     for channel in 0..input_channels {
@@ -377,12 +381,16 @@ impl GraphOutputSession<'_> {
                 iter.next()
                     .map_or(&mut [] as &mut [f32], |samples| samples.as_mut_slice())
             });
+            // Unreachable error, as for the validation block above.
             let audio = AudioBuffer::separate(
                 &inputs[..self.config.layout().input_channels()],
                 &mut outputs[..channels],
                 frames,
             )
-            .expect("prepared output");
+            .map_err(|_| GraphStatus::Fault {
+                node: None,
+                error: ProcessError::LayoutMismatch,
+            })?;
             let mut block = ProcessBlock::new(audio, events, transport);
             if !storage.is_empty() || self.config.maximum_output_events() != 0 {
                 block.output_events = Some(OutputEvents::new(storage, frames));
@@ -406,10 +414,11 @@ impl GraphOutputSession<'_> {
             *self.pending = 0..frames;
             rendered_frames = frames;
         }
+        // Unreachable error: the pending range holds whole prepared frames.
         let published_frames = self
             .producer
             .push(&self.interleaved[self.pending.start * channels..self.pending.end * channels])
-            .expect("prepared complete frames");
+            .unwrap_or(0);
         self.pending.start += published_frames;
         Ok(GraphOutputProgress {
             rendered_frames,
@@ -530,18 +539,21 @@ impl Processor for RingOutput {
         let channels = self.consumer.channels();
         let samples = &mut self.scratch[..frames * channels];
         samples.fill(0.);
-        let source = self
-            .consumer
-            .pop(samples)
-            .expect("prepared complete frames");
+        // Unreachable error: scratch holds whole frames; reading nothing is
+        // reported as underflow.
+        let source = self.consumer.pop(samples).unwrap_or(0);
         for channel in 0..channels {
-            let output = block.audio.output_mut(channel).expect("prepared output");
+            // Unreachable: the validated layout has the consumer's channels.
+            let Some(output) = block.audio.output_mut(channel) else {
+                block.clear_outputs();
+                return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+            };
             for (frame, sample) in output.iter_mut().enumerate() {
                 *sample = samples[frame * channels + channel];
             }
         }
         self.monitor.0[0].fetch_add(source as u64, Ordering::Relaxed);
-        self.monitor.0[1].fetch_add((frames - source) as u64, Ordering::Relaxed);
+        self.monitor.0[1].fetch_add(frames.saturating_sub(source) as u64, Ordering::Relaxed);
         if source == 0 {
             ProcessStatus::Silence
         } else {

@@ -180,12 +180,10 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
         });
     }
     fn request_reopen(&mut self) {
-        if matches!(&self.state, Some(State::Live(_))) {
-            let Some(State::Live(stream)) = self.state.take() else {
-                unreachable!()
-            };
-            self.state = Some(State::Retiring(stream.stop()));
-        }
+        self.state = match self.state.take() {
+            Some(State::Live(stream)) => Some(State::Retiring(stream.stop())),
+            other => other,
+        };
     }
     fn statistics(&self) -> Option<ReclaimableClockedStatistics> {
         match &self.state {
@@ -201,11 +199,13 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
             _ => None,
         }
     }
-    fn service_selected<E, T>(
+    /// `available` turns the control snapshot into the selected devices, or
+    /// `None` when any is missing; `open` receives that selection directly.
+    fn service_selected<E, T, D>(
         &mut self,
         select: impl FnOnce() -> Result<T, ReclaimableClockedRecoveryError>,
-        available: impl FnOnce(&T) -> bool,
-        open: impl FnOnce(T, P) -> Result<S, ReclaimableClockedFailure<P>>,
+        available: impl FnOnce(T) -> Option<D>,
+        open: impl FnOnce(D, P) -> Result<S, ReclaimableClockedFailure<P>>,
         restore: impl FnOnce(&mut P, ClockedRecoveryReceipt) -> Result<(), E>,
     ) -> Result<ReclaimableClockedRecoveryStatus, ClockedRecoveryFailure<E>> {
         if let Some(State::Live(stream)) = &self.state {
@@ -219,20 +219,33 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
             self.status(),
             ReclaimableClockedRecoveryStatus::Owned | ReclaimableClockedRecoveryStatus::Running
         ) {
-            return self.service(
-                false,
-                |_| unreachable!("no open while pending or disabled"),
+            // No open while pending or disabled: nothing can be selected.
+            return self.service_with(
+                None,
+                |never: std::convert::Infallible, _| match never {},
                 restore,
             );
         }
         let selection = select().map_err(ClockedRecoveryFailure::Control)?;
-        let available = available(&selection);
-        self.service(available, |processor| open(selection, processor), restore)
+        self.service_with(available(selection), open, restore)
     }
+    #[cfg(test)]
     fn service<E>(
         &mut self,
         available: bool,
         open: impl FnOnce(P) -> Result<S, ReclaimableClockedFailure<P>>,
+        restore: impl FnOnce(&mut P, ClockedRecoveryReceipt) -> Result<(), E>,
+    ) -> Result<ReclaimableClockedRecoveryStatus, ClockedRecoveryFailure<E>> {
+        self.service_with(
+            available.then_some(()),
+            |(), processor| open(processor),
+            restore,
+        )
+    }
+    fn service_with<E, D>(
+        &mut self,
+        selection: Option<D>,
+        open: impl FnOnce(D, P) -> Result<S, ReclaimableClockedFailure<P>>,
         restore: impl FnOnce(&mut P, ClockedRecoveryReceipt) -> Result<(), E>,
     ) -> Result<ReclaimableClockedRecoveryStatus, ClockedRecoveryFailure<E>> {
         let Some(state) = self.state.take() else {
@@ -245,13 +258,13 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
                 mut processor,
                 previous,
             } => {
-                if !available {
+                let Some(selection) = selection else {
                     self.state = Some(State::Owned {
                         processor,
                         previous,
                     });
                     return Ok(self.status());
-                }
+                };
                 if let Some(receipt) = previous
                     && let Err(error) = restore(&mut processor, receipt)
                 {
@@ -261,7 +274,7 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
                     });
                     return Err(ClockedRecoveryFailure::Restore(error));
                 }
-                match open(processor) {
+                match open(selection, processor) {
                     Ok(stream) => {
                         if let Err(error) = stream.play() {
                             self.state = Some(State::Retiring(stream.stop()));
@@ -292,7 +305,7 @@ impl<P: Processor, S: Pair<P>> Coordinator<P, S> {
             }
             State::Live(stream) => {
                 let statistics = stream.statistics();
-                if !available || unhealthy(statistics) {
+                if selection.is_none() || unhealthy(statistics) {
                     self.state = Some(State::Retiring(stream.stop()));
                 } else {
                     self.state = Some(State::Live(stream));
@@ -545,11 +558,11 @@ impl<P: Processor + Send + 'static> RecoveringReclaimableClockedDuplex<P> {
                 })?;
                 Ok((input, output))
             },
-            |(input, output)| input.is_some() && output.is_some(),
+            |(input, output)| input.zip(output),
             |(input, output), processor| {
                 open_reclaimable_clocked_duplex(
-                    input.as_ref().expect("available input"),
-                    output.as_ref().expect("available output"),
+                    &input,
+                    &output,
                     self.input_config,
                     self.output_config,
                     self.ring_frames,

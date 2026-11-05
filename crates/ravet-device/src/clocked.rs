@@ -364,48 +364,57 @@ impl<P: Processor> PreparedClockedDuplex<P> {
             }
             self.primed = true;
         }
+        // Unreachable error: occupancy is clamped to capacity and the elapsed
+        // time is at most 65,536 / 8,000 s (< 10 s) after validation. Fall back
+        // to the nominal rate rather than panic in a device callback.
         let ppm = self
             .clock
             .observe(
                 queued.min(self.options.clock.capacity_frames),
                 frames as f64 / f64::from(self.output_rate),
             )
-            .expect("prepared clock observation");
+            .unwrap_or(0.);
         self.clock_counters
             .ppm
             .store(ppm.to_bits(), Ordering::Relaxed);
         for converter in &mut self.converters {
-            converter
-                .set_rate_adjustment_ppm(ppm)
-                .expect("matched prepared correction");
+            // Unreachable error: the controller clamps to the same maximum ppm
+            // the converters were prepared with; a refusal keeps the prior rate.
+            let _ = converter.set_rate_adjustment_ppm(ppm);
         }
         let mut produced = 0;
         while produced < frames {
             // Drain any internally pending upsample output before dequeuing more
             // input. If raw scratch is exhausted, empty input is valid.
             let mut progress = None;
-            for channel in 0..channels {
-                let current = self.converters[channel].process(
-                    &self.raw_planar[channel][self.raw_position..self.raw_frames],
-                    &mut self.resampled[channel][produced..frames],
+            for ((converter, raw), resampled) in self
+                .converters
+                .iter_mut()
+                .zip(&self.raw_planar)
+                .zip(&mut self.resampled)
+            {
+                // Identical converters see identical slice lengths, so their
+                // progress depends only on shared state, never on sample values.
+                let current = converter.process(
+                    raw.get(self.raw_position..self.raw_frames).unwrap_or(&[]),
+                    resampled.get_mut(produced..frames).unwrap_or(&mut []),
                 );
-                if let Some(expected) = progress {
-                    assert_eq!(current, expected, "channel clock alignment");
-                } else {
-                    progress = Some(current);
-                }
+                debug_assert!(progress.is_none_or(|expected| expected == current));
+                progress.get_or_insert(current);
             }
-            let progress = progress.expect("positive input channels");
+            // Unreachable: at least one input channel is prepared.
+            let Some(progress) = progress else {
+                break;
+            };
             self.raw_position += progress.consumed;
             produced += progress.produced;
             if produced == frames {
                 break;
             }
             if self.raw_position == self.raw_frames {
-                self.raw_frames = self
-                    .raw
-                    .pop(&mut self.captured)
-                    .expect("prepared complete frames");
+                // Unreachable error: scratch holds whole frames. Reading
+                // nothing is treated as input underflow below.
+                self.raw_frames = self.raw.pop(&mut self.captured).unwrap_or(0);
                 self.raw_position = 0;
                 if self.raw_frames == 0 {
                     break;
@@ -414,15 +423,16 @@ impl<P: Processor> PreparedClockedDuplex<P> {
                     .chunks_exact(channels)
                     .enumerate()
                 {
-                    for (channel, sample) in samples.iter().enumerate() {
-                        self.raw_planar[channel][frame] = f64::from(*sample);
+                    for (plane, sample) in self.raw_planar.iter_mut().zip(samples) {
+                        if let Some(target) = plane.get_mut(frame) {
+                            *target = f64::from(*sample);
+                        }
                     }
                 }
-            } else {
-                assert!(
-                    progress.consumed > 0 || progress.produced > 0,
-                    "bounded resampler progress"
-                );
+            } else if progress.consumed == 0 && progress.produced == 0 {
+                // Unreachable: nonempty input and output always advance a
+                // converter. Never spin in a device callback; underflow instead.
+                break;
             }
         }
         if produced < frames {
@@ -439,7 +449,8 @@ impl<P: Processor> PreparedClockedDuplex<P> {
             self.clock_counters.ppm.store(0, Ordering::Relaxed);
             for converter in &mut self.converters {
                 converter.reset();
-                converter.set_rate_adjustment_ppm(0.).expect("nominal rate");
+                // Zero is always within the prepared adjustment range.
+                let _ = converter.set_rate_adjustment_ppm(0.);
             }
         }
     }
@@ -466,12 +477,10 @@ impl<P: Processor> PreparedClockedDuplex<P> {
                     *sample = self.resampled[channel][frame] as f32;
                 }
             }
-            assert_eq!(
-                self.converted
-                    .push(&self.interleaved[..frames * channels])
-                    .expect("prepared converted frames"),
-                frames
-            );
+            // The converted ring holds at least one maximum block and the inner
+            // renderer drains each block it is given, so this push is complete.
+            // A short push would be zero-filled and counted as input underflow.
+            let _ = self.converted.push(&self.interleaved[..frames * channels]);
             self.inner.render_block(chunk);
         }
     }

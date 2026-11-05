@@ -35,16 +35,23 @@ impl Processor for Relay {
             block.clear_outputs();
             return ProcessStatus::Fault(error);
         }
+        // The validated layout has matching input/output channels and frames;
+        // a missing sample would read as silence rather than panic.
         for frame in 0..block.audio.frames() {
             for channel in 0..block.audio.output_channels() {
                 let sample = block
                     .audio
                     .input(channel)
-                    .expect("matched converter channels")[frame];
-                block
+                    .and_then(|input| input.get(frame))
+                    .copied()
+                    .unwrap_or(0.);
+                if let Some(output) = block
                     .audio
                     .output_mut(channel)
-                    .expect("matched converter channels")[frame] = sample;
+                    .and_then(|output| output.get_mut(frame))
+                {
+                    *output = sample;
+                }
             }
         }
         ProcessStatus::Continue
@@ -119,10 +126,11 @@ impl PreparedClockedInput {
             self.pending = 0..self.frames;
             converted_frames = self.frames;
         }
+        // Unreachable error: the pending range holds whole prepared frames.
         let published_frames = self
             .producer
             .push(&self.scratch[self.pending.start * channels..self.pending.end * channels])
-            .expect("prepared complete converted frames");
+            .unwrap_or(0);
         self.pending.start += published_frames;
         ClockedInputProgress {
             converted_frames,

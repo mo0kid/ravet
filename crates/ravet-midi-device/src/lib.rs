@@ -4,6 +4,8 @@
 //! handoff copies bounded messages without framework allocation or locks; native
 //! backend callbacks and output sends do not carry an audio-deadline guarantee.
 //! Timestamp origins are connection-local microseconds, not audio sample time.
+//! Packet capture and pop never panic or allocate; see decision 0295.
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 mod ump;
 pub use midir;
@@ -152,6 +154,7 @@ impl PreparedMidiInput {
             self.queue.dropped.fetch_add(1, Ordering::Relaxed);
             return CaptureStatus::Full;
         }
+        // In bounds: the slot count is a nonzero power of two.
         let slot = &self.queue.slots[head & (self.queue.slots.len() - 1)];
         for (target, source) in slot.bytes.iter().zip(bytes) {
             target.store(*source, Ordering::Relaxed);
@@ -177,6 +180,7 @@ impl MidiReceiver {
         if tail == self.queue.head.0.load(Ordering::Acquire) {
             return None;
         }
+        // In bounds: as for capture; stored lengths are validated <= 1,024.
         let slot = &self.queue.slots[tail & (self.queue.slots.len() - 1)];
         let length = slot.length.load(Ordering::Relaxed);
         let mut packet = MidiPacket {

@@ -120,7 +120,12 @@ impl PreparedCapture {
                 .fetch_add((input.len() / channels) as u64, Ordering::Relaxed);
             return;
         }
-        let count = self.producer.push(input).expect("complete frames");
+        // Unreachable: whole frames were checked above. The plain input stream
+        // has no unwind containment, so even this invariant must not panic.
+        let Ok(count) = self.producer.push(input) else {
+            self.counters.invalid.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
         self.counters
             .captured
             .fetch_add(count as u64, Ordering::Relaxed);
@@ -317,6 +322,8 @@ impl<P: Processor> PreparedDuplex<P> {
     /// disposal is on this caller; no capture drain, reset, seek or wait is hidden.
     pub fn into_parts(mut self) -> (P, AudioConsumer) {
         self.deactivate_owned();
+        // Unreachable: both are `Some` from construction until this consuming
+        // call; Drop afterwards sees an inactive owner and takes nothing.
         (
             self.processor.take().expect("owned processor"),
             self.consumer.take().expect("owned consumer"),
@@ -328,10 +335,9 @@ impl<P: Processor> PreparedDuplex<P> {
     fn deactivate_owned(&mut self) {
         if self.active {
             self.active = false;
-            self.processor
-                .as_mut()
-                .expect("owned processor")
-                .deactivate();
+            if let Some(processor) = self.processor.as_mut() {
+                processor.deactivate();
+            }
         }
     }
     /// Offline callback-equivalent rendering. Panics are contained by the live
@@ -339,7 +345,7 @@ impl<P: Processor> PreparedDuplex<P> {
     pub fn render(&mut self, output: &mut [f32]) {
         self.counters.callbacks.fetch_add(1, Ordering::Relaxed);
         let channels = self.outputs.len();
-        if !output.len().is_multiple_of(channels) {
+        if channels == 0 || !output.len().is_multiple_of(channels) {
             output.fill(0.);
             self.counters
                 .processor_faults
@@ -350,44 +356,77 @@ impl<P: Processor> PreparedDuplex<P> {
             self.render_block(chunk);
         }
     }
+    /// Fault one sub-block: silence and count it, without dequeuing input.
+    fn fault_block(&self, chunk: &mut [f32]) {
+        chunk.fill(0.);
+        self.counters
+            .processor_faults
+            .fetch_add(1, Ordering::Relaxed);
+    }
     pub(super) fn render_block(&mut self, chunk: &mut [f32]) {
         let channels = self.outputs.len();
         let inputs = self.inputs.len();
+        if channels == 0 || inputs == 0 {
+            // Unreachable: the prepared layout has at least one of each.
+            self.fault_block(chunk);
+            return;
+        }
         let frames = chunk.len() / channels;
-        let captured = &mut self.captured[..frames * inputs];
+        let Some(captured) = self.captured.get_mut(..frames * inputs) else {
+            // Unreachable: callers split chunks at the prepared maximum.
+            self.fault_block(chunk);
+            return;
+        };
         captured.fill(0.);
+        // Unreachable failures (owned consumer, whole-frame scratch) read nothing,
+        // so the zeroed scratch is processed as input underflow.
         let read = self
             .consumer
             .as_mut()
-            .expect("owned consumer")
-            .pop(captured)
-            .expect("complete frames");
+            .and_then(|consumer| consumer.pop(captured).ok())
+            .unwrap_or(0);
         self.counters
             .input_underflow_frames
-            .fetch_add((frames - read) as u64, Ordering::Relaxed);
+            .fetch_add(frames.saturating_sub(read) as u64, Ordering::Relaxed);
         for (frame, samples) in captured.chunks_exact(inputs).enumerate() {
-            for (channel, sample) in samples.iter().enumerate() {
-                self.inputs[channel][frame] = *sample;
+            for (plane, sample) in self.inputs.iter_mut().zip(samples) {
+                if let Some(target) = plane.get_mut(frame) {
+                    *target = *sample;
+                }
             }
         }
         let input_views: [&[f32]; MAXIMUM_CHANNELS] = std::array::from_fn(|c| {
             self.inputs
                 .get(c)
-                .map_or(&[] as &[f32], |data| &data[..frames])
+                .and_then(|data| data.get(..frames))
+                .unwrap_or(&[])
         });
         let mut iter = self.outputs.iter_mut();
         let mut output_views: [&mut [f32]; MAXIMUM_CHANNELS] = std::array::from_fn(|_| {
-            iter.next().map_or(&mut [] as &mut [f32], |data| {
-                data[..frames].fill(0.);
-                &mut data[..frames]
-            })
+            iter.next().and_then(|data| data.get_mut(..frames)).map_or(
+                &mut [] as &mut [f32],
+                |data| {
+                    data.fill(0.);
+                    data
+                },
+            )
         });
-        let audio = AudioBuffer::separate(
-            &input_views[..inputs],
-            &mut output_views[..channels],
-            frames,
-        )
-        .expect("prepared lengths");
+        // Unreachable failures (prepared lengths, owned processor) fault the
+        // sub-block with silence rather than panic in a device callback.
+        let (Ok(audio), Some(processor)) = (
+            AudioBuffer::separate(
+                &input_views[..inputs],
+                &mut output_views[..channels],
+                frames,
+            ),
+            self.processor.as_mut(),
+        ) else {
+            chunk.fill(0.);
+            self.counters
+                .processor_faults
+                .fetch_add(1, Ordering::Relaxed);
+            return;
+        };
         let mut block = ProcessBlock::new(
             audio,
             &[],
@@ -396,12 +435,7 @@ impl<P: Processor> PreparedDuplex<P> {
                 ..Transport::default()
             },
         );
-        match self
-            .processor
-            .as_mut()
-            .expect("owned processor")
-            .process(&mut block)
-        {
+        match processor.process(&mut block) {
             ProcessStatus::Continue => {}
             ProcessStatus::Silence => block.clear_outputs(),
             ProcessStatus::Fault(_) => {
@@ -411,11 +445,7 @@ impl<P: Processor> PreparedDuplex<P> {
                     .fetch_add(1, Ordering::Relaxed);
             }
         }
-        for (frame, samples) in chunk.chunks_exact_mut(channels).enumerate() {
-            for (channel, sample) in samples.iter_mut().enumerate() {
-                *sample = block.audio.output(channel).expect("prepared channels")[frame];
-            }
-        }
+        super::interleave_outputs(&block.audio, chunk, channels);
         self.position = self
             .position
             .and_then(|position| position.checked_add(frames as i64));
@@ -523,4 +553,31 @@ pub fn open_duplex<P: Processor + Send + 'static>(
         input: input_stream,
         output: OutputStream { stream, counters },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::callback_tests::Constant;
+    // Decision 0295: missing owners on the callback path read as underflow or
+    // fault the block with silence instead of panicking.
+    #[test]
+    fn missing_duplex_owners_fault_or_underflow_instead_of_panicking() {
+        let (mut producer, consumer) = ravet_audio_file::audio_ring(1, 64).unwrap();
+        producer.push(&[0.25; 16]).unwrap();
+        let mut duplex = PreparedDuplex::new(Constant, 48000, consumer, 2, 16).unwrap();
+        let consumer = duplex.consumer.take();
+        let mut output = [1.; 32];
+        let counts = allocation_counter::measure(|| duplex.render(&mut output));
+        assert_eq!(counts.count_total, 0);
+        assert_eq!(output, [0.5; 32], "missing input reads as underflow");
+        assert_eq!(duplex.statistics().input_underflow_frames, 16);
+        duplex.consumer = consumer;
+        duplex.processor = None;
+        output.fill(1.);
+        duplex.render(&mut output);
+        assert_eq!(output, [0.; 32]);
+        assert_eq!(duplex.statistics().processor_faults, 1);
+        // Drop without an owner must not panic either.
+    }
 }

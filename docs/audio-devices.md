@@ -118,6 +118,11 @@ Processor implementations retain their own callback obligations.
 The live callback contains unwinding panics, silences output and permanently
 disables DSP for that stream. Reopen to recover. Panic handlers/unwinding are
 exceptional and have no real-time guarantee; panic=abort cannot be contained.
+The framework's own callback code has no panic path: a violated internal
+invariant (scratch length, owned processor or queue) silences that sub-block and
+counts a processor fault, or reads as input underflow, without disabling DSP.
+The plain input callback, which has no unwind containment, likewise only counts
+an invalid buffer ([decision 0295](decisions/0295-device-crate-robustness.md)).
 Diagnostics use relaxed atomic counts, not coherent meters, logs or latency
 measurements. Native backend operations are outside the Rust allocation counter.
 
@@ -707,7 +712,9 @@ The worker extracts renderer/scratch/counters only after both Acquire flags and
 sole strong ownership prove that callback borrows and Arc fields are gone. An early
 receiver drop or a caught polling panic cannot move final framework destruction
 onto a callback. This narrowly audited shared-cell access is an explicit unsafe
-boundary; native CPAL/OS closure allocation, locking and destruction are separate
+boundary, documented with SAFETY comments that clippy enforces. The guards'
+owner borrow sits outside the unwind scope, so a missing owner silences output
+or drops input instead of panicking; native CPAL/OS closure allocation, locking and destruction are separate
 backend limits. Panic handlers/runtime costs are exceptional.
 
 A recovered `BufferedPlaybackOutput` retains its original unique consumer. Stop

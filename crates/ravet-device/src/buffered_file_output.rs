@@ -148,13 +148,12 @@ impl Processor for BufferedPlaybackOutput {
         self.monitor.0[3].store(u64::from(p.ended), Ordering::Relaxed);
         self.monitor.0[4].store(status_code(p.worker_status), Ordering::Relaxed);
         for channel in 0..channels {
-            for (frame, sample) in block
-                .audio
-                .output_mut(channel)
-                .expect("validated output")
-                .iter_mut()
-                .enumerate()
-            {
+            // Unreachable: the validated layout has `channels` outputs.
+            let Some(output) = block.audio.output_mut(channel) else {
+                block.clear_outputs();
+                return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+            };
+            for (frame, sample) in output.iter_mut().enumerate() {
                 *sample = samples[frame * channels + channel];
             }
         }

@@ -6,6 +6,55 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="release-010-device-crate-review"></a>
+
+## Device crate panic and unsafe review — 5 November 2026
+
+Release-plan §6 review of the device crates used by standalone applications,
+on branch `review/device-crates` from `release/0.1.0` (`cf913d4`). Decision
+[0295](decisions/0295-device-crate-robustness.md) records the policy and the
+full findings table (renumber at merge if 0295 is taken). This completes the
+§6 panic/unsafe item together with decisions 0287 and 0292.
+
+| Crate | Non-test panic sites | Made fallible | Documented (a / c) | Unsafe sites |
+|---|---|---|---|---|
+| `ravet-device` | 88 | 57 (callback and worker paths) | 29 / 2 (control and retirement worker) | 4 CoreAudio blocks, 2 `unsafe impl Sync`, 3 guard blocks, 2 extern blocks |
+| `ravet-midi-device` | 1 (+3 indexing/arithmetic) | 1 | 3 / 0 | none |
+| `ravet-core-midi` | 0 | — | — | 12 blocks, 1 extern block, 9 native entry points made `noexcept` |
+
+No reachable panic was found. Five sites sat outside any unwind containment, so a
+violated invariant would have aborted (CoreAudio/CoreMIDI `extern "C"`
+callbacks) or ended the CPAL callback thread: the reclaimable output, clocked
+input and clocked output guards, plain input capture and UMP batch delivery. They now silence or drop
+input. The clocked converter can no longer spin on a stalled step. All three
+crates deny `clippy::undocumented_unsafe_blocks`; one CoreMIDI block lacked a
+comment in the position the lint requires.
+
+New regression tests break ownership invariants directly and check for silence
+or underflow, counted faults and no allocation:
+`callback_tests::missing_output_owner_faults_with_silence_instead_of_panicking`,
+`input::tests::missing_duplex_owners_fault_or_underflow_instead_of_panicking`,
+`graph_events::tests::corrupt_private_framing_reports_no_batch_instead_of_panicking`,
+`reclaimable::tests::data_guard_without_renderer_silences_instead_of_panicking`,
+`reclaimable_clocked::tests::callback_guards_without_owners_do_not_panic`.
+No test opens a real audio or MIDI device, and default devices were not changed.
+
+Checks:
+- macOS 27 arm64: `cargo test` for the three crates with all features
+  (`ravet-device` 51 unit + 73 integration, `ravet-midi-device` 7,
+  `ravet-core-midi` 1); Clippy with warnings denied (all targets, all
+  features) for `aarch64-apple-darwin` and `x86_64-apple-darwin`; `cargo fmt
+  --check`; rustdoc with `-D warnings`; `cargo +1.88.0 check` (all targets,
+  all features).
+- Arch Linux x86_64 (omarchy): the same tests (`ravet-device` 50 unit + 73
+  integration, `ravet-midi-device` 7) and Clippy with warnings denied pass.
+- Windows x64: `cargo xwin clippy --target x86_64-pc-windows-msvc` with
+  warnings denied passes with `ravet-device/resampled-playback`. The
+  `vorbis-recording`/`mp3-recording` C encoders in `ravet-audio-file` fail to
+  cross-compile under cargo-xwin (aoTuV `_mm_prefetch` pointer types, LAME
+  `configure`); those features add no code to these crates. Compile evidence
+  only.
+
 <a id="release-010-webview-review"></a>
 
 ## Web view, standalone window and notice review — 5 November 2026

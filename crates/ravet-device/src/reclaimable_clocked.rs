@@ -256,9 +256,12 @@ impl<P: Processor> InputData<P> {
             return;
         }
         // SAFETY: unique FnMut input guard; other callbacks never borrow this field.
-        let capture = unsafe { &mut *self.cell.capture.get() }
-            .as_mut()
-            .expect("live capture");
+        let capture = unsafe { &mut *self.cell.capture.get() }.as_mut();
+        // Taken only after this guard drops; outside the unwind scope, so a
+        // missing owner drops the input instead of panicking.
+        let Some(capture) = capture else {
+            return;
+        };
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(capture))).is_err() {
             self.cell
                 .statistics
@@ -302,9 +305,18 @@ impl<P: Processor> OutputData<P> {
             return;
         }
         // SAFETY: unique FnMut output guard; input borrows the disjoint field only.
-        let renderer = unsafe { &mut *self.cell.renderer.get() }
-            .as_mut()
-            .expect("live renderer");
+        let renderer = unsafe { &mut *self.cell.renderer.get() }.as_mut();
+        // Taken only after this guard drops; outside the unwind scope, so a
+        // missing owner silences instead of panicking.
+        let Some(renderer) = renderer else {
+            self.cell
+                .statistics
+                .output
+                .callbacks
+                .fetch_add(1, Ordering::Relaxed);
+            output.fill(0.);
+            return;
+        };
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(output)))
             .is_err()
         {
@@ -363,6 +375,9 @@ fn retire<P: Processor + Send + 'static>(
         }
         thread::sleep(Duration::from_millis(1));
     }
+    // Retirement worker (control) thread. Unreachable: sole ownership was just
+    // observed with all four guards retired; nothing took either field. A
+    // panic would surface as `WorkerPanicked`, never on a callback.
     let cell = match Arc::try_unwrap(cell) {
         Ok(cell) => cell,
         Err(_) => unreachable!("sole retired owner"),
@@ -429,6 +444,8 @@ fn start_prepared<P: Processor + Send + 'static, S>(
             drop(input_error);
             drop(output);
             drop(output_error);
+            // Control thread. Relies on `thread::Builder::spawn` dropping the
+            // unstarted closure (and its cell clone) on failure, as std does.
             let cell = match Arc::try_unwrap(cell) {
                 Ok(cell) => cell,
                 Err(_) => unreachable!("spawn retains no owner"),
@@ -461,6 +478,8 @@ fn start_prepared<P: Processor + Send + 'static, S>(
 /// Explicit f32 pair. Control owns play/pause/stop; callbacks only release guards.
 /// No physical synchronization, hotplug subscription or teardown deadline.
 pub struct ReclaimableClockedDuplex<P: Processor> {
+    // Both streams are `Some` until the consuming `stop` (or Drop); the
+    // control-thread `expect`s below are unreachable.
     input: Option<cpal::Stream>,
     output: Option<cpal::Stream>,
     statistics: Arc<Statistics>,
