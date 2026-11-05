@@ -3,8 +3,15 @@
 RAVET now has a Cargo-built macOS binding and an embedded CLAP gain editor.
 `ravet-webview` isolates Cocoa/WebKit ownership and FFI from portable processing.
 `ravet-surface/native` contains reusable C++ backends for macOS, Windows and
-Linux, with native lifecycle probes. The Windows/Linux paths currently use the
-C++ API; the Cargo Rust binding and gain GUI remain macOS only. The umbrella crate does not depend on either native code or
+Linux, with native lifecycle probes. The Cargo Rust binding (`WebView`,
+`StandaloneWindow`) builds all three: Cocoa/WebKit, Win32/WebView2 (set
+`RAVET_WEBVIEW2_SDK` to an extracted WebView2 NuGet package and ship its
+`WebView2Loader.dll` beside the consuming binary) and GTK 3/WebKitGTK 4.1
+(pkg-config; Linux hosts call `ravet_webview::pump` from their UI loop). On
+Windows/Linux the standalone window keeps Audio/MIDI settings in a JSON file
+under the user's configuration directory, and its `snapshot` is unavailable;
+the native accessibility companion is macOS only. The gain GUI example remains
+macOS only. The umbrella crate does not depend on either native code or
 JSON parsing. A general portable widget/layout API remains outside this increment.
 
 ## Rust ownership and build boundary
@@ -162,8 +169,12 @@ an installed WebView2 Runtime before returning a view. Browser/controller
 creation then completes asynchronously through the host's STA message loop.
 Attach immediately, keep the UI loop running, and keep context alive until
 explicit destruction. The loader and runtime are native Microsoft dependencies;
-no browser runtime is bundled by RAVET. The SDK 1.0.3650.58 backend and probe
-cross-compile with MinGW x64; a real Windows editor run remains pending.
+no browser runtime is bundled by RAVET. The SDK 1.0.3650.58 backend cross-compiles with MinGW x64 and has run on
+Windows 11 24H2 (WebView2 156) in a standalone window and in REAPER 7.82 as VST3
+and CLAP editors. `NavigateToString` reaches the navigation filter as one
+`data:text/html` URI, which the backend admits once per inline page. Set
+`RAVET_WEB_DEBUG=<file>` to append environment, controller and navigation
+events to that file.
 
 Linux parents are X11 Window IDs cast to `void*`, including XWayland windows.
 The backend selects X11 if it initializes GTK. It rejects an already initialized
@@ -192,6 +203,12 @@ Host libraries loaded locally are also detected. If that capability is absent
 or fails, editor creation returns null; the consumer must handle this failure.
 REAPER introduced this loader in 7.82. Earlier REAPER versions are therefore
 outside this editor path. This requirement does not establish DAW support.
+
+Detach, visibility changes and destruction trap X errors: hosts such as REAPER
+destroy the parent window before detaching the editor, and GDK would otherwise
+abort the process on the resulting BadWindow. With NVIDIA's driver under
+XWayland, WebKit's DMA-BUF/GBM path painted nothing in REAPER 7.82;
+`RAVET_WEB_LINUX_SOFTWARE_RENDERING=1` at build time fixed it.
 
 Linux hosts call `ravet_web_pump()` on the UI thread, typically every 10 ms.
 It dispatches at most 32 ready GLib iterations per call. A VST3 consumer can

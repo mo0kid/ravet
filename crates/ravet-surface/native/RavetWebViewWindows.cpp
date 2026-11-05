@@ -13,9 +13,16 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <cstdarg>
+#include <cstdio>
 
 namespace {
 DWORD uiThread=0;
+// Opt-in diagnostics: RAVET_WEB_DEBUG=<file> appends backend events there.
+void trace(const char* format,...) {
+    static const char* path=getenv("RAVET_WEB_DEBUG"); if(!path||!*path) return;
+    FILE* f=fopen(path,"a"); if(!f) return; va_list a; va_start(a,format); vfprintf(f,format,a); va_end(a); fputc('\n',f); fclose(f);
+}
 std::wstring wide(const std::string& text) {
     int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),nullptr,0);
     std::wstring out(n,0); if(n) MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),out.data(),n); return out;
@@ -47,6 +54,8 @@ struct State {
     RavetWebSnapshot snapshot=nullptr;
     RavetWebSnapshotBuffer bufferSnapshot=nullptr;
     bool closed=false,evaluating=false,com=false,ready=false;
+    // NavigateToString arrives as one data:text/html navigation; admit only that one.
+    bool expectHtml=false;
     std::wstring path,root,html;
     std::string delivered;
     COLORREF background=RGB(255,255,255);
@@ -99,8 +108,10 @@ LRESULT CALLBACK windowProc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
 void initialize(Owner owner) {
     Weak weak=owner;
     auto* environmentHandler=new Handler<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,HRESULT,ICoreWebView2Environment*>(L"{4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d}",[weak](HRESULT error,ICoreWebView2Environment* environment) {
+        trace("environment hr=0x%08lx",long(error));
         auto s=weak.lock(); if(!s||s->closed||FAILED(error)||!environment) return S_OK;
         auto* handler=new Handler<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,HRESULT,ICoreWebView2Controller*>(L"{6c4819f3-c9b7-4260-8127-c9f5bde7f68c}",[weak](HRESULT error,ICoreWebView2Controller* controller) {
+            trace("controller hr=0x%08lx",long(error));
             auto s=weak.lock(); if(!s||s->closed||FAILED(error)||!controller) return S_OK;
             controller->AddRef(); s->controller=controller; if(FAILED(controller->get_CoreWebView2(&s->web))) return S_OK;
             RECT rect; GetClientRect(s->window,&rect); controller->put_Bounds(rect); controller->put_IsVisible(TRUE); colour(*s);
@@ -111,19 +122,22 @@ void initialize(Owner owner) {
             auto* navigation=new Handler<ICoreWebView2NavigationStartingEventHandler,ICoreWebView2*,ICoreWebView2NavigationStartingEventArgs*>(L"{9adbe429-f36d-432b-9ddc-f8881fbd76e3}",[weak](ICoreWebView2*,ICoreWebView2NavigationStartingEventArgs* args) {
                 auto s=weak.lock(); if(!s||s->closed) { args->put_Cancel(TRUE); return S_OK; }
                 LPWSTR uri=nullptr; args->get_Uri(&uri); bool allowed=uri&&!wcscmp(uri,L"about:blank");
+                if(!allowed&&uri&&s->expectHtml&&!wcsncmp(uri,L"data:text/html",14)) { allowed=true; s->expectHtml=false; }
                 wchar_t path[32768]; DWORD length=32768;
                 if(uri&&SUCCEEDED(PathCreateFromUrlW(uri,path,&length,0))&&!s->root.empty()) { std::error_code error; auto file=std::filesystem::canonical(path,error).wstring(); allowed=!error&&file.rfind(s->root+L"\\",0)==0; }
+                trace("navigation %s allowed=%d",utf8(uri).substr(0,80).c_str(),int(allowed));
                 if(!allowed) args->put_Cancel(TRUE); CoTaskMemFree(uri); return S_OK;
             }); s->web->add_NavigationStarting(navigation,&s->navigationToken); navigation->Release();
             auto* popup=new Handler<ICoreWebView2NewWindowRequestedEventHandler,ICoreWebView2*,ICoreWebView2NewWindowRequestedEventArgs*>(L"{d4c185fe-c81c-4989-97af-2d3fa7ab5651}",[](ICoreWebView2*,ICoreWebView2NewWindowRequestedEventArgs* args) { args->put_Handled(TRUE); return S_OK; });
             s->web->add_NewWindowRequested(popup,&s->popupToken); popup->Release();
             auto* loaded=new Handler<ICoreWebView2NavigationCompletedEventHandler,ICoreWebView2*,ICoreWebView2NavigationCompletedEventArgs*>(L"{d33a35bf-1c49-4f98-93ab-006e0533fe1c}",[weak](ICoreWebView2*,ICoreWebView2NavigationCompletedEventArgs* args) {
-                if(auto s=weak.lock();s&&!s->closed) { BOOL success=FALSE; args->get_IsSuccess(&success); s->ready=success; s->delivered.clear(); } return S_OK;
+                if(auto s=weak.lock();s&&!s->closed) { BOOL success=FALSE; args->get_IsSuccess(&success); COREWEBVIEW2_WEB_ERROR_STATUS status{}; args->get_WebErrorStatus(&status);
+                    trace("navigation completed success=%d status=%d",int(success),int(status)); s->ready=success; s->delivered.clear(); } return S_OK;
             }); s->web->add_NavigationCompleted(loaded,&s->loadToken); loaded->Release();
             auto* script=new Handler<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,HRESULT,LPCWSTR>(L"{b99369f3-9b11-47b5-bc6f-8e7895fcea17}",[weak](HRESULT error,LPCWSTR) {
                 if(auto s=weak.lock();s&&!s->closed&&SUCCEEDED(error)) {
                     if(!s->path.empty()) { wchar_t uri[32768]; DWORD length=32768; if(SUCCEEDED(UrlCreateFromPathW(s->path.c_str(),uri,&length,0))) s->web->Navigate(uri); }
-                    else s->web->NavigateToString(s->html.c_str());
+                    else { s->expectHtml=true; s->web->NavigateToString(s->html.c_str()); }
                 } return S_OK;
             });
             s->web->AddScriptToExecuteOnDocumentCreated(L"window.webkit={messageHandlers:{ravet:{postMessage:x=>window.chrome.webview.postMessage(x)}}};",script); script->Release();
@@ -134,7 +148,8 @@ void initialize(Owner owner) {
     auto create=reinterpret_cast<Create>(GetProcAddress(owner->loader,"CreateCoreWebView2EnvironmentWithOptions"));
     wchar_t local[MAX_PATH]{}; SHGetFolderPathW(nullptr,CSIDL_LOCAL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,local);
     auto profile=(std::filesystem::path(local)/L"RAVET/WebView2").wstring();
-    if(create) create(nullptr,profile.c_str(),nullptr,environmentHandler); environmentHandler->Release();
+    HRESULT started=create?create(nullptr,profile.c_str(),nullptr,environmentHandler):E_NOINTERFACE; environmentHandler->Release();
+    trace("create environment hr=0x%08lx",long(started));
 }
 Owner create(double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot,RavetWebSnapshotBuffer buffer) {
     if(!ravet_web_is_main_thread()||!std::isfinite(w)||!std::isfinite(h)||w<=0||h<=0||w>32767||h>32767) return {};
@@ -180,4 +195,20 @@ extern "C" void ravet_web_destroy(void* view) {
     if(s->controller) s->controller->Close(); SetWindowLongPtrW(s->window,GWLP_USERDATA,0); DestroyWindow(s->window);
     HMODULE module=nullptr; GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&ravet_web_create),&module);
     UnregisterClassW(L"RavetWebEditor",module); delete static_cast<Owner*>(view);
+}
+extern "C" bool ravet_web_set_size(void* view,double w,double h) {
+    if(!view||!std::isfinite(w)||!std::isfinite(h)||w<=0||h<=0||w>16384||h>16384) return false;
+    auto& s=**static_cast<Owner*>(view); if(s.closed) return false;
+    return SetWindowPos(s.window,nullptr,0,0,int(std::lround(w)),int(std::lround(h)),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE)!=0;
+}
+extern "C" bool ravet_web_eval(void* view,const char* script,void* context,RavetWebEvalDone done) {
+    if(!view||!script||strnlen(script,1048577)>1048576) return false;
+    auto owner=*static_cast<Owner*>(view); if(owner->closed||!owner->web||!owner->ready) return false;
+    auto code=wide(script); if(code.empty()) return false; Weak weak=owner;
+    auto* handler=new Handler<ICoreWebView2ExecuteScriptCompletedHandler,HRESULT,LPCWSTR>(L"{49511172-cc67-4bca-9923-137112f4c4cc}",[weak,context,done](HRESULT error,LPCWSTR result) {
+        auto s=weak.lock(); if(!s||s->closed||!done) return S_OK;
+        bool truthy=SUCCEEDED(error)&&result&&*result&&wcscmp(result,L"false")&&wcscmp(result,L"null")&&wcscmp(result,L"0")&&wcscmp(result,L"\"\"");
+        done(context,truthy); return S_OK;
+    });
+    auto hr=owner->web->ExecuteScript(code.c_str(),handler); handler->Release(); return SUCCEEDED(hr);
 }

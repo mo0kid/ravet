@@ -22,10 +22,14 @@ void* ravet_web_create(const char* htmlPath, double width, double height, void* 
 // Returns false for a null view or nonfinite component; leaves colour unchanged.
 bool ravet_web_set_background(void* view, double red, double green, double blue);
 void ravet_web_attach(void* view, void* parent);
-#if defined(__APPLE__)
-// macOS owned-view resize; finite positive dimensions up to 16384 logical pixels.
+// Owned-view resize; finite positive dimensions up to 16384. Logical points on
+// macOS and Linux, physical pixels on Windows (the parent HWND's client units).
 bool ravet_web_set_size(void* view, double width, double height);
-#endif
+// Evaluate trusted script once the page can run it. The callback, if any, runs
+// exactly once on the UI thread with whether the result was truthy; it is not
+// called when the view is destroyed first. Returns false if not admitted.
+typedef void (*RavetWebEvalDone)(void* context, bool truthy);
+bool ravet_web_eval(void* view, const char* script, void* context, RavetWebEvalDone done);
 void ravet_web_set_visible(void* view, bool visible);
 void ravet_web_detach(void* view);
 void ravet_web_destroy(void* view);

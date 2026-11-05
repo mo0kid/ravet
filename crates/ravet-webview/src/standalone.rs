@@ -1,4 +1,8 @@
 //! Main-thread standalone window ownership and default Audio/MIDI settings.
+//! Cocoa on macOS, Win32 on Windows and GTK 3 (X11/XWayland) on Linux. macOS keeps
+//! saved settings in user defaults; Windows and Linux keep them in a small JSON
+//! file per window title under the user's configuration directory.
+#[cfg(target_os = "macos")]
 use crate::accessibility::{AccessibilityError, AccessibilityRevision, AccessibilitySnapshot};
 use crate::{Callbacks, ContentConstraints, WebView};
 use std::{
@@ -33,6 +37,8 @@ unsafe extern "C" {
         miniaturized: *mut bool,
     ) -> bool;
     fn ravet_standalone_fit_editor(handle: *mut c_void);
+    #[cfg(not(target_os = "macos"))]
+    fn ravet_standalone_attach_editor(handle: *mut c_void, view: *mut c_void);
     fn ravet_standalone_content_constraints(
         handle: *mut c_void,
         enabled: bool,
@@ -179,7 +185,17 @@ impl StandaloneWindow {
         if self.state().is_none_or(|state| state.closed) {
             return Err("Cannot embed in a closed standalone window".into());
         }
-        let html = settings_document(html, self.options.io_settings)?;
+        #[cfg(target_os = "macos")]
+        let (html, callbacks) = (
+            settings_document(html, self.options.io_settings, None)?,
+            callbacks,
+        );
+        #[cfg(not(target_os = "macos"))]
+        let (html, callbacks) = {
+            let store = settings::Store::new(&self.options.title, self.options.hidden, callbacks);
+            let html = settings_document(html, self.options.io_settings, Some(store.saved()))?;
+            (html, store)
+        };
         let web = WebView::from_html(&html, self.options.width, self.options.height, callbacks)?;
         if self.state().is_none_or(|state| state.closed) {
             return Err("Standalone window closed while creating its editor".into());
@@ -189,6 +205,8 @@ impl StandaloneWindow {
             .ok_or("Standalone window content view unavailable")?;
         unsafe {
             web.attach(parent);
+            #[cfg(not(target_os = "macos"))]
+            ravet_standalone_attach_editor(self.handle.as_ptr(), web.raw());
             ravet_standalone_fit_editor(self.handle.as_ptr());
         }
         if self.state().is_none_or(|state| state.closed) {
@@ -372,9 +390,10 @@ impl StandaloneWindow {
     }
 }
 impl StandaloneEditor<'_> {
-    /// Install explicit native semantics for custom editor content. Closed parent
+    /// Install explicit native semantics for custom editor content (macOS). Closed parent
     /// owners reject new publication; None remains original-owner cleanup.
     /// The standard title-bar settings popup stays outside this hierarchy.
+    #[cfg(target_os = "macos")]
     pub fn set_accessibility(
         &self,
         snapshot: Option<&AccessibilitySnapshot>,
@@ -394,7 +413,23 @@ impl StandaloneEditor<'_> {
         self.view.set_visible(visible);
     }
 }
-fn settings_document(html: &str, enabled: bool) -> Result<String, Box<dyn std::error::Error>> {
+#[cfg(not(target_os = "macos"))]
+impl Drop for StandaloneEditor<'_> {
+    fn drop(&mut self) {
+        // SAFETY: the window outlives this borrow; clearing its editor pointer
+        // before the view field drops leaves no dangling native reference.
+        unsafe {
+            ravet_standalone_attach_editor(self._window.handle.as_ptr(), std::ptr::null_mut())
+        }
+    }
+}
+/// `saved` seeds `window.ravetSavedSettings` on platforms that persist settings
+/// in Rust (a validated JSON object, or None for no saved selection).
+fn settings_document(
+    html: &str,
+    enabled: bool,
+    saved: Option<Option<&str>>,
+) -> Result<String, Box<dyn std::error::Error>> {
     if !enabled {
         return Ok(html.to_owned());
     }
@@ -402,17 +437,23 @@ fn settings_document(html: &str, enabled: bool) -> Result<String, Box<dyn std::e
         return Err("Standard settings require one closing body tag".into());
     }
     let settings = include_str!("../web/io-settings.html");
+    let seed = saved.map_or(String::new(), |saved| {
+        format!(
+            "<script>window.ravetSavedSettings={};</script>",
+            saved.unwrap_or("null")
+        )
+    });
     let theme = include_str!("../../ravet-surface/web/theme.css");
     if html
         .len()
-        .checked_add(settings.len() + theme.len() + 15)
+        .checked_add(settings.len() + theme.len() + seed.len() + 15)
         .is_none_or(|size| size > 1_048_576)
     {
         return Err("Standalone document exceeds 1 MiB".into());
     }
     Ok(html.replacen(
         "</body>",
-        &format!("<style>{theme}</style>{settings}</body>"),
+        &format!("<style>{theme}</style>{seed}{settings}</body>"),
         1,
     ))
 }
@@ -434,13 +475,177 @@ mod tests {
         assert!(!StandaloneOptions::default().lock_aspect_ratio);
         let page = "<body><h1>Consumer</h1></body>";
         assert!(
-            settings_document(page, true)
+            settings_document(page, true, None)
                 .unwrap()
                 .contains("io-settings")
         );
-        assert_eq!(settings_document(page, false).unwrap(), page);
-        assert!(settings_document("<body>", true).is_err());
-        assert!(settings_document("</body></body>", true).is_err());
-        assert!(settings_document(&format!("{} </body>", "x".repeat(1_048_576)), true).is_err());
+        assert_eq!(settings_document(page, false, None).unwrap(), page);
+        assert!(settings_document("<body>", true, None).is_err());
+        assert!(settings_document("</body></body>", true, None).is_err());
+        assert!(
+            settings_document(&format!("{} </body>", "x".repeat(1_048_576)), true, None).is_err()
+        );
+        let seeded = settings_document(page, true, Some(Some("{\"version\":1}"))).unwrap();
+        assert!(seeded.contains("window.ravetSavedSettings={\"version\":1};"));
+        assert!(
+            settings_document(page, true, Some(None))
+                .unwrap()
+                .contains("window.ravetSavedSettings=null;")
+        );
+    }
+}
+
+/// Rust-side settings persistence for Windows and Linux. The settings popup posts
+/// `{type:'ravet-settings',settings:{version:1,…}}` through the editor bridge when
+/// no native `ravetSettings` handler exists; this wrapper consumes those messages
+/// before the application's callbacks see them.
+#[cfg(not(target_os = "macos"))]
+mod settings {
+    use crate::Callbacks;
+    use crate::accessibility::AccessibilityAction;
+    use std::{cell::RefCell, collections::HashMap, path::PathBuf};
+    const PREFIX: &str = r#"{"type":"ravet-settings","settings":"#;
+    thread_local! {
+        static MEMORY: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    }
+    pub struct Store<C> {
+        inner: C,
+        key: String,
+        path: Option<PathBuf>,
+        saved: Option<String>,
+    }
+    /// A saved selection is a bounded JSON object with `"version":1` that cannot
+    /// close the seeding script element.
+    pub fn valid(text: &str) -> bool {
+        let text = text.trim();
+        text.len() <= 8192
+            && text.starts_with('{')
+            && text.ends_with('}')
+            && text.contains("\"version\":1")
+            && !text.contains("</")
+            && !text.contains('\u{2028}')
+            && !text.contains('\u{2029}')
+    }
+    pub fn extract(message: &str) -> Option<&str> {
+        let settings = message.strip_prefix(PREFIX)?.strip_suffix('}')?;
+        valid(settings).then_some(settings)
+    }
+    fn directory() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var_os("APPDATA").map(PathBuf::from);
+        #[cfg(not(target_os = "windows"))]
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+        Some(base?.join("ravet").join("standalone-settings"))
+    }
+    fn file_name(title: &str) -> String {
+        let name: String = title
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || "-_. ".contains(c) {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        format!("{}.json", name.trim_matches(['.', ' ']))
+    }
+    impl<C> Store<C> {
+        pub fn new(title: &str, hidden: bool, inner: C) -> Self {
+            let path = (!hidden)
+                .then(directory)
+                .flatten()
+                .map(|d| d.join(file_name(title)));
+            let saved = match &path {
+                Some(path) => std::fs::read_to_string(path).ok(),
+                None => MEMORY.with(|m| m.borrow().get(title).cloned()),
+            }
+            .map(|text| text.trim().to_owned())
+            .filter(|text| valid(text));
+            Self {
+                inner,
+                key: title.to_owned(),
+                path,
+                saved,
+            }
+        }
+        pub fn saved(&self) -> Option<&str> {
+            self.saved.as_deref()
+        }
+        fn save(&mut self, settings: &str) {
+            self.saved = Some(settings.to_owned());
+            match &self.path {
+                Some(path) => {
+                    // Best effort: a failed write keeps the in-memory selection.
+                    if let Some(parent) = path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let temporary = path.with_extension("json.tmp");
+                    if std::fs::write(&temporary, settings).is_ok() {
+                        let _ = std::fs::rename(&temporary, path);
+                    }
+                }
+                None => MEMORY.with(|m| {
+                    m.borrow_mut().insert(self.key.clone(), settings.to_owned());
+                }),
+            }
+        }
+    }
+    impl<C: Callbacks> Callbacks for Store<C> {
+        fn message(&mut self, json: &str) {
+            match extract(json) {
+                Some(settings) => self.save(settings),
+                None if json.starts_with(PREFIX) => {}
+                None => self.inner.message(json),
+            }
+        }
+        fn snapshot(&mut self) -> Option<String> {
+            self.inner.snapshot()
+        }
+        fn accessibility_action(&mut self, action: AccessibilityAction) -> bool {
+            self.inner.accessibility_action(action)
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        #[test]
+        fn settings_messages_are_extracted_and_validated() {
+            let message = r#"{"type":"ravet-settings","settings":{"version":1,"output":"x"}}"#;
+            assert_eq!(extract(message), Some(r#"{"version":1,"output":"x"}"#));
+            assert_eq!(
+                extract(r#"{"type":"ravet-settings","settings":{"version":2}}"#),
+                None
+            );
+            assert_eq!(
+                extract(r#"{"type":"ravet-settings","settings":{"version":1,"x":"</script>"}}"#),
+                None
+            );
+            assert_eq!(extract(r#"{"type":"edit","id":1}"#), None);
+            assert_eq!(file_name("DW-303"), "DW-303.json");
+            assert_eq!(file_name("a/b\\c:"), "a_b_c_.json");
+        }
+        #[test]
+        fn hidden_windows_keep_settings_in_process_memory() {
+            struct Sink(Vec<String>);
+            impl Callbacks for Sink {
+                fn message(&mut self, json: &str) {
+                    self.0.push(json.to_owned());
+                }
+                fn snapshot(&mut self) -> Option<String> {
+                    None
+                }
+            }
+            let mut store = Store::new("fixture-settings", true, Sink(Vec::new()));
+            assert_eq!(store.saved(), None);
+            store.message(r#"{"type":"ravet-settings","settings":{"version":1}}"#);
+            store.message(r#"{"type":"edit"}"#);
+            assert_eq!(store.inner.0, vec![r#"{"type":"edit"}"#.to_owned()]);
+            let again = Store::new("fixture-settings", true, Sink(Vec::new()));
+            assert_eq!(again.saved(), Some(r#"{"version":1}"#));
+        }
     }
 }
