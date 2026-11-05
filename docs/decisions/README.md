@@ -510,4 +510,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0278](0278-stream-error-classification.md) | Separate xruns and automatic route changes from stream failures | Implemented; device-free classification, recovery and retirement evidence; no physical-device or deadline claim |
 | [0279](0279-release-0-1-0-scope-and-distribution.md) | 0.1.0 format scope and tagged Git distribution | Accepted plan; not implemented |
 | [0280](0280-versioning-and-compatibility.md) | Versioning, API stability, saved-state and host-identity compatibility | Accepted policy; applies from 0.1.0 |
-| [0281](0281-generic-export-layer.md) | Generic plug-in export layer for VST3, AU, AAX, CLAP and LV2 | Accepted design; DW-303 pilot; not implemented |
+| [0281](0281-generic-export-layer.md) | Generic plug-in export layer for VST3, AU, AAX, CLAP and LV2 | Accepted design; partial implementation, generic VST3 C++ mock qualified |

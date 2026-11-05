@@ -4,7 +4,7 @@
 [decision 0281](decisions/0281-generic-export-layer.md). The product
 description, saved-state envelope, editor protocol and a generic CLAP export
 exist so far, in `ravet-plugin` (umbrella features `plugin` and `plugin-clap`).
-VST3, AU, AAX and LV2 adapters, the editor transport and the bundle tool follow.
+A [generic VST3 adapter](vst3.md#generic-product-adapter-010-prototype) now builds against the C table with independent C++ mock validation; actual Rust table integration is pending. AU, AAX and LV2 adapters follow.
 
 ## Product description
 

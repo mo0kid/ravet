@@ -1,4 +1,115 @@
-# VST3 gain reference
+# VST3 exports
+
+## Generic product adapter (0.1.0 prototype)
+
+`crates/ravet-plugin/adapters/vst3` implements a C++ component and separate edit
+controller against [RavetPlugin.h](../crates/ravet-plugin/include/RavetPlugin.h).
+Product IDs, names, category, layouts and parameters come from that table;
+products need no VST3-specific C++. The adapter uses an externally installed
+Steinberg SDK. No SDK is downloaded or committed.
+
+```sh
+python3 scripts/bundle-vst3.py --plugin delay --sdk /path/to/vst3sdk
+python3 scripts/bundle-vst3.py --plugin gain --sdk /path/to/vst3sdk
+# Independent C++ table fixture, usable before the Rust table is available:
+python3 scripts/bundle-vst3.py --mock --sdk /path/to/vst3sdk
+# A separate consumer workspace/package:
+python3 scripts/bundle-vst3.py --plugin myeffect --package myeffect-plugin --manifest-path /path/to/consumer/Cargo.toml --sdk /path/to/vst3sdk
+```
+
+The product must export `ravet_plugin_v1()` from one Cargo `cdylib` target.
+The script builds only that package, copies its dynamic library beside the
+adapter module, adds notices, ad hoc signs nested images and the bundle on
+macOS, and runs the SDK validator. The independent mock also runs CTest.
+Artifacts stay under `target/vst3/generic/<product>/{debug,release}` (or the
+consumer's Cargo target directory). Nothing is installed or published. Product
+Rust dependencies and the external SDK remain responsible for their own runtime
+requirements. A missing entry point makes the factory fail to load; a CLAP-only
+library cannot stand in for the native table.
+
+The component accepts only declared layouts. Mono/stereo use standard speaker
+arrangements; counts above two use the low N speaker bits because the table has
+no named speaker map. One main bus per nonempty direction is exposed. f32 only,
+1..65,536 frames and at most 1,024 combined parameter/note input records and
+1,024 output records are supported. Expanded note tuning counts toward capacity.
+Queues merge stably by sample offset, with parameters before notes at ties.
+Unknown parameter IDs are ignored after validating their points. Malformed or
+oversized inputs reject before DSP and silence supported output prefixes.
+The table supplies denormal handling; the adapter adds no denormal guard.
+
+Parameter IDs and physical mappings remain the product's IDs and callbacks.
+VST3 IDs must be at most `0x7fffffff`; larger explicit product IDs reject rather
+than changing session identity. Bypass, step counts, hidden and read-only flags
+are registered from metadata. Controller changes call `set_value` immediately
+and use main-thread SDK messages to update the component cache, including while
+processing is suspended. Automation points become physical native parameter
+events at their original offsets. Component state is the table's envelope,
+unchanged, with a 16 MiB adapter stream limit. Controller `setComponentState`
+loads the same envelope. Controller state and pre-connection edits synchronize
+through messages; no instance pointer is sent between component and controller.
+
+One 16-channel event bus per declared note direction carries native notes and
+short MIDI output. `IMidiMapping` maps all 128 CCs, channel aftertouch and pitch
+bend on every input channel to 2,080 hidden parameters. Their deterministic
+free ID range avoids product IDs. Values quantize to 7-bit CC/pressure or 14-bit
+pitch bend and become native MIDI events at their sample offsets. Note IDs,
+velocities and supported tuning/pressure use the existing native event helpers.
+SysEx and UMP have no mapping. Unsupported output records reject before host
+event delivery. Host refusal keeps its accepted output prefix and rendered DSP;
+the suffix is discarded without replay.
+
+Timing is read after prepare and after processing on its owning thread.
+Latency/tail queries read cached atomics. A latency change is delivered on the
+main loop as `restartComponent(kLatencyChanged)`. Finite tails saturate below
+VST3's infinite sentinel. The editor opens the product through Cocoa, HWND or
+X11 `IPlugView`, resizes it, idles it at about 30 Hz and reports queued
+begin/value/end gestures through host edit callbacks. Views keep weak lifetime
+tokens and reject calls after controller termination. macOS/Windows use the SDK
+main-loop timer; Linux uses the host's `IRunLoop` from the factory/context or
+view frame. Linux editor idling and latency notifications require that host
+interface. There is no worker-thread fallback.
+
+Local evidence is limited to the macOS arm64 C++ mock: SDK validator **47 passed,
+0 failed** and the focused CTest **1 passed, 0 failed**. The fixture covers gain,
+bypass, stepped/hidden/read-only metadata, a MIDI-ID collision, mono/stereo
+negotiation, timed DSP/automation, note/CC/bend/aftertouch delivery, unchanged
+state bytes and rejection, zero-frame flush, delayed latency restart, editor
+resize/gestures and retained-view teardown. Editor tests use the mock callbacks,
+not a real web view. Actual product table, DAW and Windows/Linux runtime evidence
+remain separate requirements. See [work status](WORK_STATUS.md).
+
+### Windows and Linux commands
+
+Install Rust, Python 3, CMake 3.25+ and a complete external VST3 SDK. On Windows
+run from an x64 Native Tools Command Prompt with MSVC, or configure the CMake
+build with Ninja and `clang-cl`. On Linux install the SDK's native X11, xcb and
+fontconfig development dependencies as required by that SDK distribution.
+
+```powershell
+# Windows / MSVC (the script uses CMake's default configured native generator):
+py -3 scripts/bundle-vst3.py --plugin delay --sdk C:/SDKs/vst3sdk
+# Independent mock and contracts:
+py -3 scripts/bundle-vst3.py --mock --sdk C:/SDKs/vst3sdk
+# clang-cl: preconfigure the same build directory, then run the script above:
+cmake -S crates/ravet-plugin/adapters/vst3 -B target/vst3/generic/delay/release -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Release -DRAVET_VST3_SDK=C:/SDKs/vst3sdk -DRAVET_VST3_NAME=ravet_delay_vst3 -DRAVET_PRODUCT_LIBRARY=C:/path/to/target/release/ravet_delay_plugin.dll
+```
+
+```sh
+# Linux / GCC (or set CC=clang CXX=clang++ before first configure):
+python3 scripts/bundle-vst3.py --plugin delay --sdk /opt/vst3sdk
+python3 scripts/bundle-vst3.py --mock --sdk /opt/vst3sdk
+# Standalone C++ mock, without Cargo:
+cmake -S crates/ravet-plugin/adapters/vst3 -B target/vst3-mock -DCMAKE_BUILD_TYPE=Release -DRAVET_VST3_SDK=/opt/vst3sdk -DRAVET_VST3_MOCK=ON
+cmake --build target/vst3-mock --config Release --target ravet_plugin_vst3 ravet_generic_vst3_contracts validator --parallel 2
+ctest --test-dir target/vst3-mock -C Release --output-on-failure
+target/vst3-mock/bin/Release/validator target/vst3-mock/VST3/Release/ravet_plugin_vst3.vst3
+```
+
+These are build instructions, not Windows/Linux support claims. The CMake-only
+mock commands also work on Windows with `validator.exe` and the bundle path
+printed by the build. The bundler locates the platform bundle automatically.
+
+## Legacy 0.0.1 gain reference
 
 The public reference now builds a VST3 processor and separate edit controller
 using an explicitly supplied external Steinberg SDK. Its DSP and state codec
@@ -13,15 +124,15 @@ SDK installation explicitly; it is not downloaded or vendored automatically.
 The exercised SDK is 3.8.1; other versions are not established as compatible.
 
 ```sh
-CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --legacy-reference --sdk /path/to/vst3sdk
 # Optional macOS embedded editor and actual-bundle editor probe:
-CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --native-editor
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --legacy-reference --sdk /path/to/vst3sdk --native-editor
 # Optional macOS factory list/selector (can combine with --native-editor):
-CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --factory-programs
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --legacy-reference --sdk /path/to/vst3sdk --factory-programs
 # Separate public performance instrument (generic host UI):
-CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --plugin performance
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --legacy-reference --sdk /path/to/vst3sdk --plugin performance
 # A debug build is also available:
-CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --sdk /path/to/vst3sdk --profile debug
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-vst3.py --legacy-reference --sdk /path/to/vst3sdk --profile debug
 ```
 
 The script builds the Rust static library and CMake plug-in/validator/contracts
@@ -29,7 +140,7 @@ with two build jobs. It runs CTest and Steinberg's validator, includes the suppl
 SDK licence and RAVET GPL notice, and ad hoc signs the macOS bundle. Artifacts
 stay under `target/vst3`; SDK link/install helpers are disabled. Nothing is
 published, installed in a normal host directory or commercially signed.
-Gain remains the default profile. `--plugin performance` selects the separate
+Gain remains the default legacy profile when `--legacy-reference` is selected. `--plugin performance` selects the separate
 native performance archive, module and instrument contracts; its isolated build
 root is `target/vst3/performance/{debug,release}`. `--native-editor` and
 `--factory-programs` apply to Gain only and reject with Performance before build
