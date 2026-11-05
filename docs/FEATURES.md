@@ -3967,7 +3967,7 @@ Framed UMP portable events preserve ordered sample offsets and map to/from selec
 
 Native midir connections enumerate/select exact ports, receive short/SysEx packets through prepared SPSC storage and send validated packets to explicit destinations.
 
-**Limits:** 1024-byte complete packets, power-of-two 1..1024 slots; newest full input drops. Connection-local microsecond timestamps require explicit audio mapping. Linux ALSA sequencer input (Midi Through Port-0) exercised through the DW-303 standalone app on 5 November 2026; Windows WinMM listed no input on the test VM. No fragmented SysEx, UMP, automatic reconnect/hotplug, physical-device, Windows input or deadline claim.
+**Limits:** 1024-byte complete packets, power-of-two 1..1024 slots; newest full input drops. Connection-local microsecond timestamps require explicit audio mapping. Input exercised through the DW-303 standalone app on 5 November 2026: Linux ALSA sequencer Midi Through Port-0, and Windows 11 24H2 WinMM `RAVET Loopback B` (a Windows MIDI Services in-box loopback). No fragmented SysEx, UMP, automatic reconnect/hotplug, physical-device or deadline claim.
 
 **Source:** [`crates/ravet-midi-device/Cargo.toml`](../crates/ravet-midi-device/Cargo.toml), [`crates/ravet-midi-device/src/lib.rs`](../crates/ravet-midi-device/src/lib.rs).
 
@@ -4009,7 +4009,7 @@ Explicit CPAL enumeration/ID selection and configured f32 output streams adapt o
 
 A CLI lists audio outputs and MIDI ports, sends a fixed A2/A3 note pattern to a MIDI output, records an output device through CPAL loopback capture and reports per-100 ms RMS and pitch for 32-bit float WAV files.
 
-**Limits:** Test helper, not a product path; it observes a separate standalone application from outside. Loopback capture of an output device needs CPAL's WASAPI host (Windows); other platforms need an external recorder such as pw-record. f32 devices only; at most 60 s capture into a preallocated ring, with stream notifications printed to stderr. Fixed note pattern (notes 45 and 57, velocity 100, wall-clock timing). The pitch estimate is a 50 Hz to 1 kHz autocorrelation peak, not a tuner. Used on Arch Linux (analysis) and a Windows 11 VM (listing, capture, analysis) on 5 November 2026.
+**Limits:** Test helper, not a product path; it observes a separate standalone application from outside. Loopback capture of an output device needs CPAL's WASAPI host (Windows); other platforms need an external recorder such as pw-record. f32 devices only; at most 60 s capture into a preallocated ring, with stream notifications printed to stderr. Fixed note pattern (notes 45 and 57, velocity 100, wall-clock timing). The pitch estimate is a 50 Hz to 1 kHz autocorrelation peak, not a tuner. Used on Arch Linux (analysis) and a Windows 11 VM (listing, capture, sending notes into a Windows MIDI Services loopback, analysis) on 5 November 2026.
 
 **Source:** [`tools/standalone-probe/Cargo.toml`](../tools/standalone-probe/Cargo.toml), [`tools/standalone-probe/src/main.rs`](../tools/standalone-probe/src/main.rs).
 
