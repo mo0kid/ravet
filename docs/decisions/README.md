@@ -512,3 +512,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0280](0280-versioning-and-compatibility.md) | Versioning, API stability, saved-state and host-identity compatibility | Accepted policy; applies from 0.1.0 |
 | [0281](0281-generic-export-layer.md) | Generic plug-in export layer for VST3, AU, AAX, CLAP and LV2 | Accepted design; DW-303 pilot; CLAP export and native table prototyped |
 | [0282](0282-plugin-policies-and-native-table.md) | Plug-in automation and bypass policies, and the generic native table | Prototype in `ravet-plugin`; offline evidence only, adapters pending |
+| [0283](0283-native-auv2-product-adapter.md) | Native AUv2 product adapter contracts | Prototype; macOS arm64 mock auval and real-delay in-process evidence, no DAW claim |
