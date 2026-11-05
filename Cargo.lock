@@ -1698,10 +1698,12 @@ dependencies = [
 name = "ravet-plugin"
 version = "0.0.1"
 dependencies = [
+ "allocation-counter",
  "clack-extensions",
  "clack-plugin",
  "ravet-clap",
  "ravet-foundation",
+ "ravet-native",
  "ravet-native-dsp",
  "ravet-webview",
  "serde_json",

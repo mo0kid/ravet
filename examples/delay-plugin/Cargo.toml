@@ -24,7 +24,7 @@ unsafe_code = "deny"
 [dependencies]
 ravet-foundation.workspace = true
 ravet-signal.workspace = true
-ravet-plugin = { workspace = true, features = ["clap"] }
+ravet-plugin = { workspace = true, features = ["clap", "native"] }
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
