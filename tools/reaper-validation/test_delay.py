@@ -136,6 +136,66 @@ class DelayChecks(unittest.TestCase):
                 result = subprocess.run([luac, '-p', str(script)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_ini_sections_and_version_check(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'ravet_delay.lv2'
+            bundle.mkdir()
+            ini, _, _ = delay.prepare(root / 'work', 'lv2', bundle, 'LV2: RAVET Delay', True,
+                                      ['key=1', '[audioconfig]mode=3', '[other]a=b'])
+            text = ini.read_text()
+            reaper, _, rest = text.partition('[audioconfig]\n')
+            self.assertIn('verchk=0\n', reaper)
+            self.assertIn('key=1\n', reaper)
+            self.assertEqual(rest, 'mode=3\n[other]\na=b\n')
+
+    def test_windows_preparation_rewrites_paths_and_writes_runner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'RAVET Delay.clap'
+            bundle.write_bytes(b'dll')
+            work = root / 'clap-1'
+            code = delay.main(['--format', 'clap', '--bundle', str(bundle), '--work', str(work),
+                               '--windows-root', r'C:\Users\tester\runs', '--timeout', '99'])
+            self.assertEqual(code, 0)
+            text = (work / 'resource' / 'reaper.ini').read_text()
+            self.assertIn('clap_path_win64=C:\\Users\\tester\\runs\\clap-1\\plugins\\clap\n', text)
+            self.assertIn('vstpath64=C:\\Users\\tester\\runs\\clap-1\\plugins\\empty\n', text)
+            self.assertIn('[audioconfig]\nmode=2\n', text)
+            self.assertNotIn(str(root), text)
+            script = (work / 'output' / 'ravet-delay-check.lua').read_text()
+            self.assertTrue(script.startswith(
+                'RAVET_DELAY = {root = [==[C:\\Users\\tester\\runs\\clap-1\\output]==], '
+                'resource = [==[C:\\Users\\tester\\runs\\clap-1\\resource]==]'), script[:200])
+            runner = (work / 'run-windows.ps1').read_bytes()
+            self.assertTrue(runner.startswith(b'\xef\xbb\xbf'))
+            self.assertNotIn(b'\n', runner.replace(b'\r\n', b''))
+            runner = runner.decode('utf-8-sig')
+            self.assertIn('[double]$Timeout = 99', runner)
+            self.assertIn("$reaper = 'C:\\REAPER\\reaper.exe'", runner)
+            self.assertIn('-cfgfile "C:\\Users\\tester\\runs\\clap-1\\resource\\reaper.ini"', runner)
+            self.assertNotIn('__', runner)
+            self.assertTrue((work / 'plugins' / 'clap' / 'RAVET Delay.clap').exists())
+
+    def test_check_only_compares_windows_guard_snapshots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / 'output').mkdir()
+            (work / 'run-windows.ps1').write_text('')
+            self.assertFalse(delay.compare_snapshots(work)[0])
+            line = 'C:\\Users\\t\\AppData\\Roaming\\REAPER\\REAPER.ini\t10\t5\tABC'
+            (work / 'guard-before.tsv').write_text('\ufeff' + line + '\r\n', encoding='utf-8')
+            (work / 'guard-after.tsv').write_text('\ufeff' + line + '\r\n', encoding='utf-8')
+            ok, lines = delay.compare_snapshots(work)
+            self.assertTrue(ok, lines)
+            self.assertIn('1 files', lines[0])
+            (work / 'guard-after.tsv').write_text(line.replace('ABC', 'DEF') + '\n', encoding='utf-8')
+            ok, lines = delay.compare_snapshots(work)
+            self.assertFalse(ok)
+            self.assertIn('REAPER.ini', lines[0])
+            # Renders are missing, so the whole check fails regardless.
+            self.assertEqual(delay.main(['--check-only', str(work)]), 1)
+
     def test_script_aborts_without_host_changes_in_a_foreign_resource_directory(self):
         lua = shutil.which('lua') or shutil.which('lua5.4')
         if lua is None:
