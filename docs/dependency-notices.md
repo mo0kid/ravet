@@ -1,8 +1,10 @@
-# Dependency notices for plug-in exports
+# Dependency notices for plug-in exports and standalone applications
 
 **Status:** Audit of the 0.1.0 plug-in export surface, recorded on 5 November
 2026 from `Cargo.lock` at `release/0.1.0` (628af5d) with the changes of
-[decision 0287](decisions/0287-export-robustness-and-notices.md). This page
+[decision 0287](decisions/0287-export-robustness-and-notices.md), extended the
+same day (from `eb4d2f5`) to the web views and standalone applications with
+[decision 0292](decisions/0292-webview-robustness-and-system-notices.md). This page
 records what RAVET's maintainers found and what the bundle scripts ship. It is
 not legal advice and grants no licence; consult your own adviser about your
 distribution. See [LICENSING.md](../LICENSING.md) for RAVET's two licensing
@@ -23,9 +25,12 @@ cargo tree --locked -p ravet-delay-plugin -e normal,build --target <triple>
 for `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` and
 `x86_64-unknown-linux-gnu`; `examples/gain-plugin` resolves the same set.
 Licences are the `license` field of each locked manifest; the licence files
-are those in each downloaded crate archive. Other RAVET components (audio
-files, surfaces, devices, the standalone runner) keep their own scoped
-reviews in [LICENSING.md](../LICENSING.md) and are not covered here.
+are those in each downloaded crate archive. The
+[web views and standalone applications](#web-views-and-standalone-applications)
+section adds `ravet-webview` (all features) and the device crates used by
+standalone applications (`ravet-device`, `ravet-midi-device`, default
+features). Opt-in codec and image features keep their own scoped reviews in
+[LICENSING.md](../LICENSING.md) and are not covered here.
 
 ## Rust crates in a product binary
 
@@ -81,11 +86,90 @@ toolchain's `share/doc/rust/COPYRIGHT-library.html` (installed with the
 | LV2 headers (external checkout) | LV2 adapter, headers only | ISC (`COPYING`) | `LV2-SDK-LICENSE.txt` |
 | Avid AAX SDK (external) | AAX adapter, compiled in | Avid's terms for the SDK version supplied; distribution and PACE signing need the vendor's own Avid agreement | A reminder, `notices/AAX-SDK-NOTICE.txt`, not the SDK licence |
 | macOS frameworks (Cocoa, WebKit, AudioToolbox …), libc++, libSystem | macOS builds | Operating-system components, dynamically linked, not redistributed | No |
-| Microsoft C runtime and Windows SDK import libraries | Windows builds (CRT linked statically) | Microsoft's terms, accepted when cargo-xwin downloads them | No; review Microsoft's redistribution terms for the static CRT |
+| Microsoft C runtime and Windows SDK import libraries | Windows builds (CRT linked statically) | Microsoft's terms, accepted when cargo-xwin downloads them; see [the Windows C runtime](#the-windows-c-runtime) | No file required |
 | glibc, libgcc_s, libstdc++ | Linux builds | System libraries, dynamically linked (glibc LGPL-2.1+; GCC Runtime Library Exception) | No |
 
-There is no WebView2 or WebKitGTK dependency in this release: editors open on
-macOS only (see [plug-in export](plugin-export.md#linux-and-windows-builds)).
+Plug-in editors open on macOS only in this release (see
+[plug-in export](plugin-export.md#linux-and-windows-builds)). A Windows or Linux
+product that enables the `editor` feature, or any standalone application built
+on `StandaloneWindow`, links `ravet-webview` and with it the WebView2 or
+WebKitGTK components described below.
+
+## Web views and standalone applications
+
+### Rust crates
+
+`ravet-webview` links no third-party Rust crate on any platform. Its
+build-only dependencies are not distributed: `cc` 1.6.0, `pkg-config` 0.3.34,
+`shlex` 2.0.1 and `find-msvc-tools` 0.1.14 (all MIT OR Apache-2.0).
+
+The device crates add, for `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`
+and `x86_64-unknown-linux-gnu`:
+
+| Crate | Version | Licence (manifest) | Licence files in the archive | Platforms |
+|---|---|---|---|---|
+| cpal | 0.18.2 | Apache-2.0 | LICENSE | all |
+| midir | 0.11.0 | MIT | LICENSE | all |
+| rtrb | 0.4.0 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | all |
+| dasp_sample | 0.11.0 | MIT OR Apache-2.0 | **none** | all |
+| log | 0.4.34 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | all |
+| libm | 0.2.16 | MIT | LICENSE.txt | all |
+| bitflags | 2.13.2 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | macOS, Linux |
+| libc | 0.2.190 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | macOS, Linux |
+| cfg-if | 1.0.5 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | Windows, Linux |
+| core-foundation, core-foundation-sys | 0.10.1, 0.8.7 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | macOS |
+| coreaudio-rs | 0.14.2 | MIT/Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | macOS |
+| coremidi, coremidi-sys | 0.9.2, 3.2.1 | MIT | LICENSE | macOS |
+| mach2 | 0.6.0 | BSD-2-Clause OR MIT OR Apache-2.0 | LICENSE-BSD, LICENSE-MIT, LICENSE-APACHE | macOS |
+| objc2, objc2-encode, objc2-foundation, block2 | 0.6.5, 4.1.0, 0.3.2, 0.6.2 | MIT | **none** | macOS |
+| objc2-core-foundation, objc2-core-audio, objc2-core-audio-types, objc2-audio-toolbox, dispatch2 | 0.3.2 (dispatch2 0.3.1) | Zlib OR Apache-2.0 OR MIT | **none** | macOS |
+| alsa, alsa-sys | 0.11.0, 0.4.0 | Apache-2.0/MIT; MIT | LICENSE-MIT, LICENSE-APACHE; LICENSE | Linux |
+| windows, windows-core, windows-collections, windows-future, windows-link, windows-numerics, windows-result, windows-strings, windows-threading | 0.62.2 and companions | MIT OR Apache-2.0 | license-mit, license-apache-2.0 | Windows |
+| parking_lot, parking_lot_core, lock_api, scopeguard, smallvec | 0.12.5, 0.9.12, 0.4.14, 1.2.0, 1.16.2 | MIT OR Apache-2.0 | LICENSE-MIT, LICENSE-APACHE | Windows |
+
+Not linked: the procedural macros `windows-implement` and `windows-interface`
+and their `proc-macro2`, `quote`, `syn` and `unicode-ident` dependencies run at
+build time only (Windows). The generator lists them anyway, because Cargo
+reports them as normal edges; the extra notices are harmless. `pkg-config` is
+build-only on Linux.
+
+All are permissive. Nine macOS crates and `dasp_sample` publish no licence file
+in their archive. Where the declared licence offers MIT, the generator writes
+the MIT text with the manifest's authors (or "the *crate* contributors") and
+says it is reconstructed; for the Zlib option no notice is required in a
+binary distribution. Distributors who want the authoritative copyright lines
+should take them from the upstream repositories (`madsmtm/objc2`,
+`rustaudio/sample`).
+
+### Native components
+
+| Component | Used by | Terms | Commercial route | What must ship |
+|---|---|---|---|---|
+| WebView2 SDK headers (`RAVET_WEBVIEW2_SDK`, compiled in) and `WebView2Loader.dll` (shipped beside the product binary) | Windows web views | BSD-3-Clause-style `LICENSE.txt` of the `Microsoft.Web.WebView2` NuGet package (checked for 1.0.4314.35); its `NOTICE.txt` lists third-party components of the package | Compatible: binary redistribution with the notice and disclaimer | `WebView2-SDK-LICENSE.txt` and `WebView2-SDK-NOTICE.txt`, written by the notice generator |
+| Microsoft Edge WebView2 Runtime | Windows web views | Microsoft's runtime terms; installed on the user's machine, not redistributed by RAVET or its bundles | Not shipped | Nothing; installers that bundle the runtime take on Microsoft's runtime distribution terms |
+| GTK 3/GDK, WebKitGTK 4.1 with JavaScriptCoreGTK, JSON-GLib, GLib/GObject/GIO | Linux web views | LGPL 2.1 or later (parts of WebKitGTK BSD-style); system-provided, linked dynamically, not redistributed | Compatible when dynamically linked: the product must not prohibit replacing the libraries or reverse engineering to debug such changes | `SYSTEM-LIBRARIES-LGPL.txt`: names the libraries, states the replacement and debugging permission, and carries the LGPL 2.1 text from the build machine |
+| ALSA library (`libasound`, through alsa-sys) | Linux audio and MIDI devices | LGPL 2.1 or later; system-provided, linked dynamically | As above | Listed in `SYSTEM-LIBRARIES-LGPL.txt` |
+| mingw `eventtoken.h` shim (`crates/ravet-surface/native/mingw/EventToken.h`) | mingw builds of the Windows web view | First-party: a one-line `#include_next` forwarder; the forwarded header is the toolchain's | — | Nothing |
+| CoreAudio, CoreMIDI, WASAPI, WinMM and other system audio/MIDI APIs | Device crates | Operating-system components, dynamically linked | — | Nothing |
+
+A Windows product that links `ravet-webview` must also ship
+`WebView2Loader.dll` beside its binary, where the web view loads it; the
+notice files above cover it. The bundle scripts do not yet copy the DLL for
+Windows editor builds.
+
+### The Windows C runtime
+
+Windows builds made with `--target windows` link the Microsoft C runtime
+statically (Rust `+crt-static`, C++ `/MT`; see
+[`scripts/windows_cross.py`](../scripts/windows_cross.py)). cargo-xwin downloads
+the CRT and Windows SDK only after you accept Microsoft's licence terms for
+them. Those terms are the licence that applies; RAVET grants none. Microsoft
+documents static linking of the CRT into an application as a supported
+deployment, and no CRT notice file is required in the product. Who may use the
+tools for what kind of development (for example, whether a Visual Studio or
+Build Tools licence is needed for commercial work) is decided by those terms,
+not by RAVET; check them for your organisation. On the GPL route, the C
+runtime is a System Library of the compiler under GPL-3.0 section 1.
 
 ## What the bundle scripts ship
 
@@ -101,7 +185,17 @@ windows`). It writes:
 - `RAVET-LICENSE.txt`: RAVET's GPL licence text. Commercial licensees follow
   their agreement instead.
 - `RUST-STANDARD-LIBRARY-COPYRIGHT.html`, or a short `.txt` pointer when the
-  toolchain has no `rust-docs` component.
+  toolchain has no `rust-docs` component;
+- Windows products that link `ravet-webview`: `WebView2-SDK-LICENSE.txt` and
+  `WebView2-SDK-NOTICE.txt`, copied from `RAVET_WEBVIEW2_SDK`. Without that
+  variable a reminder is printed and the files are not written;
+- Linux products that link `ravet-webview` or `alsa-sys`:
+  `SYSTEM-LIBRARIES-LGPL.txt`, with the LGPL 2.1 text found on the build
+  machine (Arch, Debian/Ubuntu or Fedora locations), or a link and a printed
+  reminder when none is found.
+
+Crates whose archive has no licence file get the reconstructed MIT notice
+described above, and a reminder is printed for each.
 
 | Script | Bundle | Notices location |
 |---|---|---|
@@ -114,7 +208,9 @@ windows`). It writes:
 Single-file CLAP plug-ins have no resources folder, so an installer must carry
 the `<Name> notices` directory with them. `bundle-au.py --product-library`
 packages a prebuilt library whose crate graph is unknown; it prints a reminder
-to add that library's notices. For your own product crate, run the generator
+to add that library's notices. Standalone applications have no bundle script;
+run the generator for the application crate and the target, and ship its
+output with the application. For your own product crate, run the generator
 directly:
 
 ```sh
@@ -133,6 +229,15 @@ python3 scripts/third_party_notices.py <crate> <directory> [--target <triple>] [
   distribution with their notices retained. The commercial agreement does not
   relicense third-party components, so their notices must still ship. AAX
   distribution also needs the vendor's own Avid agreement and PACE signing.
+- **Web views and standalone applications, both routes.** The device-crate
+  graph and the WebView2 SDK are permissive and compatible with both routes
+  when their notices ship. The LGPL system libraries on Linux are compatible
+  with both routes because they are dynamically linked and not distributed;
+  on the commercial route the product's own licence must still allow users to
+  replace them and to reverse engineer the product to debug such changes (LGPL
+  2.1 section 6). Bundling those libraries into an installer adds the LGPL's
+  source obligations. The static Windows C runtime follows Microsoft's terms
+  on both routes.
 
 ## Opt-in review
 

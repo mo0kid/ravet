@@ -55,3 +55,6 @@ Products without an editor no longer compile WebKit/Cocoa bindings.
 Distributors still decide what their installers ship; the generated notices
 are notice material, not legal advice. `ravet-webview`'s own unsafe and
 Objective-C++ code, and the standalone runner, are outside this review.
+
+[Decision 0292](0292-webview-robustness-and-system-notices.md) later covered
+`ravet-webview`, the native web views and the standalone window.

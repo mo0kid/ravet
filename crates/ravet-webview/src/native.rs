@@ -85,20 +85,26 @@ struct Context<'a> {
     callbacks: RefCell<Box<dyn Callbacks + 'a>>,
 }
 
-// SAFETY: native code invokes callbacks only synchronously on the main thread,
-// while the view holds one Rc. Clone at entry permits destruction from a callback.
+/// # Safety
+/// `raw` must be the `Rc::as_ptr` of a live context, used on the UI thread.
 unsafe fn retain_context<'a>(raw: *mut c_void) -> Rc<Context<'a>> {
     let raw = raw.cast::<Context<'a>>();
+    // SAFETY: native code invokes callbacks only synchronously on the main thread,
+    // while the view holds one Rc. Clone at entry permits destruction from a callback.
     unsafe {
         Rc::increment_strong_count(raw);
         Rc::from_raw(raw)
     }
 }
 extern "C" fn message(raw: *mut c_void, json: *const c_char) {
+    if raw.is_null() || json.is_null() {
+        return;
+    }
     let _ = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: backend supplies live context and a NUL-terminated bounded
         // string valid for this call. No borrowed data escapes the callback.
         let context = unsafe { retain_context(raw) };
+        // SAFETY: non-null NUL-terminated string, valid for this call (above).
         let text = unsafe { CStr::from_ptr(json) }.to_str();
         if let (Ok(text), Ok(mut callbacks)) = (text, context.callbacks.try_borrow_mut()) {
             callbacks.message(text);
@@ -106,6 +112,9 @@ extern "C" fn message(raw: *mut c_void, json: *const c_char) {
     }));
 }
 extern "C" fn snapshot(raw: *mut c_void, destination: *mut c_char, capacity: usize) -> usize {
+    if raw.is_null() || destination.is_null() {
+        return 0;
+    }
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: native code supplies this destination for capacity bytes.
         // Copy into caller-owned storage before dropping the retained context,
@@ -124,6 +133,7 @@ extern "C" fn snapshot(raw: *mut c_void, destination: *mut c_char, capacity: usi
         {
             return 0;
         }
+        // SAFETY: text.len() < capacity bytes of non-null caller storage.
         unsafe {
             std::ptr::copy_nonoverlapping(text.as_ptr(), destination.cast(), text.len());
         }
@@ -156,6 +166,9 @@ extern "C" fn accessibility_action(
     revision: u64,
     kind: u32,
 ) -> bool {
+    if raw.is_null() {
+        return false;
+    }
     catch_unwind(AssertUnwindSafe(|| {
         let kind = match kind {
             0 => AccessibilityActionKind::Press,
@@ -250,22 +263,28 @@ impl<'a> WebView<'a> {
         if self._context.callbacks.try_borrow_mut().is_err() {
             return Err(AccessibilityError::Busy);
         }
-        let label = snapshot.map(|s| CString::new(s.label()).expect("checked label"));
-        let labels: Vec<_> = snapshot
+        // Snapshot constructors already reject NUL; a failure here is unreachable
+        // and is reported as invalid input rather than a panic.
+        let invalid = |_| AccessibilityError::InvalidInput;
+        let label = snapshot
+            .map(|s| CString::new(s.label()))
+            .transpose()
+            .map_err(invalid)?;
+        let labels = snapshot
             .into_iter()
             .flat_map(|s| s.nodes())
-            .map(|n| CString::new(n.label()).expect("checked label"))
-            .collect();
-        let texts: Vec<_> = snapshot
+            .map(|n| CString::new(n.label()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(invalid)?;
+        let texts = snapshot
             .into_iter()
             .flat_map(|s| s.nodes())
             .map(|n| match n.kind() {
-                AccessibilityKind::StaticText { value } => {
-                    Some(CString::new(value.as_str()).expect("checked value"))
-                }
-                _ => None,
+                AccessibilityKind::StaticText { value } => CString::new(value.as_str()).map(Some),
+                _ => Ok(None),
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(invalid)?;
         let nodes: Vec<_> = snapshot
             .into_iter()
             .flat_map(|s| s.nodes())
@@ -348,6 +367,7 @@ impl<'a> WebView<'a> {
     /// remain valid until detach or WebView destruction; it must not independently
     /// destroy the embedded child or its callback context.
     pub unsafe fn attach(&self, parent: NonNull<c_void>) {
+        // SAFETY: self owns a live view; the caller guarantees `parent` (above).
         unsafe {
             ravet_web_attach(self.view.as_ptr(), parent.as_ptr());
         }
@@ -520,6 +540,38 @@ mod tests {
         assert_eq!(&destination[..length], b"{\"gain\":1}");
         assert!(owner.borrow().is_none());
         assert_eq!(dropped.get(), 1);
+    }
+    #[test]
+    fn null_native_arguments_are_refused_without_dereference() {
+        struct Counting(Rc<Cell<usize>>);
+        impl Callbacks for Counting {
+            fn message(&mut self, _: &str) {
+                self.0.set(self.0.get() + 1);
+            }
+            fn snapshot(&mut self) -> Option<String> {
+                Some("{}".to_owned())
+            }
+        }
+        use std::cell::Cell;
+        let count = Rc::new(Cell::new(0));
+        let context = Rc::new(Context {
+            callbacks: RefCell::new(Box::new(Counting(count.clone()))),
+        });
+        let raw = Rc::as_ptr(&context).cast_mut().cast();
+        message(std::ptr::null_mut(), c"{}".as_ptr());
+        message(raw, std::ptr::null());
+        assert_eq!(count.get(), 0);
+        let mut destination = [0_u8; 8];
+        assert_eq!(
+            snapshot(std::ptr::null_mut(), destination.as_mut_ptr().cast(), 8),
+            0
+        );
+        assert_eq!(snapshot(raw, std::ptr::null_mut(), 8), 0);
+        #[cfg(target_os = "macos")]
+        assert!(!accessibility_action(std::ptr::null_mut(), 1, 1, 0));
+        message(raw, c"{}".as_ptr());
+        assert_eq!(count.get(), 1);
+        assert_eq!(Rc::strong_count(&context), 1);
     }
     #[test]
     fn snapshot_bounds_and_reentrant_borrows_leave_destination_untouched() {

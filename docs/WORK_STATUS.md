@@ -6,6 +6,106 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="release-010-webview-review"></a>
+
+## Web view, standalone window and notice review — 5 November 2026
+
+Release-plan §6 review of the surface decision 0287 left out, on branch
+`review/webview` from `release/0.1.0` (`eb4d2f5`). Decision
+[0292](decisions/0292-webview-robustness-and-system-notices.md) records the
+policy (renumber at merge if 0292 is taken).
+
+Rust sites reviewed in `ravet-webview` (non-test, all features):
+
+| Module | Panic sites | Unsafe blocks | Fixed | Classified |
+|---|---|---|---|---|
+| `native.rs` | 3 `expect` | 16 | 3 `expect` become `InvalidInput`; null context/message/destination pointers refused in the three callbacks | 4 SAFETY comments added |
+| `editor_abi.rs` | 0 | 9 | misaligned handles rejected by every operation and by destroy | 7 SAFETY comments added |
+| `standalone.rs` | 0 | 14 | `embed` error path left a dangling editor pointer in the Windows/Linux window (latent: no backend closes during attach) | 1 SAFETY comment added |
+| `fonts/macos.rs` (`system-fonts`) | 4 `unwrap` | 9 | — | (a) fixed-length, bounds-checked slice-to-array conversions; comment added |
+| `build.rs` | 6 | 0 | — | (c) build-time failure with a message (missing SDK or tool) |
+
+`#![deny(clippy::undocumented_unsafe_blocks)]` now covers `ravet-webview`.
+
+Native code (Objective-C++ and C++), three fixed host risks:
+- A page posting a message body JSON cannot encode (`Date`, `NaN`) terminated
+  the process with `NSInvalidArgumentException` in both the editor bridge
+  (`RavetWebView.mm`) and the standalone settings handler
+  (`StandaloneWindow.mm`). Both now drop such bodies.
+- Exceptions could unwind from the allocating C entry points, WebView2 COM
+  handlers, Win32 window procedures and GLib callbacks into C, COM or Rust
+  frames. These are now `noexcept` (deterministic termination on allocation
+  failure). Eight `NSCAssert` at the Cocoa C ABI, which raise into Rust, became
+  wrong-thread refusals.
+- WebView2: a handler could be released while its `Invoke` ran (callback
+  destroying the editor), and the loader DLL was freed when the last state
+  reference dropped, possibly inside a WebView2 callback. Handlers now hold a
+  reference through `Invoke`; the loader is no longer freed. The Windows and
+  Linux UI-thread ids are atomic. The Cocoa bridge now stays alive through a
+  script-message callback that destroys its editor.
+
+Classified (c), unchanged: CoUninitialize in the last state release may run
+inside a callback (balanced per view; hosts keep their own COM
+initialization); the Windows/Linux UI thread is adopted by the first creation
+(documented); Objective-C exceptions from AppKit/WebKit calls other than JSON
+encoding are not caught (none are expected for the validated arguments).
+
+New tests, each failing before its fix:
+- `crates/ravet-surface/native/tests/lifecycle.mm`: a posted `Date` body is
+  dropped and the next message still arrives. Without the fix the probe
+  terminated with `NSInvalidArgumentException`.
+- `crates/ravet-webview/native/tests/window-lifecycle.rs`: the same for the
+  standalone `ravetSettings` handler; without the fix the fixture terminated.
+- `native.rs`: `null_native_arguments_are_refused_without_dereference`.
+- `editor_abi.rs`: `misaligned_handles_are_refused_before_any_dereference`.
+
+Pre-existing breakage fixed: `scripts/check-window-lifecycle.py`,
+`check-window-constraints.py` and the Rust unit step of
+`check-native-semantics.py` failed to compile (`unresolved import
+crate::accessibility`), because their fixtures still included `src/macos.rs`,
+renamed to `src/native.rs`. The fixtures now include `native.rs` and
+`accessibility.rs`.
+
+Notices (decision 0292, [dependency notices](dependency-notices.md)):
+`ravet-webview` links no third-party crate; the standalone device crates add
+23 (macOS), 27 (Windows, 6 of them build-time procedural macros and their
+dependencies) and 11 (Linux, plus build-only `pkg-config`) crates, all
+permissive. Ten publish no licence file; the generator
+now writes a reconstructed MIT notice for those with an MIT option and prints
+a reminder. It also writes the WebView2 SDK licence and notice (Windows) and
+`SYSTEM-LIBRARIES-LGPL.txt` (Linux: GTK 3, WebKitGTK 4.1, JSON-GLib, GLib,
+ALSA) when those components are linked. The WebView2 SDK
+(`Microsoft.Web.WebView2` 1.0.4314.35) licence is BSD-3-Clause-style. The
+static MSVC CRT is covered by Microsoft's terms accepted through cargo-xwin.
+Release plan §6: the notice-audit item is ticked; the panic/unsafe item stays
+open for `ravet-device`, `ravet-midi-device` and `ravet-core-midi` (about 85
+non-test panic-class sites and 30 unsafe sites, not reviewed).
+
+Checks (macOS 27 arm64 unless stated):
+- `cargo test -p ravet-webview` (default 19, all features 26 tests, doctests
+  1), Clippy with warnings denied (all targets, default and all features),
+  `cargo fmt --check`, rustdoc with `-D warnings`, `cargo +1.88.0 check`
+  (all targets, all features) pass; `cargo test -p ravet-plugin --features
+  clap,native,editor` passes.
+- Native web-view CMake/CTest: 37 of 39 pass. `ravet-web-first-mouse` and
+  `ravet-web-keyboard-focus` fail identically on unmodified `release/0.1.0` in
+  this session, which cannot take key-window status; no focus result is claimed.
+- `check-native-semantics.py` (24 groups), `check-window-lifecycle.py` and
+  `check-window-constraints.py` pass.
+- 125 script tests pass.
+- `bundle-plugin.py --package ravet-delay-plugin --formats clap,vst3,au,aax,lv2
+  --release --validate` with `RAVET_*_SDK` variables: clap-validator 33 passed,
+  0 failed, 11 skipped; Steinberg validator 47 passed, 0 failed; `auval`
+  succeeds; AAX bundle check 1/1; LV2 4/4 and `lv2_validate` 0 errors; the four
+  signed macOS bundles pass `codesign --verify --strict`.
+- Linux x86_64 (Omarchy, over SSH): `ravet-webview` Clippy with warnings denied
+  and 15 tests pass; native CTest 4/4 with `WEBKIT_DISABLE_DMABUF_RENDERER=1`
+  (without it `ravet-web-paint` fails on GBM buffers, identically on unmodified
+  `release/0.1.0` in that session).
+- Windows x86_64: `cargo xwin clippy -p ravet-webview --all-targets --target
+  x86_64-pc-windows-msvc -- -D warnings` passes against WebView2 SDK
+  1.0.4314.35. Compile evidence only; no Windows run.
+
 <a id="release-010-docs-ci"></a>
 
 ## 0.1.0 release documentation, checklist audit and hosted CI — 5 November 2026

@@ -5,6 +5,9 @@
 // Parents: NSView on macOS, HWND on Windows, X11 Window ID cast to void* on Linux.
 // Returned views are owned by this API until destroy. Context outlives the view.
 // Message/snapshot strings are UTF-8; callbacks may allocate off the audio thread.
+// No exception crosses this ABI: the allocating entry points are noexcept, so an
+// escaping C++/Objective-C exception (allocation failure) terminates the process,
+// as a Rust allocation failure does. Calls from the wrong thread are refused.
 // Cocoa/WebKitGTK suppress browser context menus in every loaded frame while
 // preserving event propagation for consumer right-click/reset/custom-menu actions.
 typedef void (*RavetWebMessage)(void* context, const char* json);
@@ -15,9 +18,9 @@ typedef size_t (*RavetWebSnapshotBuffer)(void* context, char* output, size_t cap
 extern "C" {
 bool ravet_web_is_main_thread();
 void* ravet_web_create_html(const char* html, double width, double height, void* context,
-                            RavetWebMessage message, RavetWebSnapshotBuffer snapshot);
+                            RavetWebMessage message, RavetWebSnapshotBuffer snapshot) noexcept;
 void* ravet_web_create(const char* htmlPath, double width, double height, void* context,
-                       RavetWebMessage message, RavetWebSnapshot snapshot);
+                       RavetWebMessage message, RavetWebSnapshot snapshot) noexcept;
 // Opaque backing colour, initially white. Finite RGB components clamp to [0,1].
 // Returns false for a null view or nonfinite component; leaves colour unchanged.
 bool ravet_web_set_background(void* view, double red, double green, double blue);
@@ -29,7 +32,7 @@ bool ravet_web_set_size(void* view, double width, double height);
 // exactly once on the UI thread with whether the result was truthy; it is not
 // called when the view is destroyed first. Returns false if not admitted.
 typedef void (*RavetWebEvalDone)(void* context, bool truthy);
-bool ravet_web_eval(void* view, const char* script, void* context, RavetWebEvalDone done);
+bool ravet_web_eval(void* view, const char* script, void* context, RavetWebEvalDone done) noexcept;
 void ravet_web_set_visible(void* view, bool visible);
 void ravet_web_detach(void* view);
 void ravet_web_destroy(void* view);

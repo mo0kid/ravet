@@ -45,6 +45,9 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
 
 @implementation RavetWebBridge
 - (void)userContentController:(WKUserContentController*)controller didReceiveScriptMessage:(WKScriptMessage*)message {
+    // The message callback may destroy this editor; keep the bridge alive until return.
+    RavetWebBridge* owner __attribute__((objc_precise_lifetime)) = self;
+    (void)owner;
     if ([message.name isEqualToString:@"ravetKeyboard"]) {
         if (![message.body isKindOfClass:NSNumber.class]) return;
         if ([message.body boolValue]) [self beginTyping];
@@ -52,8 +55,11 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
         return;
     }
     if (!_message || ![message.body isKindOfClass:[NSDictionary class]]) return;
+    // Page bodies may hold values JSON cannot encode (a Date, NaN), for which
+    // dataWithJSONObject raises inside WebKit's delivery; drop those instead.
+    if (![NSJSONSerialization isValidJSONObject:message.body]) return;
     NSData* json = [NSJSONSerialization dataWithJSONObject:message.body options:0 error:nil];
-    if (json.length > 65536) return;
+    if (!json || json.length > 65536) return;
     NSString* text = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
     if (text) _message(_context, text.UTF8String);
 }
@@ -191,7 +197,6 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
 @end
 
 static RavetWebContainer* createContainer(double width, double height, void* context, RavetWebMessage message, RavetWebSnapshot snapshot, RavetWebSnapshotBuffer bufferSnapshot) {
-    NSCAssert(NSThread.isMainThread, @"RAVET editors require the main thread");
     if (!std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0) return nil;
     RavetWebContainer* container = [[RavetWebContainer alloc] initWithFrame:NSMakeRect(0,0,width,height)];
     container.background = NSColor.whiteColor;
@@ -219,9 +224,8 @@ static RavetWebContainer* createContainer(double width, double height, void* con
 }
 extern "C" bool ravet_web_is_main_thread() { return NSThread.isMainThread; }
 extern "C" void ravet_web_pump() {}
-extern "C" void* ravet_web_create(const char* htmlPath, double width, double height, void* context, RavetWebMessage message, RavetWebSnapshot snapshot) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (!htmlPath) return nullptr;
+extern "C" void* ravet_web_create(const char* htmlPath, double width, double height, void* context, RavetWebMessage message, RavetWebSnapshot snapshot) noexcept {
+    if (!NSThread.isMainThread || !htmlPath) return nullptr;
     NSString* path=[NSString stringWithUTF8String:htmlPath];
     if (!path) return nullptr;
     NSURL* url=[[NSURL fileURLWithPath:path] URLByResolvingSymlinksInPath];
@@ -232,9 +236,8 @@ extern "C" void* ravet_web_create(const char* htmlPath, double width, double hei
     [container.web loadFileURL:url allowingReadAccessToURL:container.bridge.root];
     return (__bridge_retained void*)container;
 }
-extern "C" void* ravet_web_create_html(const char* html, double width, double height, void* context, RavetWebMessage message, RavetWebSnapshotBuffer snapshot) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (!html || strnlen(html,1048577)>1048576) return nullptr;
+extern "C" void* ravet_web_create_html(const char* html, double width, double height, void* context, RavetWebMessage message, RavetWebSnapshotBuffer snapshot) noexcept {
+    if (!NSThread.isMainThread || !html || strnlen(html,1048577)>1048576) return nullptr;
     NSString* page=[NSString stringWithUTF8String:html];
     if (!page) return nullptr;
     RavetWebContainer* container=createContainer(width,height,context,message,nullptr,snapshot);
@@ -243,18 +246,15 @@ extern "C" void* ravet_web_create_html(const char* html, double width, double he
     return (__bridge_retained void*)container;
 }
 extern "C" bool ravet_web_set_size(void* view, double width, double height) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (!view || !std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0 || width > 16384 || height > 16384) return false;
+    if (!NSThread.isMainThread || !view || !std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0 || width > 16384 || height > 16384) return false;
     [(__bridge NSView*)view setFrameSize:NSMakeSize(width,height)];
     return true;
 }
 extern "C" void ravet_web_set_visible(void* view,bool visible) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (view) ((__bridge NSView*)view).hidden=!visible;
+    if (NSThread.isMainThread && view) ((__bridge NSView*)view).hidden=!visible;
 }
 extern "C" bool ravet_web_set_background(void* view, double red, double green, double blue) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (!view || !std::isfinite(red) || !std::isfinite(green) || !std::isfinite(blue)) return false;
+    if (!NSThread.isMainThread || !view || !std::isfinite(red) || !std::isfinite(green) || !std::isfinite(blue)) return false;
     RavetWebContainer* container = (__bridge RavetWebContainer*)view;
     container.background = [NSColor colorWithSRGBRed:std::clamp(red,0.0,1.0) green:std::clamp(green,0.0,1.0) blue:std::clamp(blue,0.0,1.0) alpha:1];
     container.layer.backgroundColor = container.background.CGColor;
@@ -263,18 +263,15 @@ extern "C" bool ravet_web_set_background(void* view, double red, double green, d
     return true;
 }
 extern "C" void ravet_web_attach(void* view, void* parent) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (view && parent) [(__bridge NSView*)parent addSubview:(__bridge NSView*)view];
+    if (NSThread.isMainThread && view && parent) [(__bridge NSView*)parent addSubview:(__bridge NSView*)view];
 }
 extern "C" void ravet_web_detach(void* view) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (!view) return;
+    if (!NSThread.isMainThread || !view) return;
     [((__bridge RavetWebContainer*)view).bridge endTyping:NO];
     [(__bridge NSView*)view removeFromSuperview];
 }
 extern "C" void ravet_web_destroy(void* view) {
-    NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (!view) return;
+    if (!NSThread.isMainThread || !view) return;
     RavetWebContainer* container = (__bridge_transfer RavetWebContainer*)view;
     [container.accessibilityOwner retire]; container.accessibilityOwner=nil;
     [container.bridge endTyping:NO];

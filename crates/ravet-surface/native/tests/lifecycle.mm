@@ -36,6 +36,11 @@ int main(int argc,char** argv) {
             if(probe.messages<before+2) std::cerr<<"messages="<<probe.messages<<" before="<<before<<" snapshots="<<probe.snapshots<<" url="<<(web.URL.absoluteString.UTF8String?:"nil")<<'\n';
             require(probe.messages>=before+2,"page did not receive its snapshot");
             require(probe.snapshots>0,"snapshots not polled");
+            // A body JSON cannot encode (Date) is dropped, not raised inside WebKit.
+            const int beforeDate=probe.messages;
+            [web evaluateJavaScript:@"window.webkit.messageHandlers.ravet.postMessage({when:new Date()});window.webkit.messageHandlers.ravet.postMessage({type:'after'});true" completionHandler:nil];
+            for(int tries=0;tries<40&&probe.messages<beforeDate+1;++tries) pump(.05);
+            pump(.1); require(probe.messages==beforeDate+1,"unencodable message not dropped exactly");
             __block bool updated=false;
             [web evaluateJavaScript:@"window.lastValue===0.5" completionHandler:^(id result,NSError* error) { updated=!error&&[result boolValue]; }];
             for(int tries=0;tries<20&&!updated;++tries) pump(.05); require(updated,"snapshot not rendered");

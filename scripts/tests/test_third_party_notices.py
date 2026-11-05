@@ -58,7 +58,9 @@ class NoticeTests(unittest.TestCase):
         self.assertIn("--- LICENSE-APACHE ---\nApache text", text)
         self.assertNotIn("not a notice", text)
         self.assertIn("bare 1.0.0", text)
-        self.assertIn("No licence file in the published archive", text)
+        self.assertIn("published archive has no licence file", text)
+        self.assertIn("Copyright (c) the bare contributors", text)
+        self.assertIn("Permission is hereby granted", text)
         self.assertNotIn("ravet-foundation", text)
         self.assertNotIn("product 1.0.0", text)
         self.assertEqual((out / "RAVET-LICENSE.txt").read_text(), "GPL fixture")
@@ -76,6 +78,59 @@ class NoticeTests(unittest.TestCase):
         out = self.root / "html"
         third_party_notices.write(self.root, "product", out, run=self.fake)
         self.assertEqual((out / "RUST-STANDARD-LIBRARY-COPYRIGHT.html").read_text(), "<html>std</html>")
+
+    def test_missing_licence_file_without_mit_option_keeps_a_pointer(self):
+        body = third_party_notices.missing_licence_body({"name": "x", "license": "Zlib OR Apache-2.0"})
+        self.assertIn("No licence file", body)
+        self.assertNotIn("Permission is hereby granted", body)
+        body = third_party_notices.missing_licence_body(
+            {"name": "y", "license": "Zlib OR Apache-2.0 OR MIT", "authors": ["A Person <a@example.invalid>"]})
+        self.assertIn("Copyright (c) A Person\n", body)
+
+    def test_windows_editor_ships_webview2_sdk_notices(self):
+        sdk = self.root / "webview2"
+        sdk.mkdir()
+        (sdk / "LICENSE.txt").write_text("WebView2 BSD")
+        (sdk / "NOTICE.txt").write_text("WebView2 third parties")
+        out = self.root / "windows"
+        out.mkdir()
+        reminders = third_party_notices.system_notices(out, ["ravet-webview"], "x86_64-pc-windows-msvc",
+                                                       environ={"RAVET_WEBVIEW2_SDK": str(sdk)})
+        self.assertEqual(reminders, [])
+        self.assertEqual((out / "WebView2-SDK-LICENSE.txt").read_text(), "WebView2 BSD")
+        self.assertEqual((out / "WebView2-SDK-NOTICE.txt").read_text(), "WebView2 third parties")
+        missing = self.root / "missing"
+        missing.mkdir()
+        reminders = third_party_notices.system_notices(missing, ["ravet-webview"], "x86_64-pc-windows-msvc", environ={})
+        self.assertEqual(len(reminders), 2)
+        self.assertEqual(list(missing.iterdir()), [])
+        self.assertEqual(third_party_notices.system_notices(missing, ["serde_json"], "x86_64-pc-windows-msvc",
+                                                            environ={}), [])
+
+    def test_linux_lists_lgpl_system_libraries_only_when_linked(self):
+        lgpl = self.root / "LGPL-2.1"
+        lgpl.write_text("GNU LESSER GENERAL PUBLIC LICENSE Version 2.1")
+        out = self.root / "linux"
+        out.mkdir()
+        reminders = third_party_notices.system_notices(out, ["ravet-webview", "alsa-sys"],
+                                                       "x86_64-unknown-linux-gnu", lgpl_texts=(str(lgpl),))
+        text = (out / "SYSTEM-LIBRARIES-LGPL.txt").read_text()
+        self.assertEqual(reminders, [])
+        for name in ("WebKitGTK 4.1", "GTK 3", "JSON-GLib", "ALSA library", "Version 2.1", "reverse engineering"):
+            self.assertIn(name, text)
+        audio = self.root / "audio"
+        audio.mkdir()
+        reminders = third_party_notices.system_notices(audio, ["alsa-sys"], "x86_64-unknown-linux-gnu",
+                                                       lgpl_texts=())
+        text = (audio / "SYSTEM-LIBRARIES-LGPL.txt").read_text()
+        self.assertNotIn("WebKitGTK", text)
+        self.assertIn("lgpl-2.1.txt", text)
+        self.assertEqual(len(reminders), 1)
+        none = self.root / "none"
+        none.mkdir()
+        third_party_notices.system_notices(none, ["ravet-webview"], "aarch64-apple-darwin")
+        third_party_notices.system_notices(none, ["serde_json"], "x86_64-unknown-linux-gnu")
+        self.assertEqual(list(none.iterdir()), [])
 
 
 if __name__ == "__main__":

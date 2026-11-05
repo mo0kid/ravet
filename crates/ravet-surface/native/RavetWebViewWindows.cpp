@@ -17,7 +17,8 @@
 #include <cstdio>
 
 namespace {
-DWORD uiThread=0;
+// Adopted by the first creation; read by every entry point.
+std::atomic<DWORD> uiThread{0};
 // Opt-in diagnostics: RAVET_WEB_DEBUG=<file> appends backend events there.
 void trace(const char* format,...) {
     static const char* path=getenv("RAVET_WEB_DEBUG"); if(!path||!*path) return;
@@ -42,7 +43,9 @@ public:
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
     ULONG STDMETHODCALLTYPE Release() override { auto n=--refs; if(!n) delete this; return n; }
-    HRESULT STDMETHODCALLTYPE Invoke(Args... args) override { return function(args...); }
+    // The callback may destroy its editor and with it this registration; hold a
+    // reference until it returns. Exceptions cannot escape into WebView2.
+    HRESULT STDMETHODCALLTYPE Invoke(Args... args) noexcept override { AddRef(); HRESULT result=function(args...); Release(); return result; }
 };
 struct State {
     HWND window=nullptr;
@@ -60,7 +63,9 @@ struct State {
     std::string delivered;
     COLORREF background=RGB(255,255,255);
     EventRegistrationToken messageToken{},navigationToken{},loadToken{},popupToken{};
-    ~State() { if(web) web->Release(); if(controller) controller->Release(); if(loader) FreeLibrary(loader); if(com) CoUninitialize(); }
+    // The loader stays loaded: the last reference may drop inside a WebView2
+    // callback, and unloading the loader there could unload code still on the stack.
+    ~State() { if(web) web->Release(); if(controller) controller->Release(); if(com) CoUninitialize(); }
 };
 using Owner=std::shared_ptr<State>;
 using Weak=std::weak_ptr<State>;
@@ -94,7 +99,7 @@ void poll(Owner owner) {
     });
     if(FAILED(s.web->ExecuteScript(script.c_str(),done))) s.evaluating=false; done->Release();
 }
-LRESULT CALLBACK windowProc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
+LRESULT CALLBACK windowProc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) noexcept {
     auto* handle=reinterpret_cast<Owner*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
     if(handle) {
         auto owner=*handle; auto& s=*owner;
@@ -169,13 +174,13 @@ Owner create(double w,double h,void* context,RavetWebMessage message,RavetWebSna
 }
 void* finish(Owner s) { auto* handle=new Owner(s); SetWindowLongPtrW(s->window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(handle)); SetTimer(s->window,1,50,nullptr); initialize(s); return handle; }
 }
-extern "C" bool ravet_web_is_main_thread() { return !uiThread||GetCurrentThreadId()==uiThread; }
+extern "C" bool ravet_web_is_main_thread() { DWORD ui=uiThread.load(); return !ui||GetCurrentThreadId()==ui; }
 extern "C" void ravet_web_pump() {}
-extern "C" void* ravet_web_create(const char* path,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot) {
+extern "C" void* ravet_web_create(const char* path,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot) noexcept {
     if(!path) return nullptr; std::error_code error; auto file=std::filesystem::canonical(std::filesystem::u8path(path),error); if(error||!std::filesystem::is_regular_file(file,error)) return nullptr;
     auto s=create(w,h,context,message,snapshot,nullptr); if(!s) return nullptr; s->path=file.wstring(); s->root=file.parent_path().wstring(); return finish(s);
 }
-extern "C" void* ravet_web_create_html(const char* html,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshotBuffer snapshot) {
+extern "C" void* ravet_web_create_html(const char* html,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshotBuffer snapshot) noexcept {
     if(!html||strnlen(html,1048577)>1048576) return nullptr; auto page=wide(html); if(page.empty()) return nullptr;
     auto s=create(w,h,context,message,nullptr,snapshot); if(!s) return nullptr; s->html=page; return finish(s);
 }
@@ -201,7 +206,7 @@ extern "C" bool ravet_web_set_size(void* view,double w,double h) {
     auto& s=**static_cast<Owner*>(view); if(s.closed) return false;
     return SetWindowPos(s.window,nullptr,0,0,int(std::lround(w)),int(std::lround(h)),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE)!=0;
 }
-extern "C" bool ravet_web_eval(void* view,const char* script,void* context,RavetWebEvalDone done) {
+extern "C" bool ravet_web_eval(void* view,const char* script,void* context,RavetWebEvalDone done) noexcept {
     if(!view||!script||strnlen(script,1048577)>1048576) return false;
     auto owner=*static_cast<Owner*>(view); if(owner->closed||!owner->web||!owner->ready) return false;
     auto code=wide(script); if(code.empty()) return false; Weak weak=owner;

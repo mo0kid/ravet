@@ -345,6 +345,8 @@ fn font_axes(tables: &[FontTable]) -> Result<Vec<Axis>, FontError> {
         return Ok(Vec::new());
     };
     let data = &table.bytes;
+    // The `try_into().unwrap()` calls below convert slices of exactly 2 or 4
+    // bytes, bounds-checked first, into arrays; they cannot fail.
     let u16_at = |i: usize| -> Result<u16, FontError> {
         Ok(u16::from_be_bytes(
             data.get(i..i + 2)

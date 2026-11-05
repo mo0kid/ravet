@@ -12,6 +12,7 @@
 //! still reach page controls for reset actions and custom menus.
 //! `ContentConstraints` and checked explicit native semantic models are portable;
 //! the native accessibility companion is macOS only. See `docs/native-editor.md`.
+#![deny(clippy::undocumented_unsafe_blocks)]
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 #[allow(unsafe_code)]
 mod native;

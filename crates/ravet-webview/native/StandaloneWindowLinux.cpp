@@ -47,7 +47,8 @@ Host* live(void* handle) {
 }
 }
 
-extern "C" void* ravet_standalone_create(bool hidden, bool settings, const char* title, double width, double height, bool lockAspect) {
+// Allocating entry points are noexcept: no exception unwinds into Rust.
+extern "C" void* ravet_standalone_create(bool hidden, bool settings, const char* title, double width, double height, bool lockAspect) noexcept {
     if (!title || !ravet_web_is_main_thread()) return nullptr;
     if (!gdk_display_get_default()) gdk_set_allowed_backends("x11");
     if (!gtk_init_check(nullptr, nullptr) || !GDK_IS_X11_DISPLAY(gdk_display_get_default())) return nullptr;
@@ -141,7 +142,7 @@ extern "C" bool ravet_standalone_pump(void* handle, double seconds) {
 extern "C" void ravet_standalone_fit_editor(void* handle) {
     if (auto* w = live(handle)) ravet_standalone_attach_editor(w, w->view);
 }
-extern "C" bool ravet_standalone_eval(void* handle, const char* script) {
+extern "C" bool ravet_standalone_eval(void* handle, const char* script) noexcept {
     auto* w = live(handle);
     if (!w || !w->view || !script) return false;
     struct Result { bool done = false, truthy = false; };

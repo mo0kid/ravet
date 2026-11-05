@@ -203,19 +203,24 @@ impl StandaloneWindow {
         // SAFETY: window retains its content NSView until after caller drops the web view.
         let parent = NonNull::new(unsafe { ravet_standalone_view(self.handle.as_ptr()) })
             .ok_or("Standalone window content view unavailable")?;
+        // SAFETY: the parent is this live window's content view (NSView, HWND or
+        // X11 socket ID), which outlives the editor through its borrow.
         unsafe {
             web.attach(parent);
             #[cfg(not(target_os = "macos"))]
             ravet_standalone_attach_editor(self.handle.as_ptr(), web.raw());
             ravet_standalone_fit_editor(self.handle.as_ptr());
         }
+        // Construct the owner first: on Windows/Linux its Drop clears the window's
+        // editor pointer, so this error path leaves no dangling native reference.
+        let editor = StandaloneEditor {
+            view: web,
+            _window: self,
+        };
         if self.state().is_none_or(|state| state.closed) {
             return Err("Standalone window closed while attaching its editor".into());
         }
-        Ok(StandaloneEditor {
-            view: web,
-            _window: self,
-        })
+        Ok(editor)
     }
     /// Dispatch main-thread native events for at most this many seconds (0..1).
     /// Returns whether the window is visible; hidden fixtures may ignore it.
