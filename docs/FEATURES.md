@@ -290,6 +290,7 @@ See [Getting started](getting-started.md) for commands,
 | [Processing heap instrumentation](#heap-instrumentation) | Implemented | Processing-thread allocation and deallocation probes exercise gain, the CLAP bridge, and host ABI callbacks, including resets and malformed inputs. |
 | [CLAP bundling and smoke host](#clap-development-tools) | Prototype | A Python bundler creates a local optimized or debug artifact; a native development host loads it and checks automation, ports, flush, lifecycle, and active state recall. |
 | [Disposable REAPER validation harness](#reaper-validation-tools) | Prototype | Public ReaScript checks host discovery, parameter state, editor window creation, automation playback and saved-session recall; Python generates synthetic stereo audio and verifies actual DAW-rendered output. The native meter prototype requires a public marker and empty project before mutations. |
+| [Scripted REAPER check of the RAVET Delay product](#reaper-delay-harness) | Prototype | One unattended command per plug-in format creates a disposable REAPER resource directory, installs a private copy of the delay bundle, inserts it by format name, sets and reads back parameters through the ReaScript API, renders fixed-time, recalled and tempo-synced cases, reopens saved projects to check recall, quits, and verifies exact echo sample positions, mix and silence in the rendered WAV files. |
 | [Runtime contract workflow configuration](#runtime-contract-ci) | Prototype | A three-platform GitHub workflow configures workspace formatting/tests/lints/Rustdoc and a separate macOS built-CLAP ABI smoke job with two Cargo workers. |
 | [Live searchable documentation portal](#live-documentation-site) | Implemented | Canonical guides, generated capabilities and decision records build into a searchable responsive static portal with live rebuilding and linked workspace Rustdoc. |
 | [Explicit bounded local-video worker frames](#local-video-worker-frames) | Prototype | A separate macOS reader opens selected local video, reports first-track oriented metadata and extracts independently timestamped complete owned RGBA frames through a private AVFoundation boundary. |
@@ -4605,6 +4606,20 @@ Public ReaScript checks host discovery, parameter state, editor window creation,
 **Source:** [`tools/reaper-validation/validate.lua`](../tools/reaper-validation/validate.lua), [`tools/reaper-validation/ui-check.lua`](../tools/reaper-validation/ui-check.lua), [`tools/reaper-validation/prepare.py`](../tools/reaper-validation/prepare.py), [`tools/reaper-validation/check-renders.py`](../tools/reaper-validation/check-renders.py), [`tools/reaper-validation/native-meters.lua`](../tools/reaper-validation/native-meters.lua).
 
 **Tests:** [`tools/reaper-validation/test_checks.py`](../tools/reaper-validation/test_checks.py), [`tools/reaper-validation/validate.lua`](../tools/reaper-validation/validate.lua), [`tools/reaper-validation/ui-check.lua`](../tools/reaper-validation/ui-check.lua).
+
+**Documentation:** [`docs/host-validation.md`](../docs/host-validation.md), [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md).
+
+<a id="reaper-delay-harness"></a>
+
+### Scripted REAPER check of the RAVET Delay product
+
+One unattended command per plug-in format creates a disposable REAPER resource directory, installs a private copy of the delay bundle, inserts it by format name, sets and reads back parameters through the ReaScript API, renders fixed-time, recalled and tempo-synced cases, reopens saved projects to check recall, quits, and verifies exact echo sample positions, mix and silence in the rendered WAV files.
+
+**Limits:** Offline master-mix renders at 48 kHz only; no live playback, device, deadline, editor or automation check. Passed for CLAP and LV2 with REAPER 7.82 on macOS 27.0.1 arm64 and Arch Linux x86_64; Windows not run, its plug-in path ini keys unconfirmed. VST3 and AU accepted by format name but not run; VST3 runs need REAPER's startup scan of the system VST3 folders and AU must be installed system-wide. macOS runs use a private re-signed REAPER copy with its own bundle identifier.
+
+**Source:** [`tools/reaper-validation/delay.py`](../tools/reaper-validation/delay.py), [`tools/reaper-validation/delay.lua`](../tools/reaper-validation/delay.lua), [`tools/reaper-validation/delay_checks.py`](../tools/reaper-validation/delay_checks.py).
+
+**Tests:** [`tools/reaper-validation/test_delay.py`](../tools/reaper-validation/test_delay.py).
 
 **Documentation:** [`docs/host-validation.md`](../docs/host-validation.md), [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md).
 

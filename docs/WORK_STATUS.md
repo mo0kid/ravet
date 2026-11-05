@@ -6,6 +6,69 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+## Scripted REAPER delay check — 5 November 2026
+
+Added an unattended REAPER check for the RAVET Delay product
+(`tools/reaper-validation/delay.py`, `delay.lua`, `delay_checks.py`; see
+[host validation](host-validation.md#scripted-ravet-delay-check-any-format-macoslinuxwindows)).
+One command per format builds a disposable resource directory, loads the
+bundle by format name, edits and reads back parameters, renders three cases,
+checks saved-project recall, quits REAPER and verifies the rendered samples.
+Branch `tools/reaper-harness` from `release/0.1.0` (`4c0b2f2`); bundles were
+built from that source with `bundle-clap.py --plugin delay --profile release`
+and `bundle-lv2.py --plugin delay` (LV2 1.18.10 headers).
+
+Executed, all with REAPER 7.82 and 48 kHz 24-bit PCM master-mix renders:
+
+| OS | Format | Discovered as | Host checks | Renders |
+| --- | --- | --- | --- | --- |
+| macOS 27.0.1 (26A434) arm64, REAPER 7.82/macOS-arm64 | CLAP | `CLAP: RAVET Delay (RAVET)` | 63 PASS | PASS |
+| macOS 27.0.1 arm64 | LV2 | `LV2: RAVET Delay (RAVET)` | 63 PASS | PASS |
+| Arch Linux x86_64 (kernel 7.2.11), REAPER 7.82/linux-x86_64 | CLAP | `CLAP: RAVET Delay (RAVET)` | 63 PASS | PASS |
+| Arch Linux x86_64 | LV2 | `LV2: RAVET Delay (RAVET)` | 63 PASS | PASS |
+
+In all four runs: every parameter edit read back exactly (time 100 ms,
+feedback 0, mix 100/50, ping-pong 0, sync 0/1, division 6 = 1/8); both
+reopened projects recalled every control and the 150 BPM tempo; REAPER quit by
+itself with exit status 0 (1.5–6.5 s per run); the normal REAPER resource
+directory was unchanged during each run. Rendered samples (192000 frames per
+channel, both channels):
+
+- `fixed` and `recalled` (sync off, 100 ms, mix 100): echoes at frames 28800
+  and 100800, exactly +4800 frames after the impulses at 24000 and 96000,
+  amplitudes 0.5000000/−0.2500000; dry 0; maximum residual elsewhere 0.
+- `synced` (sync on, 1/8 at 150 BPM, mix 50): echoes at frames 33600 and
+  105600, exactly +9600 frames (200 ms), amplitudes 0.2500000/−0.1250000 and
+  dry 0.2500000/−0.1250000; maximum residual elsewhere 0.
+
+Problems found while making it unattended, now handled by the driver:
+
+- macOS showed its "REAPER unexpectedly quit while reopening windows" prompt
+  (tied to the `com.cockos.reaper` bundle identifier) after a terminated run.
+  The driver now runs a private ad hoc signed copy of REAPER.app with bundle
+  identifier `org.ravet.reaper-harness`.
+- REAPER always appends the system VST3 folders to the VST path; on this Mac
+  the startup scan stalled on an unresponsive third-party VST3. The driver sets
+  `vst_scan=2` (no startup VST scan; CLAP and LV2 still scanned) unless VST3
+  is under test.
+- CLAP parameter edits reach the plug-in only at its next process/flush, so
+  readback waits in a `defer`-driven coroutine (bounded at 10 s).
+- An early attempt passed `-ApplePersistenceIgnoreState YES` before `-cfgfile`;
+  REAPER then ignored `-cfgfile` and started with the normal user resource
+  directory on this Mac, and a `CLAP_PATH` variable set by that driver let it
+  scan the test bundle. Three such launches (about 03:07–03:10) rewrote REAPER's
+  own files there (`reaper.ini`, `reaper-reginfo2.ini`, `reaper-midihw.ini`,
+  plug-in scan caches; the CLAP cache gained a `RAVET Delay.clap` entry). No
+  project was saved or modified, and the instance was killed without quitting.
+  The argument and the environment variable were removed (`--env-path` opts
+  back in), and the resource-directory guard and changed-file check were added.
+
+Not run: Windows (commands are documented; its plug-in path ini keys are
+unconfirmed), VST3 and AU (accepted by format name; their adapters are on other
+branches). Live playback, audio devices, deadlines, the editor and automation
+are outside this check. `python3 -m unittest tools/reaper-validation/test_delay.py
+tools/reaper-validation/test_checks.py`: 11 tests pass.
+
 ## Generic LV2 adapter over the plug-in table — 5 November 2026
 
 Added the generic LV2 export ([decision 0283](decisions/0283-generic-lv2-adapter.md),
