@@ -92,7 +92,7 @@ def module_suffix(platform):
 
 
 def build_generic(context, *, product_library=None, target_directory=None,
-                  profile="release", validate=True):
+                  profile="release", validate=True, cmake_options=()):
     """Build the product library and the adapter; return (target, build directory)."""
     metadata = ({"target_directory": str(target_directory)} if target_directory else json.loads(context.runner.run(["cargo", "metadata", "--no-deps", "--locked",
                                               "--format-version", "1"], capture=True)))
@@ -116,7 +116,7 @@ def build_generic(context, *, product_library=None, target_directory=None,
         configure += [f"-DRAVET_PLUGIN_LIBRARY={library}", f"-DRAVET_LV2_BUNDLE_NAME={context.name}"]
     else:
         configure += ["-DRAVET_PLUGIN_LIBRARY=", "-DRAVET_LV2_BUNDLE_NAME="]
-    context.runner.run(configure)
+    context.runner.run([*configure, *cmake_options])
     context.runner.run(["cmake", "--build", build, "--config", config, "--parallel", "2"])
     if validate:
         context.runner.run(["ctest", "--test-dir", build, "-C", config, "--output-on-failure"])
