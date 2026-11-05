@@ -19,6 +19,16 @@ set(RAVET_LV2_SDK "" CACHE PATH "External LV2 source SDK")
 set(RAVET_PLUGIN_LIBRARY "" CACHE FILEPATH "Product library exporting ravet_plugin_v1 (optional)")
 set(RAVET_LV2_BUNDLE_NAME "" CACHE STRING "Bundle name for RAVET_PLUGIN_LIBRARY (without .lv2)")
 set(RAVET_LV2_LICENSE "" CACHE STRING "Optional doap:license URI written to plugin.ttl")
+# The product table hosts editors in Cocoa views only in this release, so
+# product bundles declare their LV2 UI on macOS by default. Turn this on
+# elsewhere once the table hosts X11/Win32 editors. The mock bundle always
+# includes the UI, so the UI module's X11/Win32 paths stay tested.
+if(APPLE)
+    set(ravet_lv2_ui_default ON)
+else()
+    set(ravet_lv2_ui_default OFF)
+endif()
+option(RAVET_LV2_UI "Declare and ship the LV2 UI in product bundles" ${ravet_lv2_ui_default})
 
 if(EXISTS "${RAVET_LV2_SDK}/include/lv2/core/lv2.h")
     set(lv2_include "${RAVET_LV2_SDK}/include")
@@ -87,8 +97,14 @@ endif()
 
 # Assemble <bundle>.lv2 from the generic modules, a product library and Turtle
 # generated from that library's table.
-function(ravet_lv2_bundle name library dependency)
+function(ravet_lv2_bundle name library dependency with_ui)
     set(bundle "${CMAKE_BINARY_DIR}/bundles/${name}.lv2")
+    set(ui_commands "")
+    set(ui_args "")
+    if(with_ui)
+        set(ui_commands COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:ravet_lv2_ui>" "${bundle}/ravet_lv2_ui${ravet_lv2_suffix}")
+        set(ui_args --ui-binary "ravet_lv2_ui${ravet_lv2_suffix}" --ui-class "${ravet_lv2_ui_class}")
+    endif()
     set(license_args "")
     if(RAVET_LV2_LICENSE)
         set(license_args --license "${RAVET_LV2_LICENSE}")
@@ -97,17 +113,16 @@ function(ravet_lv2_bundle name library dependency)
         OUTPUT "${bundle}/plugin.ttl" "${bundle}/manifest.ttl"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${bundle}"
         COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:ravet_lv2>" "${bundle}/ravet_lv2${ravet_lv2_suffix}"
-        COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:ravet_lv2_ui>" "${bundle}/ravet_lv2_ui${ravet_lv2_suffix}"
+        ${ui_commands}
         COMMAND "${CMAKE_COMMAND}" -E copy "${library}" "${bundle}/ravet_product${ravet_lv2_suffix}"
         COMMAND "$<TARGET_FILE:ravet_lv2_turtle>" "${bundle}/ravet_product${ravet_lv2_suffix}" "${bundle}"
-                --binary "ravet_lv2${ravet_lv2_suffix}" --ui-binary "ravet_lv2_ui${ravet_lv2_suffix}"
-                --ui-class "${ravet_lv2_ui_class}" ${license_args}
+                --binary "ravet_lv2${ravet_lv2_suffix}" ${ui_args} ${license_args}
         DEPENDS ravet_lv2 ravet_lv2_ui ravet_lv2_turtle ${dependency} "${library}"
         VERBATIM)
     add_custom_target(${name}_bundle ALL DEPENDS "${bundle}/plugin.ttl")
 endfunction()
 
-ravet_lv2_bundle(ravet_lv2_mock "$<TARGET_FILE:ravet_lv2_mock>" ravet_lv2_mock)
+ravet_lv2_bundle(ravet_lv2_mock "$<TARGET_FILE:ravet_lv2_mock>" ravet_lv2_mock ON)
 
 enable_testing()
 add_test(NAME ravet_lv2_mock_contracts
@@ -136,10 +151,15 @@ if(RAVET_PLUGIN_LIBRARY)
         get_filename_component(RAVET_LV2_BUNDLE_NAME "${RAVET_PLUGIN_LIBRARY}" NAME_WE)
         string(REGEX REPLACE "^lib" "" RAVET_LV2_BUNDLE_NAME "${RAVET_LV2_BUNDLE_NAME}")
     endif()
-    ravet_lv2_bundle(${RAVET_LV2_BUNDLE_NAME} "${RAVET_PLUGIN_LIBRARY}" "")
+    ravet_lv2_bundle(${RAVET_LV2_BUNDLE_NAME} "${RAVET_PLUGIN_LIBRARY}" "" ${RAVET_LV2_UI})
+    if(RAVET_LV2_UI)
+        set(product_ui "ravet_lv2_ui${ravet_lv2_suffix}")
+    else()
+        set(product_ui "-")
+    endif()
     add_test(NAME ${RAVET_LV2_BUNDLE_NAME}_smoke
              COMMAND ravet_lv2_contracts "${CMAKE_BINARY_DIR}/bundles/${RAVET_LV2_BUNDLE_NAME}.lv2"
-                     "ravet_lv2${ravet_lv2_suffix}" "ravet_lv2_ui${ravet_lv2_suffix}")
+                     "ravet_lv2${ravet_lv2_suffix}" "${product_ui}")
     if(LILV_FOUND)
         add_test(NAME ${RAVET_LV2_BUNDLE_NAME}_lilv
                  COMMAND ravet_lv2_lilv_host "${CMAKE_BINARY_DIR}/bundles/${RAVET_LV2_BUNDLE_NAME}.lv2")

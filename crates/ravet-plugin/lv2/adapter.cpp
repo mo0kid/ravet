@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -525,7 +526,10 @@ Library &library() {
     std::call_once(once, [] {
         const std::string directory = moduleDirectory(reinterpret_cast<const void *>(&extensionData));
         instance.entry = loadProduct(directory + productFile, instance.error);
-        if (!instance.entry) return;
+        if (!instance.entry) {
+            std::fprintf(stderr, "RAVET LV2: %s\n", instance.error.c_str());
+            return;
+        }
         instance.uri = instance.entry->product->lv2_uri;
         instance.descriptor = {instance.uri.c_str(), instantiate, connectPort, activate, run, deactivate, cleanup,
                                extensionData};
