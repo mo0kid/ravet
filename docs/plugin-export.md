@@ -2,9 +2,11 @@
 
 **Status:** Prototype, under construction for 0.1.0. The design is
 [decision 0281](decisions/0281-generic-export-layer.md). The product
-description, saved-state envelope, editor protocol and a generic CLAP export
-exist so far, in `ravet-plugin` (umbrella features `plugin` and `plugin-clap`).
-VST3, AU, AAX and LV2 adapters, the editor transport and the bundle tool follow.
+description, saved-state envelope, editor protocol, automation and bypass
+policies, a generic CLAP export and the generic C table for the other formats
+exist so far, in `ravet-plugin` (umbrella features `plugin` and `plugin-clap`;
+`plugin-native` / crate feature `native` for the table). The VST3, AU, AAX and LV2 adapters over
+that table, the editor transport and the bundle tool follow.
 
 ## Product description
 
@@ -70,12 +72,61 @@ The processor receives parameter changes as `ParameterValue` events with the
 product's host IDs and physical values, already clamped and snapped to range.
 `migrate_state` and `import_state` supply the [state hooks](#saved-state).
 
+### Automation and bypass policies
+
+Every format runs the product's processor inside a `PolicyProcessor`, so these
+policies behave the same in CLAP and in the [native table](#native-table):
+
+```rust
+use ravet_plugin::{AutomationPolicy, BypassPolicy};
+
+const PRODUCT: Product = Product::new(/* … */)
+    .with_parameters(PARAMETERS) // must include a Parameter::bypass
+    .with_automation(AutomationPolicy::PerBlock)
+    .with_bypass(BypassPolicy::Crossfade { milliseconds: 10.0 });
+```
+
+| Policy | Behaviour |
+|---|---|
+| `AutomationPolicy::SampleAccurate` (default) | Parameter events keep the host's frame offsets. |
+| `AutomationPolicy::PerBlock` | Every parameter event (values, modulation, gestures, global or scoped) moves to offset 0, ahead of the block's other events, in its original order. |
+| `BypassPolicy::Processor` (default) | The processor receives the bypass parameter and implements bypass itself. |
+| `BypassPolicy::Hard` | The processor keeps running; the output switches to the dry input at the bypass event's offset. |
+| `BypassPolicy::Crossfade { milliseconds }` | As `Hard`, with a linear crossfade (more than 0, at most 1,000 ms) starting at the event's offset. A reset completes a running crossfade. |
+| `BypassPolicy::Frozen` | While bypassed the processor does not run, so its history is frozen. The input is copied to the output with `AudioBuffer::pass_through`, without scratch storage. Parameter events still reach the processor in a zero-frame block; notes and other events are discarded. The switch happens on block boundaries, using the block's last bypass value. Not available with auxiliary buses. |
+
+Every policy except `Processor` consumes the bypass parameter: the processor
+never receives its events, and `Product::resolve` rejects the policy unless the
+product declares a `Parameter::bypass` (`ProductError::BypassPolicyWithoutParameter`).
+`Hard` and `Crossfade` keep one prepared dry copy per output channel; with
+fewer inputs than outputs the last input feeds the remaining outputs, and an
+instrument's dry signal is silence. **The dry path is not
+latency-compensated**: a product that reports latency and needs a
+compensated bypass keeps `BypassPolicy::Processor`. Processing and reset never
+allocate under any policy.
+
+`AudioBuffer::pass_through` (in `ravet-foundation`) is also usable directly: with
+separate storage it copies input channel *c*, or the last input, to output *c*;
+in place it does nothing; with no inputs it clears the outputs.
+
+### Denormal guard
+
+Every export wraps the policy processor in `ravet_native_dsp::DenormalProcessor`
+with `DenormalMode::FlushBoth`: for the duration of each processing call,
+denormal inputs and results are flushed to zero (FTZ/DAZ on x86-64, FZ on
+AArch64), and the previous floating-point mode is restored afterwards, also on
+unwinding. The product's processor and the policies therefore run with
+denormals flushed in every format; products need no guard of their own. A
+platform where the mode cannot be set fails activation (CLAP) or creation (the
+native table) instead of processing without the guard.
+
 ### CLAP export
 
 The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 
 - The descriptor, audio ports, note input and parameters come from the product.
   Parameters with integer steps, and the bypass toggle, are marked stepped.
+- Parameter text uses `ravet_plugin::text`, shared with the native table.
 - Host values are snapped to their ranges before the processor sees them, and
   recorded in a shared parameter cache. Values the host sets on the main thread
   update the cache immediately, so saving state never misses them.
@@ -83,7 +134,9 @@ The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
   sends every value to the processor and resets it before the next block.
 - Latency is reported at activation; a later change requests a host restart.
   Tail follows `Processor::tail`.
-- Every processing call runs inside `DenormalProcessor` with denormals flushed.
+- Every processing call runs inside the product's
+  [policies](#automation-and-bypass-policies) and the
+  [denormal guard](#denormal-guard).
 - On macOS, a product with an editor gets the CLAP GUI extension; see
   [editors](#editors).
 
@@ -95,6 +148,57 @@ Limits for now:
 - The editor runs on macOS only; Windows and Linux editors follow.
 - The automation reflection racing a concurrent state load can keep the
   automated value for that parameter.
+
+### Native table
+
+With the `native` feature, `export_plugin!` also exports
+`ravet_plugin_v1`, which returns the `RavetPluginEntryV1` table declared in
+[`crates/ravet-plugin/include/RavetPlugin.h`](../crates/ravet-plugin/include/RavetPlugin.h).
+The VST3, AUv2, AAX and LV2 adapters are written once against it. The header is
+the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
+
+- **Static data.** The product record, per-format identities, layouts (with
+  their AAX type IDs) and parameter records are built once, on the first call,
+  and live as long as the library. An invalid product, or one declaring only
+  f64 processing, has no table (`NULL`).
+- **Parameters.** Text uses the same formatting as CLAP; text that does not fit
+  the caller's buffer is truncated at a character boundary and reported with 1.
+  `normalize`/`denormalize` honour scale and steps and clamp and snap.
+- **Instances** own the parameter cache, the editor edit queue and the
+  processor inside its policies and denormal guard. `set_value` (a host-side
+  change) and editor edits update the cache at once and mark the parameter;
+  the next `process` delivers marked values at offset 0, ahead of the host's
+  events. At most 1,024 events reach the processor per block; marked changes
+  that do not fit wait for the next block. `save_state` writes the envelope
+  from the cache. `load_state` applies all values or none, using the product's
+  migrate and import hooks; before the next block the processor receives every
+  value in a zero-frame block, then a reset (events the processor generates in
+  that zero-frame block are discarded).
+- **Processing** is 32-bit float, main bus only. Buses, events and transport are
+  converted by `ravet-native`; host buffers are copied into prepared scratch,
+  so in-place hosts are safe. Host parameter values need not be exactly
+  representable as `float`; they are clamped, snapped and written to the cache,
+  and events for unknown IDs or with nonfinite values are dropped. `process`
+  and `reset` never allocate. `latency_changed` reports a latency change after
+  a block until the adapter reads `timing`.
+- **Faults.** Every function catches panics and returns 2. After a panic,
+  `process` (silencing its outputs), `reset` and `timing` return 2 until the next
+  successful `prepare`, which recreates the processor; parameter, state and
+  editor calls keep working.
+- **Editor.** On macOS, `editor_open` with `RAVET_PLUGIN_VIEW_COCOA` attaches the
+  product's web editor to the host's `NSView`, using the same editor host as
+  the CLAP GUI extension. Resizable editors accept one to four times the
+  product's size. `take_edits` returns the editor's begin/value/end edits for
+  the adapter to report to the host. Win32 and X11 views, and every view on
+  Windows and Linux, return 1 in this release. The macOS web view polls the
+  cache itself, so `editor_idle` currently does nothing.
+
+Limits for now: main bus only; product extra state is not saved; no Windows or
+Linux editor; the adapters themselves are separate work, so no host has loaded
+the table yet. Evidence is offline: unit tests drive every function through the
+table (including a C99 compile of the header that checks every record offset
+against the Rust definitions), and `examples/delay-plugin/tests/native.rs` uses
+the delay's exported table end to end.
 
 ## Format identities
 

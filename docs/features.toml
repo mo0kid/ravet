@@ -3104,21 +3104,41 @@ docs = ["docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md", 
 id = "generic-clap-export"
 title = "Generic CLAP export and web editor through export_plugin!"
 status = "prototype"
-summary = "A PluginExport marker names any f32 Processor and its Product; export_plugin! emits a CLAP entry whose descriptor, ports, note input, parameters, versioned state with hooks, latency, tail and denormal flushing come from the product. Host values are snapped to range and kept in a shared parameter cache updated immediately by main-thread flushes. Products may add a web editor: RAVET injects a protocol client (window.ravetPlugin), and on macOS the CLAP GUI extension carries editor gestures to the host through a bounded lock-free queue."
+summary = "A PluginExport marker names any f32 Processor and its Product; export_plugin! emits a CLAP entry whose descriptor, ports, note input, parameters, versioned state with hooks, latency, tail, automation/bypass policies and denormal flushing come from the product; parameter text is shared with the native table. Host values are snapped to range and kept in a shared parameter cache updated immediately by main-thread flushes. Products may add a web editor: RAVET injects a protocol client (window.ravetPlugin), and on macOS the CLAP GUI extension carries editor gestures to the host through a bounded lock-free queue."
 limits = "First layout only, f32 only, no note output, no product extra state. Editor on macOS only, messages limited to 64 KiB (no info for very large parameter lists), 256-edit queue drops edits when full. Automation reflection racing a state load can keep the automated value. clap-validator on macOS arm64 only (33 passed, 0 failed, 11 skipped for f64, audio-port configurations, preset discovery and note tests); no DAW, Linux or Windows evidence yet."
-sources = ["crates/ravet-plugin/src/export.rs", "crates/ravet-plugin/src/clap.rs", "crates/ravet-plugin/src/clap_gui.rs", "crates/ravet-plugin/editor/client.js", "examples/gain-plugin/editor/index.html", "crates/ravet-plugin/src/lib.rs", "examples/gain-plugin/src/lib.rs", "examples/gain-plugin/Cargo.toml", "scripts/bundle-clap.py"]
-tests = ["examples/gain-plugin/src/lib.rs", "crates/ravet-plugin/tests/export.rs", "crates/ravet-plugin/tests/client.mjs", "scripts/tests/test_editor_client.py", "tools/editor-smoke/src/macos/generic.rs"]
+sources = ["crates/ravet-plugin/src/export.rs", "crates/ravet-plugin/src/clap.rs", "crates/ravet-plugin/src/clap_gui.rs", "crates/ravet-plugin/src/editor_host.rs", "crates/ravet-plugin/src/text.rs", "crates/ravet-plugin/editor/client.js", "examples/gain-plugin/editor/index.html", "crates/ravet-plugin/src/lib.rs", "examples/gain-plugin/src/lib.rs", "examples/gain-plugin/Cargo.toml", "scripts/bundle-clap.py"]
+tests = ["examples/gain-plugin/src/lib.rs", "crates/ravet-plugin/src/text.rs", "crates/ravet-plugin/tests/export.rs", "crates/ravet-plugin/tests/client.mjs", "scripts/tests/test_editor_client.py", "tools/editor-smoke/src/macos/generic.rs"]
 docs = ["docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md"]
 
 [[feature]]
 id = "delay-plugin-example"
 title = "Tempo-synced delay plug-in example"
 status = "prototype"
-summary = "examples/delay-plugin exports a portable stereo delay through export_plugin! as a CLAP effect with a web editor: eight explicit-ID parameters (time, feedback, mix, host bypass, ping-pong, sync, a 12-step note division and a feedback-path tone low-pass), block-start host-tempo sync with last-tempo hold and millisecond fallback, 50 ms time glide, 5 ms ramps and bypass crossfade, mono/stereo layouts and a feedback-dependent tail. bundle-clap.py --plugin delay bundles it and ravet-clap-smoke --delay checks it through the CLAP ABI."
+summary = "examples/delay-plugin exports a portable stereo delay through export_plugin! as a CLAP effect with a web editor: eight explicit-ID parameters (time, feedback, mix, host bypass, ping-pong, sync, a 12-step note division and a feedback-path tone low-pass), block-start host-tempo sync with last-tempo hold and millisecond fallback, 50 ms time glide, 5 ms ramps and bypass crossfade, mono/stereo layouts and a feedback-dependent tail. bundle-clap.py --plugin delay bundles it and ravet-clap-smoke --delay checks it through the CLAP ABI. It also exports the generic native table (ravet_plugin_v1), exercised in-process through its C function pointers."
 limits = "CLAP only, f32, macOS editor only (inherits generic-clap-export limits). Sample rates up to 768 kHz; two 2-second delay lines allocated at prepare. Tempo read once per block, no mid-block tempo changes; synced times clamp to 2 s. Hosts display the division as its index 0..11. No editor meters (no audio-to-editor data path). Evidence: offline tests, the development smoke host and clap-validator 0.3.2 (33 passed, 0 failed, 11 skipped) on macOS arm64; no DAW, Windows or Linux run."
 sources = ["examples/delay-plugin/src/dsp.rs", "examples/delay-plugin/src/lib.rs", "examples/delay-plugin/editor/index.html", "examples/delay-plugin/Cargo.toml", "scripts/bundle-clap.py", "tools/clap-smoke/src/delay.rs", "tools/clap-smoke/src/main.rs"]
-tests = ["examples/delay-plugin/tests/delay.rs", "tools/clap-smoke/src/delay.rs"]
+tests = ["examples/delay-plugin/tests/delay.rs", "examples/delay-plugin/tests/native.rs", "tools/clap-smoke/src/delay.rs"]
 docs = ["docs/examples.md", "docs/plugin-export.md", "README.md"]
+
+[[feature]]
+id = "plugin-automation-bypass-policies"
+title = "Plug-in automation and bypass policies"
+status = "prototype"
+summary = "Product::with_automation selects sample-accurate (default) or per-block parameter timing; Product::with_bypass selects how the host bypass parameter applies: passed to the processor (default), hard switch or linear crossfade to the dry input while the processor keeps running, or frozen (processor not run, input copied to output without scratch by AudioBuffer::pass_through, parameter events still delivered in a zero-frame block). One PolicyProcessor inside DenormalProcessor (FlushBoth) implements them for the CLAP export and the native table."
+limits = "Non-Processor bypass policies consume the bypass parameter and require one at resolve time; crossfade 0 to 1,000 ms (exclusive of 0). The dry path is not latency-compensated. Frozen switches on block boundaries, discards notes while bypassed and does not support auxiliary buses. f32 only. Offline unit evidence only; no host or DAW evidence."
+sources = ["crates/ravet-plugin/src/policy.rs", "crates/ravet-plugin/src/product.rs", "crates/ravet-plugin/src/clap.rs", "crates/ravet-foundation/src/audio.rs"]
+tests = ["crates/ravet-plugin/src/policy/tests.rs", "crates/ravet-foundation/tests/pass_through.rs", "crates/ravet-plugin/src/native/tests.rs"]
+docs = ["docs/plugin-export.md", "docs/decisions/0282-plugin-policies-and-native-table.md"]
+
+[[feature]]
+id = "generic-native-plugin-table"
+title = "Generic C plug-in table (RavetPlugin.h) for VST3, AUv2, AAX and LV2 adapters"
+status = "prototype"
+summary = "With feature native, export_plugin! also exports ravet_plugin_v1, returning the RavetPluginEntryV1 table: static product record, per-format identities and layouts, parameter metadata, shared value text and normalization, instances owning the parameter cache, editor edit queue, versioned state with migrate/import hooks and the policy- and denormal-wrapped processor. Host-side changes and editor edits reach the processor at offset 0 of the next block; state loads deliver every value and a reset. Native buses, events and transport are converted by ravet-native into prepared scratch. Every function catches panics (return 2); processing faults until the next prepare. On macOS the web editor attaches to a Cocoa NSView through the same editor host as the CLAP GUI."
+limits = "32-bit float, main bus only, at most 1,024 processor events per block (excess cached changes wait a block); product extra state not saved; processor events generated in zero-frame synchronization blocks are discarded. Editor on macOS Cocoa only; Win32/X11 views return 1; editor_idle does nothing on macOS. No adapter or host has loaded the table yet: offline in-process evidence only (including a C99 compile of the header checking every record offset), macOS arm64."
+sources = ["crates/ravet-plugin/include/RavetPlugin.h", "crates/ravet-plugin/src/native.rs", "crates/ravet-plugin/src/editor_host.rs", "crates/ravet-plugin/src/lib.rs", "crates/ravet-plugin/Cargo.toml", "examples/delay-plugin/Cargo.toml", "examples/gain-plugin/Cargo.toml"]
+tests = ["crates/ravet-plugin/src/native/tests.rs", "examples/delay-plugin/tests/native.rs"]
+docs = ["docs/plugin-export.md", "docs/decisions/0282-plugin-policies-and-native-table.md", "docs/decisions/0281-generic-export-layer.md"]
 
 [[feature]]
 id = "release-support"
