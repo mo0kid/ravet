@@ -8604,3 +8604,22 @@ these in product code (device listing via `ravet_device::output_devices`, its
 own stream lifecycle and state file, MIDI delivered at offset 0), so none is
 yet a RAVET framework feature. A standalone-runner agent started earlier was
 cancelled before producing changes.
+
+### Integration: robustness review merged (2026-11-05)
+
+Merged `review/robustness`; its decision record became 0287 (the keyboard-focus
+record had taken 0286). Conflicts were documentation only; feature records keep
+the newer host evidence from `release/0.1.0` and add the review's limits.
+
+On the merged branch (macOS 27 arm64): `cargo test` for `ravet-plugin` (all
+features), `ravet-delay-plugin`, `ravet-gain-plugin`, `ravet-native` and
+`ravet-foundation` pass; Clippy with warnings denied for `ravet-plugin` and
+`ravet-delay-plugin` (all targets, all features) and `cargo fmt --check` pass.
+The rebuilt delay CLAP passes `ravet-clap-smoke --delay`, including the new
+oversized-block rejection, and ships `RAVET-LICENSE.txt`,
+`THIRD-PARTY-NOTICES.txt` and the Rust standard library notice. clap-validator
+0.3.2-127 reported 32 passed, 0 failed, 11 skipped and one warning
+(`process-audio-denormals`, 2.65× slower) on the first run; six further runs
+passed that test. The review's only floating-point-state change is in the
+x86_64 `fxsave` path, which this arm64 machine does not execute, so the warning
+is treated as timing noise, as with the earlier Windows VM observations.
