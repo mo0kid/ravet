@@ -7814,3 +7814,90 @@ read `On`/`Off` in every format, as the bypass parameter already did.
 `RavetPlugin.h` now allows `get_value` and `set_value` from any thread, because
 both touch only lock-free shared state; AAX hosts can call parameter updates
 off the main thread.
+
+## 5 November 2026: Generic VST3 adapter — independent C++ table validation
+
+Implemented `crates/ravet-plugin/adapters/vst3` against `RavetPlugin.h`, with
+runtime product identity/layout/parameter registration, physical timed events,
+unchanged state streams, note/MIDI input and output, hidden IMidiMapping lanes,
+latency/tail publication and weak editor lifetime/main-loop gesture delivery.
+`scripts/bundle-vst3.py` now selects the generic adapter for Gain/Delay or an
+external Cargo product; `--legacy-reference` retains the old wrappers.
+
+Local environment: macOS arm64, AppleClang 21.0.0, Xcode 27.1, CMake and external
+Steinberg VST3 SDK 3.8.1. SDK discovery used Spotlight, then the complete external
+SDK at `/Volumes/PROTOOLS/Dropbox/DEVELOPER/shine2/target/sdks/vst3` read-only.
+No SDK files or private product sources were copied into the repository.
+
+Executed evidence:
+
+- Direct CMake Release mock bundle and SDK validator build: PASS. Focused
+  CTest: **1 passed, 0 failed**. Tests cover gain/bypass/stepped/hidden/read-only
+  metadata, hidden MIDI-ID collision avoidance, declared mono/stereo layouts,
+  original-offset automation/audio, note/CC/pitch-bend/channel-aftertouch echo,
+  state envelope bytes, malformed-state refusal, omitted-bus zero-frame flush,
+  latency change followed by one main-thread restart, editor gesture order,
+  resize and retained-view teardown.
+- Direct SDK validator: **47 passed, 0 failed**. Initial run was 46/1 because
+  hidden MIDI IDs exceeded VST3's signed ID limit; the final implementation uses
+  a collision-free range below `kMaxParamId` and the rerun passes.
+- Full maintained command `python3 scripts/bundle-vst3.py --mock --sdk <SDK>`:
+  PASS, CTest **1/1**, SDK validator **47 passed, 0 failed**, locally ad hoc signed
+  `target/vst3/generic/mock/release/VST3/Release/ravet_mock_vst3.vst3`.
+- Focused Python bundler regression suite: **9 tests passed, 0 failed**, including
+  six new generic-bundler tests and three existing reference-bundler tests.
+- `python3 scripts/check-docs.py --write`, `python3 scripts/check-docs.py` and
+  `git diff --check`: PASS at this stage.
+
+The mock editor exercises callbacks only; no actual web view or DAW was run.
+Windows/Linux commands are documented in `docs/vst3.md` for coordinator execution.
+This evidence does not establish their runtime support, f64 processing, arbitrary
+speaker identities, SysEx/UMP, real-time deadlines or production signing.
+Actual Rust-product integration is recorded separately when executed.
+
+## 5 November 2026: Generic VST3 adapter — actual Rust Gain and Delay integration
+
+Merged `plugin/native-table` through `f4b1082` into `adapter/vst3` to validate the
+real `ravet_plugin_v1()` entry. No product-specific C++ or Rust changes were
+needed. Both examples enable the native feature and remain Cargo cdylibs.
+The adapter loads a bundled product image by module-relative path. Only
+`ravet-delay-plugin` and `ravet-gain-plugin` were built with Cargo, not the whole
+workspace.
+
+Full maintained Release commands on the same macOS arm64/Xcode/SDK environment:
+
+- `python3 scripts/bundle-vst3.py --plugin delay --sdk <SDK>`: **47 SDK tests
+  passed, 0 failed**. Final artifact:
+  `target/vst3/generic/delay/release/VST3/Release/ravet_delay_vst3.vst3`.
+- `python3 scripts/bundle-vst3.py --plugin gain --sdk <SDK>`: **47 SDK tests
+  passed, 0 failed**. Final artifact:
+  `target/vst3/generic/gain/release/VST3/Release/ravet_gain_vst3.vst3`.
+- Final maintained mock rebuild: CTest **1 passed, 0 failed**; SDK validator
+  **47 passed, 0 failed**. All three bundles carry nested product/local ad hoc
+  signatures where applicable and copied public notices.
+- Focused Python VST3 bundler suite: **9 passed, 0 failed**. Documentation
+  regeneration/check and `git diff --check`: PASS.
+
+The first Delay run reported **31 passed, 1 failed** plus 15 setup failures:
+output-event capacity was incorrectly requested for a product without note
+output. After fixing that, it reported **46 passed, 1 failed** at a sample rate
+above Delay's 768 kHz limit. Setup now asks the product to prepare/deactivate on
+stopped MAIN before accepting the negotiation, retaining the previous accepted
+VST3 setup on rejection. Activation prepares the accepted setup again. The final
+run reports **47/0**; the SDK still logs its informational unsupported-rate
+message for 1,234,567.8 Hz, which Delay intentionally rejects. These observations
+are retained to explain the final negotiation behavior.
+
+No actual product editor was attached and no DAW was run for this generic
+adapter. The current native table provides a macOS Cocoa editor only;
+Windows/Linux attachment is implemented in the adapter but requires the table's
+platform backends. f32/main-bus processing, bounded events/state, no SysEx/UMP,
+count-based speaker maps and Linux host-run-loop requirements remain as listed
+in `docs/vst3.md`. No change to `RavetPlugin.h` was authored by this adapter task.
+
+Final integration also merges the native-table branch through `21088c5`,
+including its contract clarifications and documentation. Fresh maintained mock,
+Delay and Gain packaging runs after that merge retain **47/0 each** and mock
+CTest **1/0**. `codesign --verify --deep --strict` passes for all three bundles.
+The adapter's CMake link dependencies include the product image so a later Cargo
+rebuild updates the nested library even when adapter C++ is unchanged.

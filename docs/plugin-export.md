@@ -4,10 +4,12 @@
 [decision 0281](decisions/0281-generic-export-layer.md). The product
 description, saved-state envelope, editor protocol, automation and bypass
 policies, a generic CLAP export and the generic C table for the other formats
-exist so far, in `ravet-plugin` (umbrella features `plugin` and `plugin-clap`;
-`plugin-native` / crate feature `native` for the table). A generic LV2 adapter
-over that table exists as a prototype ([LV2 export](lv2.md#generic-lv2-export)).
-The VST3, AU and AAX adapters, the editor transport and the bundle tool follow.
+exist in `ravet-plugin` (umbrella features `plugin`, `plugin-clap` and
+`plugin-native`; crate feature `native` for the table). Generic adapters over
+that table exist as prototypes for
+[VST3](vst3.md#generic-product-adapter-010-prototype),
+[AAX](aax.md#generic-aax-adapter-010) and [LV2](lv2.md#generic-lv2-export).
+The AUv2 adapter, Windows and Linux editors and the bundle tool follow.
 
 ## Product description
 
