@@ -4,7 +4,7 @@
 // up: transition 0.05, stopband -90 dB; down: 0.06, -75 dB. The recurrence
 // below implements the first-order allpass transfer (a + z^-1)/(1 + a*z^-1).
 // No external coefficient designer or DSP library is needed at runtime.
-const UP: [f32; 7] = [
+pub(crate) const UP: [f32; 7] = [
     0.045_728_147,
     0.332_501_1,
     0.663_202_05,
@@ -13,7 +13,7 @@ const UP: [f32; 7] = [
     0.504_485_7,
     0.803_780_85,
 ];
-const DOWN: [f32; 6] = [
+pub(crate) const DOWN: [f32; 6] = [
     0.054_217_525,
     0.383_087_34,
     0.748_720_94,

@@ -29,6 +29,9 @@ truncation and trailing data. Encoding validates destination length and version
 before writing anything. It performs no stream I/O or allocation.
 
 Products explicitly select a known old version and its schema before decoding.
+`parameter_record_version(product, bytes)` reads the saved version from the
+header (checking the product ID and rejecting version zero) so a product can
+pick the matching schema, and reject versions newer than it understands.
 `migrate` then matches stable IDs to a target schema: additions use defaults,
 removals are dropped, and existing values must satisfy the target range. Unit
 changes, ID renames and other semantic transformations require product-specific

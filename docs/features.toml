@@ -1340,6 +1340,26 @@ tests = ["crates/ravet-signal/src/convolution.rs", "crates/ravet-signal/tests/pr
 docs = ["docs/signal-processing.md", "docs/decisions/0019-signal-kernels.md"]
 
 [[feature]]
+id = "stereo-block-fir"
+title = "Prepared fixed-size stereo FIR"
+status = "implemented"
+summary = "A prepared f32/f64 stereo direct FIR filters whole blocks in place from contiguous history with register-blocked, vectorisable safe loops, zero latency and partition-independent results."
+limits = "1..16,384 taps per channel (equal lengths), prepared 1..65,536-frame pieces; O(taps) per sample, so a partitioned FFT engine is cheaper above about 1,024 taps when latency is acceptable. Fused multiply-add on arm64 only, so last bits differ across targets. Kernel widths tuned on one Apple M4 Pro; x86_64 widths untuned and measured only under Rosetta 2. f32 cost matches Apple vDSP_conv at 256-1,024 taps and is within 1.2x at 16-64 taps on that machine. No response crossfade, denormal handling or callback-deadline guarantee."
+sources = ["crates/ravet-signal/src/stereo_fir.rs"]
+tests = ["crates/ravet-signal/tests/stereo_block_paths.rs", "crates/ravet-signal/examples/fir-oversampling-bench.rs"]
+docs = ["docs/signal-processing.md", "docs/decisions/0290-stereo-block-dsp-kernels.md"]
+
+[[feature]]
+id = "stereo-block-oversampling"
+title = "Block stereo oversampling"
+status = "implemented"
+summary = "A prepared stereo 1x/2x/4x/8x oversampler runs the fixed half-band profile over whole blocks, advancing both branches of both channels as one vector, bit-identical to the per-sample Oversampler."
+limits = "Fixed f32 half-band IIR profile only; prepared 1..65,536 host frames; frequency-dependent phase delay, no constant integer latency or dry alignment; factor changes need a new instance. About 3.3x cheaper than two per-sample Oversamplers on one Apple M4 Pro; no external oversampling baseline measured, no native x86_64 measurement, no deadline guarantee."
+sources = ["crates/ravet-signal/src/stereo_oversampling.rs", "crates/ravet-signal/src/oversampling.rs"]
+tests = ["crates/ravet-signal/tests/stereo_block_paths.rs", "crates/ravet-signal/examples/fir-oversampling-bench.rs"]
+docs = ["docs/signal-processing.md", "docs/decisions/0290-stereo-block-dsp-kernels.md"]
+
+[[feature]]
 id = "configurable-oversampling"
 title = "Selectable streaming oversampling"
 status = "implemented"
@@ -1624,7 +1644,7 @@ docs = ["docs/parameters.md", "docs/decisions/0065-native-f64-gain.md"]
 id = "parameters-state"
 title = "Reusable parameter schema and state"
 status = "implemented"
-summary = "Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and discrete mappings, fixed-size complete state records, and explicit ID-based migration."
+summary = "Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and discrete mappings, fixed-size complete versioned state records, a header version reader for schema selection, and explicit ID-based migration."
 limits = "Bounded caller-selected portable schema size and product-owned version/semantic migration policy. Product-specific CLAP gain/bypass integration exists; host transport remains product-owned, with reusable UI attachments available separately; no preset discovery."
 sources = ["crates/ravet-foundation/src/parameter.rs", "examples/gain/src/state.rs"]
 tests = ["crates/ravet-foundation/tests/parameters.rs", "examples/gain/tests/parameters.rs"]
@@ -1634,21 +1654,21 @@ docs = ["docs/parameters.md", "docs/decisions/0010-parameter-state-and-meters.md
 id = "observable-state"
 title = "Observable hierarchical state and undoable presets"
 status = "implemented"
-summary = "An explicit control-thread store provides stable-ID trees, atomic grouped edits, bounded undo/redo, revision subscriptions with resync, and deterministic complete product-identified preset records."
-limits = "Allocates/clones on control threads; up to 4096 nodes, depth 64, 16 MiB state/transaction payload, 128 history snapshots/journal batches. Poll cursors belong to one store. No preset file discovery, migration, host programs or audio-thread delivery."
+summary = "An explicit control-thread store provides stable-ID trees, atomic grouped edits, bounded undo/redo, revision subscriptions with resync, and deterministic complete product-identified preset records with format and product schema versions, newer-version rejection and an atomic migration hook."
+limits = "Allocates/clones on control threads; up to 4096 nodes, depth 64, 16 MiB state/transaction payload, 128 history snapshots/journal batches. Poll cursors belong to one store. Writes RVETTREE format 2; reads formats 1 (RAVET 0.0.1, as schema 1) and 2. Product schema migration is product code; no automatic version registry. No preset file discovery, host programs or audio-thread delivery."
 sources = ["crates/ravet-state/Cargo.toml", "crates/ravet-state/src/lib.rs"]
 tests = ["crates/ravet-state/tests/state.rs"]
-docs = ["docs/observable-state.md", "docs/decisions/0024-observable-state.md"]
+docs = ["docs/observable-state.md", "docs/decisions/0024-observable-state.md", "docs/decisions/0289-versioned-tree-records.md", "docs/releases/0.1.0-upgrade.md"]
 
 [[feature]]
 id = "preset-file-libraries"
 title = "Explicit preset-file libraries"
 status = "implemented"
-summary = "Consumer-selected directories provide sorted bounded preset metadata, validated atomic replacement and complete undoable selected-file recall through observable state."
+summary = "Consumer-selected directories provide sorted bounded preset metadata, validated atomic replacement and complete undoable selected-file recall through observable state, with a product schema version and explicit migration of older presets."
 limits = "4096 directory entries, 128-byte portable ASCII stems, product-tagged tree codec/library/destination bounds. Blocking/allocating runtime dependency outside portable umbrella; no watcher, categories/Unicode titles, host program/discovery extension, rename/delete or power-loss/platform/DAW claim."
 sources = ["crates/ravet-preset/Cargo.toml", "crates/ravet-preset/src/lib.rs"]
 tests = ["crates/ravet-preset/tests/library.rs"]
-docs = ["docs/preset-files.md", "docs/decisions/0035-explicit-preset-files.md"]
+docs = ["docs/preset-files.md", "docs/decisions/0035-explicit-preset-files.md", "docs/decisions/0289-versioned-tree-records.md", "docs/releases/0.1.0-upgrade.md"]
 
 [[feature]]
 id = "complete-parameter-programs"

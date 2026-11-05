@@ -2,7 +2,9 @@
 
 **Status:** Accepted on 23 October 2026 ([decision 0280](decisions/0280-versioning-and-compatibility.md)).
 It applies from 0.1.0 onward. Existing 0.0.1 formats and parameter numbering
-are not covered; the 0.1.0 export layer brings them into line.
+are not covered; the 0.1.0 export layer brings them into line. The
+[0.1.0 upgrade notes](releases/0.1.0-upgrade.md) list every saved format, its
+version marker and migration path.
 
 This policy states what RAVET consumers can rely on between releases. It covers
 two areas: the Rust and native APIs, and the data that products save or expose

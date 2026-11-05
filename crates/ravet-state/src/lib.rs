@@ -15,7 +15,84 @@
 //! state.restore(&preset, *b"PRODUCT1")?;
 //! # Ok::<(), ravet_state::StateError>(())
 //! ```
+//!
+//! # Record versions
+//!
+//! Every `RVETTREE` record carries a record format version, and version-two
+//! records also carry the product's own schema version. Decoding rejects record
+//! formats newer than [`TREE_FORMAT_VERSION`] with
+//! [`StateError::UnsupportedVersion`], and product schemas newer than the
+//! caller's current schema with [`StateError::UnsupportedSchema`]; neither is
+//! ever reinterpreted. Version-one records (RAVET 0.0.1) still decode, as
+//! product schema 1. Products migrate older schemas themselves:
+//!
+//! ```
+//! use core::num::NonZeroU32;
+//! use ravet_state::{Limits, Node, NodeId, Store, Value};
+//! let v1 = NonZeroU32::new(1).unwrap();
+//! let v2 = NonZeroU32::new(2).unwrap();
+//! let old = Store::new(Node::new(NodeId(1), "session")
+//!     .with_property("gain", Value::Real(0.5)), Limits::default())?;
+//! let bytes = old.encode_schema(*b"PRODUCT1", v1);
+//! let mut live = Store::new(Node::new(NodeId(1), "session"), Limits::default())?;
+//! live.restore_migrating(&bytes, *b"PRODUCT1", v2, |schema, mut root| {
+//!     if schema == 1 {
+//!         // Schema 2 renamed "gain" to "level".
+//!         root = Node::new(root.id(), root.name()).with_property(
+//!             "level", root.properties().get("gain").cloned().unwrap_or(Value::Null));
+//!     }
+//!     Ok(root)
+//! })?;
+//! assert_eq!(live.root().properties().get("level"), Some(&Value::Real(0.5)));
+//! # Ok::<(), ravet_state::StateError>(())
+//! ```
+use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+/// Magic bytes at the start of every observable-tree record.
+pub const TREE_MAGIC: [u8; 8] = *b"RVETTREE";
+/// Record format version written by this release. Version one (RAVET 0.0.1)
+/// had no product schema field; it is still read, as product schema 1.
+pub const TREE_FORMAT_VERSION: u32 = 2;
+/// Product schema version used by [`Store::encode`], [`Store::decode`] and
+/// [`Store::restore`].
+pub const DEFAULT_SCHEMA: NonZeroU32 = NonZeroU32::MIN;
+const HEADER_V1: usize = 20;
+const HEADER_V2: usize = 24;
+
+/// The versions stored at the start of a tree record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TreeHeader {
+    /// Record format version: 1 or 2.
+    pub format: u32,
+    /// Product schema version; 1 for version-one records.
+    pub schema: NonZeroU32,
+}
+
+/// Read and check the record header without decoding the tree.
+///
+/// Rejects foreign magic and truncated headers ([`StateError::InvalidRecord`]),
+/// another product ([`StateError::WrongProduct`]) and record formats other than
+/// 1 and 2 ([`StateError::UnsupportedVersion`]). A zero schema is malformed.
+pub fn read_header(bytes: &[u8], product: [u8; 8]) -> Result<TreeHeader, StateError> {
+    if bytes.len() < HEADER_V1 || bytes[..8] != TREE_MAGIC {
+        return Err(StateError::InvalidRecord);
+    }
+    if bytes[8..16] != product {
+        return Err(StateError::WrongProduct);
+    }
+    let format = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
+    let schema = match format {
+        1 => DEFAULT_SCHEMA,
+        2 => {
+            let raw = bytes.get(20..24).ok_or(StateError::InvalidRecord)?;
+            NonZeroU32::new(u32::from_le_bytes(raw.try_into().unwrap()))
+                .ok_or(StateError::InvalidRecord)?
+        }
+        other => return Err(StateError::UnsupportedVersion(other)),
+    };
+    Ok(TreeHeader { format, schema })
+}
 
 /// Product-owned stable node identity; zero has no special meaning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -147,6 +224,10 @@ pub enum StateError {
     InvalidRecord,
     WrongProduct,
     RevisionExhausted,
+    /// The record format version is newer than this release, or unknown.
+    UnsupportedVersion(u32),
+    /// The product schema version is newer than the caller's current schema.
+    UnsupportedSchema(u32),
 }
 impl std::fmt::Display for StateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -328,38 +409,83 @@ impl Store {
             change,
         });
     }
-    /// Version-one complete preset. No DSP history, undo history or cursors.
-    /// Product identifier is caller-owned; the format is deterministic.
+    /// Complete preset at [`DEFAULT_SCHEMA`]; see [`Store::encode_schema`].
     pub fn encode(&self, product: [u8; 8]) -> Vec<u8> {
+        self.encode_schema(product, DEFAULT_SCHEMA)
+    }
+    /// Version-two complete preset carrying a product schema version. No DSP
+    /// history, undo history or cursors. The product identifier is caller-owned;
+    /// the format is deterministic.
+    pub fn encode_schema(&self, product: [u8; 8], schema: NonZeroU32) -> Vec<u8> {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"RVETTREE");
+        bytes.extend_from_slice(&TREE_MAGIC);
         bytes.extend_from_slice(&product);
-        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&TREE_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&schema.get().to_le_bytes());
         encode_node(&self.root, &mut bytes);
         bytes
     }
     /// Decode and apply a complete preset as one undoable transaction.
     /// Bad records and net no-op recalls preserve all live state/history.
+    /// Only records at [`DEFAULT_SCHEMA`] (and version-one records) are accepted.
     pub fn restore(&mut self, bytes: &[u8], product: [u8; 8]) -> Result<bool, StateError> {
         let decoded = Self::decode(bytes, product, self.limits)?;
         self.commit(&[Mutation::ReplaceRoot(decoded.root)])
     }
-    /// Strictly decode a bounded preset without touching a live store.
-    /// Reject wrong identity/version, trailing bytes, duplicate IDs/properties,
-    /// malformed UTF-8, nonfinite values, excessive depth/nodes and invalid names.
+    /// Decode, migrate and apply a complete preset as one undoable transaction.
+    ///
+    /// `migrate` receives the saved schema and decoded root only when the saved
+    /// schema is older than `current`; it returns the root in the current schema.
+    /// The migrated root is validated against this store's limits before
+    /// anything is applied. Failures preserve live state and history.
+    pub fn restore_migrating(
+        &mut self,
+        bytes: &[u8],
+        product: [u8; 8],
+        current: NonZeroU32,
+        migrate: impl FnOnce(u32, Node) -> Result<Node, StateError>,
+    ) -> Result<bool, StateError> {
+        let (decoded, schema) = Self::decode_schema(bytes, product, current, self.limits)?;
+        let root = if schema < current {
+            let root = migrate(schema.get(), decoded.root)?;
+            validate(&root, self.limits)?;
+            root
+        } else {
+            decoded.root
+        };
+        self.commit(&[Mutation::ReplaceRoot(root)])
+    }
+    /// Strictly decode a bounded preset at [`DEFAULT_SCHEMA`] without touching a
+    /// live store. Reject wrong identity, newer formats or schemas, trailing bytes,
+    /// duplicate IDs/properties, malformed UTF-8, nonfinite values, excessive
+    /// depth/nodes and invalid names.
     pub fn decode(bytes: &[u8], product: [u8; 8], limits: Limits) -> Result<Self, StateError> {
+        Self::decode_schema(bytes, product, DEFAULT_SCHEMA, limits).map(|(store, _)| store)
+    }
+    /// Strictly decode a bounded preset whose schema is at most `current`, and
+    /// return the saved schema. Older schemas are returned unchanged for the
+    /// caller to migrate; newer ones reject with [`StateError::UnsupportedSchema`].
+    pub fn decode_schema(
+        bytes: &[u8],
+        product: [u8; 8],
+        current: NonZeroU32,
+        limits: Limits,
+    ) -> Result<(Self, NonZeroU32), StateError> {
         validate_limits(limits)?;
         if bytes.len() > limits.bytes {
             return Err(StateError::Capacity);
         }
-        if bytes.len() < 20 || &bytes[..8] != b"RVETTREE" || bytes[16..20] != 1u32.to_le_bytes() {
-            return Err(StateError::InvalidRecord);
+        let header = read_header(bytes, product)?;
+        if header.schema > current {
+            return Err(StateError::UnsupportedSchema(header.schema.get()));
         }
-        if bytes[8..16] != product {
-            return Err(StateError::WrongProduct);
-        }
+        let start = if header.format == 1 {
+            HEADER_V1
+        } else {
+            HEADER_V2
+        };
         let mut reader = Reader {
-            bytes: &bytes[20..],
+            bytes: &bytes[start..],
             limits,
             nodes: 0,
         };
@@ -367,7 +493,7 @@ impl Store {
         if !reader.bytes.is_empty() {
             return Err(StateError::InvalidRecord);
         }
-        Self::new(root, limits)
+        Ok((Self::new(root, limits)?, header.schema))
     }
 }
 fn validate_limits(l: Limits) -> Result<(), StateError> {
@@ -375,7 +501,7 @@ fn validate_limits(l: Limits) -> Result<(), StateError> {
         || l.nodes > 4096
         || l.depth == 0
         || l.depth > 64
-        || l.bytes < 20
+        || l.bytes < HEADER_V2
         || l.bytes > 16 * 1024 * 1024
         || l.history > 128
         || l.journal == 0
@@ -417,7 +543,7 @@ fn validate(root: &Node, limits: Limits) -> Result<usize, StateError> {
         }
         Ok(())
     }
-    let mut bytes = 20;
+    let mut bytes = HEADER_V2;
     visit(root, 1, &mut BTreeSet::new(), &mut bytes, limits)?;
     Ok(bytes)
 }
