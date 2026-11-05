@@ -8244,4 +8244,6 @@ at the exact sample positions instead:
   as the second impulse; the samples there equal the click plus the dry signal
   exactly (0.071013 + 0.25 = 0.321013).
 
-Typed values worked in Logic. This is a manual single-host check.
+Typed values worked in Logic. The owner reports that closing and reopening the
+plug-in window, and saving, closing and reopening the project, kept the editor
+working and the settings intact. This is a manual single-host check.
