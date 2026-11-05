@@ -164,7 +164,8 @@ The explicit `ravet-device` crate adds CPAL outside the portable umbrella. Contr
 threads enumerate/select/configure output devices and prepare output-only f32
 processors. Callbacks use preallocated planar scratch and partition variable
 interleaved buffers into bounded blocks. `ravet-device-probe` validates silent
-output callbacks. Separate input/FIFO and clocked duplex, buffered graph workers and explicit
+output callbacks; `ravet-standalone-probe` lists devices and MIDI ports, sends
+test notes and captures/analyses output for standalone-application evidence. Separate input/FIFO and clocked duplex, buffered graph workers and explicit
 caller-scheduled recovery prototypes have their own bounds and evidence. MIDI
 connections and prepared handoff live in `ravet-midi-device`; physical hotplug,
 long-session drift and broader standalone scheduling require further validation. See
