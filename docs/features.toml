@@ -2074,8 +2074,8 @@ title = "Cargo macOS WebKit ownership binding"
 status = "prototype"
 summary = "An explicit native crate builds Cocoa/WebKit through Xcode, checks main-thread creation, owns view and callback context, copies bounded snapshots and destroys native callback machinery before releasing state."
 limits = "macOS only; Xcode build host required, native deployment target 12. View is not Send/Sync; caller supplies run loop and a valid live NSView parent through a documented unsafe attach. macOS owned-view resizing is available. No portable widgets, x86_64/macOS-12 runtime, native heap or DAW support claim."
-sources = ["crates/ravet-webview/src/lib.rs", "crates/ravet-webview/src/macos.rs", "crates/ravet-webview/build.rs"]
-tests = ["crates/ravet-webview/src/macos.rs", "tools/editor-smoke/src/main.rs", "crates/ravet-surface/native/tests/lifecycle.mm"]
+sources = ["crates/ravet-webview/src/lib.rs", "crates/ravet-webview/src/native.rs", "crates/ravet-webview/build.rs"]
+tests = ["crates/ravet-webview/src/native.rs", "tools/editor-smoke/src/main.rs", "crates/ravet-surface/native/tests/lifecycle.mm"]
 docs = ["docs/native-editor.md", "docs/decisions/0013-cargo-native-gain-editor.md"]
 
 [[feature]]
@@ -2084,7 +2084,7 @@ title = "Rust-owned macOS editor C ABI"
 status = "prototype"
 summary = "Native consumers create/attach/resize/show/destroy Rust-owned WebViews with counted UTF-8 callbacks, UI-thread status checks and retained exactly-once foreign-context release."
 limits = "macOS/Xcode only; trusted HTML 1 MiB, snapshot 65536 bytes, dimensions <=16384. Consumers provide valid live handles/buffers/NSView parents and nonthrowing callbacks; host owns window/run loop. Wrong-thread destroy retains ownership; accepted destroy consumes. No format/product policy, other-OS/assistive-tech/DAW support claim."
-sources = ["crates/ravet-webview/src/editor_abi.rs", "crates/ravet-webview/include/RavetWebEditor.h", "crates/ravet-webview/src/macos.rs", "examples/gain-native/Cargo.toml", "examples/gain-native/src/lib.rs"]
+sources = ["crates/ravet-webview/src/editor_abi.rs", "crates/ravet-webview/include/RavetWebEditor.h", "crates/ravet-webview/src/native.rs", "examples/gain-native/Cargo.toml", "examples/gain-native/src/lib.rs"]
 tests = ["crates/ravet-webview/src/editor_abi.rs", "tools/native-validation/editor.cpp", "tools/native-validation/CMakeLists.txt", "tools/editor-smoke/src/probe.mm"]
 docs = ["docs/native-editor.md", "docs/decisions/0076-native-editor-abi.md"]
 
@@ -3094,7 +3094,7 @@ title = "Explicit native semantic companion for custom editor content"
 status = "implemented"
 summary = "Copied checked flat button/slider/static-text snapshots, native AppKit protocol getters/frames/actions and original-editor revision/callback retirement; complete opt-in content traversal with None/default WebKit restoration."
 limits = "macOS native API only; portable allocating model1..64nodes/65536combinedUTF8bytes and bounded finite local rectangles. Consumer supplies complete semantics/geometry/reported focus; no HTML inference, implicit focus, host parameter gestures, editable text or nested roles. Native direct-protocol getter/action and owned injected-key/WebKit consumer evidence does not certify system AX discovery, notification delivery, VoiceOver or other screen readers. Default Audio/MIDI title-bar popup remains independent."
-sources = ["crates/ravet-webview/src/accessibility.rs", "crates/ravet-webview/src/macos.rs", "crates/ravet-surface/native/RavetAccessibility.inc", "examples/tutorials/src/bin/native_semantics.rs"]
+sources = ["crates/ravet-webview/src/accessibility.rs", "crates/ravet-webview/src/native.rs", "crates/ravet-surface/native/RavetAccessibility.inc", "examples/tutorials/src/bin/native_semantics.rs"]
 tests = ["crates/ravet-webview/native/tests/native-semantics-protocol.mm", "crates/ravet-webview/native/tests/native-semantics-owner.rs", "examples/tutorials/src/native_semantics/model.rs", "scripts/check-native-semantics.py"]
 docs = ["docs/native-semantics.md", "docs/decisions/0236-explicit-native-semantic-companion.md"]
 

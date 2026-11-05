@@ -162,8 +162,10 @@ record the validator version and results with the build.
 - The AAX category is coarse: the table has no finer AAX category (EQ, Delay…).
 - Evidence is local: macOS arm64 builds and the checks above, and a Windows x64
   cross-build whose bundle check and adapter tests pass natively on Windows 11
-  (see [work status](WORK_STATUS.md)). Avid's validator is not available
-  locally, the builds are not PACE-signed, and no Pro Tools run has been made.
+  (see [work status](WORK_STATUS.md)), plus one vendor-signed delay run in
+  Pro Tools 26.4 on macOS arm64. Avid's validator is not available locally,
+  RAVET's own builds are not PACE-signed, and AAX on Windows has not been run in
+  Pro Tools (provisional for 0.1.0).
 
 The rest of this page describes the 0.0.1 references.
 
