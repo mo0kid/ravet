@@ -1,6 +1,125 @@
-# AudioUnit v2 gain reference
+# AudioUnit v2 exports
 
-The macOS AUv2 component uses the external Steinberg AU wrapper and Apple
+## Generic native adapter (0.1.0 prototype)
+
+`adapters/auv2` builds any local product exporting `ravet_plugin_v1()` as an
+AUv2 component, using Apple's external AudioUnitSDK directly. Effects derive
+from `AUEffectBase`, instruments from `MusicDeviceBase`, and audio-backed MIDI
+effects from `AUMIDIEffectBase`. This implements the native AU choice in
+[decision 0281](decisions/0281-generic-export-layer.md); there is no VST3 module
+inside this component.
+
+```sh
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-au.py --plugin delay \
+  --audio-unit-sdk /path/to/AudioUnitSDK --validate
+```
+
+This builds only the chosen product and the native adapter. The SDK path must
+be an Apple source checkout with `include/AudioUnitSDK` and `src/AudioUnitSDK`
+(1.4.0 was exercised), rather than JUCE's flattened SDK snapshot. Nothing is
+vendored or installed automatically. CMake, Xcode's command-line tools and
+Python 3.11 or later are required. The default build architecture is the current
+machine's architecture; recorded execution is macOS arm64 only.
+
+For a separate consumer, pass `--manifest-path /path/to/product/Cargo.toml`.
+Its `cdylib` must use `export_plugin!` with `ravet-plugin` feature `native`
+(umbrella `plugin-native`). Alternatively, `--product-library /path/to/product.dylib`
+uses an already built trusted local library. The build runs a small metadata
+tool that loads this library and calls `ravet_plugin_v1`; use trusted binaries.
+`--build-dir` selects the output directory. The default delay output is
+`target/au-native/delay/AU/ravet_au.component`.
+
+The product table supplies the AudioComponents name, version and type/subtype/
+manufacturer, parameter IDs, channel layouts and editor class identity. The
+component contains its product dylib in `Contents/Frameworks`, with a unique
+install name and a relative loader path. It includes RAVET/Apple licence
+notices and receives an ad hoc signature. Production signing remains a consumer
+responsibility. `--native-editor` is a legacy-reference option; the native
+adapter automatically advertises an editor when the table declares one.
+
+### Parameters, audio and state
+
+AU parameters use the product's permanent host IDs and **physical values**.
+Ranges, units, automation/read-only/hidden flags and logarithmic display hints
+come from the table. Integer-spaced stepped ranges expose indexed value strings;
+other stepped ranges retain their physical ranges and snap through the table.
+String conversion properties call the product's text functions.
+
+Main-thread host changes call `set_value`, so a state save before rendering
+includes them. Non-main parameter changes, scheduled immediate/ramped parameters
+and MIDI input enter a fixed 1,024-event render queue. Scheduling/MIDI producers
+must be serialized with rendering, as must stopped prepare/reset/retirement.
+Schedule lists preflight completely before queue mutation. Ramps expand to
+per-sample physical events within this bound, with a boundary endpoint carried
+to offset zero of the next render. Events beyond the current render boundary
+reject the block; multi-block ramps are not implemented. Same-offset order is
+preserved. The table owns automation/bypass policy and denormal handling.
+
+The current audio profile is one main bus, planar native f32, 1..65,536 frames,
+0..64 input channels and 1..64 output channels. All advertised layouts must
+agree on whether an input bus exists. Mono packed f32 is also accepted. There
+are no auxiliary buses or f64 negotiation in this adapter. The product may
+impose tighter limits. Malformed blocks fail with silence on supported output
+prefixes; backing tails remain outside the processing range.
+
+ClassInfo and ClassInfoFromDocument dictionaries store the unchanged versioned
+`save_state` envelope as CFData under `RAVET`, alongside standard component
+identity and preset-name keys. Restore validates the dictionary and delegates
+all-or-none decoding/import/migration to `load_state`. The bypass property maps
+to `bypass_index` and is included in complete state recall. This differs from
+the historical VST3 wrapper's separate bypass preservation below.
+
+Latency and tail are cached from `timing` after preparation and between render
+calls. Changes schedule main-run-loop property notifications, including
+`latency_changed` and tail changes without latency changes. Infinite tails use
+positive infinity. Host beat/tempo, signature and transport callbacks are
+validated through `RavetAuTransport.hpp` at block start. Short MIDI input maps
+to native MIDI events; declared note output uses the bounded
+`kAudioUnitProperty_MIDIOutputCallback` path. Missing/rejecting output callbacks
+do not undo audio or replay events; callback changes require an uninitialized
+unit. SysEx, MIDI 2, MusicDevice StartNote/StopNote,
+factory-program catalogues and MIDI-only zero-audio layouts are not implemented.
+
+### Cocoa lifetime and validation
+
+The Cocoa factory calls `editor_open` with `VIEW_COCOA`, resizes within the
+product's bounds, and closes the editor before destroying the product. A 30 Hz
+main-run-loop timer calls `editor_idle`, drains `take_edits`, and reports
+begin/value/end gestures through `AUEventListenerNotify`. The NSView and timer
+hold **weak lifetime tokens**. A host may retain the view after disposing the AU;
+subsequent view resizing and destruction cannot reach the retired instance.
+Control calls marked MAIN by the table are dispatched to the AppKit thread.
+Hosts must provide a running main loop for these calls and notifications.
+
+`--validate` runs in-process actual-component contracts; the supplied product
+smoke fixture expects a stereo layout and an editor. Other products can build
+without this fixture. For the delay it also
+checks the 120 BPM eighth-note impulse at sample 2,000 at 8 kHz, state saved
+before render, complete bypass recall, offset-16 automation and dynamic tail.
+The mock exercises effects, instruments and audio-backed MIDI effects:
+
+```sh
+python3 scripts/bundle-au.py --mock effect \
+  --audio-unit-sdk /path/to/AudioUnitSDK --validate
+python3 scripts/validate-au-mock.py \
+  target/au-native/mock-effect/AU/ravet_au.component \
+  --log target/au-native/mock-effect/auval.log
+# Repeat with --mock instrument or --mock midi and the corresponding directory.
+```
+
+The validator script accepts only the test identities `aufx/RvT1/RvTs`,
+`aumu/RvI1/RvTs` and `aumf/RvM1/RvTs`, refuses to overwrite an existing component,
+and removes its temporary user Components installation in `finally`. It retries
+only asynchronous discovery failures. On macOS 27.0.1 arm64/Xcode 27.1, all
+three returned exit 0, `AU VALIDATION SUCCEEDED.` Actual-component contracts
+also passed three retained-view disposal cycles per variant and the real delay.
+See [work status](WORK_STATUS.md) for exact commands and evidence. These results
+do not establish a DAW, device, callback deadline, sandbox, commercial-signing
+or x86_64 support claim.
+
+## Historical gain and performance references (0.0.1)
+
+The historical macOS AUv2 component uses the external Steinberg AU wrapper and Apple
 AudioUnitSDK, embedding the same Rust-backed VST3 gain reference. SDKs remain
 outside this repository. This is an exercised reference adapter with an optional
 Cocoa editor. The separate [AUv3/mobile adapter](mobile.md) uses the reusable native ABI rather than this SDK wrapper.
@@ -11,7 +130,7 @@ state; Gain remains the default profile and retains its host-bypass policy.
 Reusable [native AU schema/control/state helpers](native-au.md) supply its exact
 parameter preflight and CONTROL-owned CF text/state validation.
 
-## Build and validate
+### Build and validate the historical reference
 
 ```sh
 CARGO_BUILD_JOBS=2 python3 scripts/bundle-au.py \
@@ -36,7 +155,7 @@ component registration. VST3 contracts and its official validator also run.
 This evidence does not establish DAW discovery, auval, other architectures,
 sandbox execution, callback deadlines or native allocation behavior.
 
-## Parameter and state semantics
+### Historical parameter and state semantics
 
 The component identity is effect `aufx`, subtype `RvGn`, manufacturer `Ravt`.
 Mono and stereo configurations are advertised. Gain ID 1 uses normalized 0..1
@@ -62,7 +181,7 @@ was rebuilt and its actual-bundle f32 parameter/audio/bypass/state/tail contract
 passed again. This validates the existing AU path; the VST3 sample-size declaration
 does not establish AU f64 negotiation or rendering.
 
-## Optional Cocoa editor
+### Historical optional Cocoa editor
 
 `--native-editor` embeds the Rust-owned gain/bypass/status WebKit page in the
 nested VST3 and validates the component's actual `kAudioUnitProperty_CocoaUI`
@@ -109,7 +228,7 @@ also pass. This does not establish DAW discovery, auval, focus/assistive-tech,
 sandbox or other-architecture support. See
 [decision 0078](decisions/0078-auv2-gain-editor.md).
 
-## Optional factory programs
+### Historical optional factory programs
 
 Add `--factory-programs` to enable Unity/Silence/Bypass factory presets from the
 embedded VST3 catalogue. It combines with `--native-editor`; both options default
