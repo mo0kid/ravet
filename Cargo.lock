@@ -1803,6 +1803,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-synth-plugin"
+version = "0.0.1"
+dependencies = [
+ "allocation-counter",
+ "clack-extensions",
+ "clack-host",
+ "ravet-clap-smoke",
+ "ravet-foundation",
+ "ravet-native-dsp",
+ "ravet-plugin",
+]
+
+[[package]]
 name = "ravet-vst3-reference-native"
 version = "0.0.1"
 dependencies = [

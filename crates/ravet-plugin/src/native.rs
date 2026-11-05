@@ -1399,3 +1399,37 @@ impl<H: NativeExport> Table<H> {
 
 #[cfg(test)]
 mod tests;
+
+/// Execute a C callback inside [`ravet_native_dsp::ScopedDenormalMode`].
+/// Mode 0 preserves the current mode, 1 flushes denormal operands and results.
+/// Returns 0 after the callback, 1 for invalid mode/null callback, or 2 if the
+/// actual floating-point environment refuses the scope (callback not invoked).
+/// The prior control and sticky status are restored before returning. This
+/// bounded call allocates nothing and supports nested calls on the same thread.
+/// Exported by `export_plugin!` as `ravet_plugin_with_denormal_mode_v1`.
+///
+/// # Safety
+/// `context` must be valid for the callback, which executes synchronously once
+/// on this thread. The callback must return normally: it must not unwind,
+/// longjmp, change threads, or retain a scope beyond this call. Unsupported
+/// architecture/environment returns 2 without calling it.
+pub unsafe fn with_denormal_mode(
+    mode: u32,
+    callback: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
+    context: *mut std::ffi::c_void,
+) -> i32 {
+    let mode = match mode {
+        0 => ravet_native_dsp::DenormalMode::Preserve,
+        1 => ravet_native_dsp::DenormalMode::FlushBoth,
+        _ => return 1,
+    };
+    let Some(callback) = callback else {
+        return 1;
+    };
+    let Ok(_scope) = ravet_native_dsp::ScopedDenormalMode::enter(mode) else {
+        return 2;
+    };
+    // SAFETY: the caller supplies the synchronous, non-unwinding callback/context.
+    unsafe { callback(context) };
+    0
+}

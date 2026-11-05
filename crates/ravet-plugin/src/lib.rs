@@ -137,6 +137,20 @@ macro_rules! __export_native {
                     .as_ref()
             }
         }
+        /// Run a C callback under a current-thread denormal scope.
+        /// See `include/RavetPlugin.h` for ownership and return codes.
+        ///
+        /// # Safety
+        /// The callback/context must obey `ravet_plugin::native::with_denormal_mode`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn ravet_plugin_with_denormal_mode_v1(
+            mode: u32,
+            callback: Option<unsafe extern "C" fn(*mut ::core::ffi::c_void)>,
+            context: *mut ::core::ffi::c_void,
+        ) -> i32 {
+            // SAFETY: forwarded unchanged under the caller's callback contract.
+            unsafe { $crate::native::with_denormal_mode(mode, callback, context) }
+        }
         /// The generic RAVET plug-in table (`include/RavetPlugin.h`), or null
         /// when the product description is invalid.
         #[unsafe(no_mangle)]

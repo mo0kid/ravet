@@ -4,8 +4,8 @@
 //! host sees comes from the product description: descriptor, audio and note
 //! ports, parameters, saved state, latency and tail.
 //!
-//! Current limits: the first declared layout is used, processing is f32, note
-//! output and product extra state are not exported, and there is no editor yet.
+//! Current limits: the first declared layout is used, processing is f32,
+//! product extra state is not exported.
 use crate::{
     Category, ParameterRole, ResolvedProduct,
     export::{Edit, EditQueue, FnHooks, MAXIMUM_STATE_BYTES, ParameterCache, PluginExport},
@@ -107,9 +107,6 @@ impl<P: PluginExport> DefaultPluginFactory for ClapPlugin<P> {
         let product = P::PRODUCT
             .resolve()
             .map_err(|_| PluginError::Message("invalid RAVET product description"))?;
-        if product.product().notes().output {
-            return Err(PluginError::Message("CLAP note output is not exported yet"));
-        }
         if product.product().precision() == crate::Precision::F64 {
             return Err(PluginError::Message("CLAP export processes f32"));
         }
@@ -316,13 +313,17 @@ impl PluginAudioPortsImpl for ClapMain<'_> {
 
 impl PluginNotePortsImpl for ClapMain<'_> {
     fn count(&self, input: bool) -> u32 {
-        u32::from(input && self.shared.product.product().notes().input)
+        u32::from(if input {
+            self.shared.product.product().notes().input
+        } else {
+            self.shared.product.product().notes().output
+        })
     }
     fn get(&self, index: u32, input: bool, writer: &mut NotePortInfoWriter) {
-        if input && index == 0 && self.shared.product.product().notes().input {
+        if index == 0 && PluginNotePortsImpl::count(self, input) != 0 {
             writer.set(&NotePortInfo {
                 id: ClapId::new(0),
-                name: b"MIDI input",
+                name: if input { b"MIDI input" } else { b"MIDI output" },
                 supported_dialects: NoteDialects::MIDI,
                 preferred_dialect: Some(NoteDialect::Midi),
             });
@@ -492,7 +493,9 @@ impl<P: PluginExport> ClapAudio<'_, P> {
                 f64::from(self.shared.parameters.get(index)),
             ));
         }
-        let result = self.bridge.flush(&self.events.as_input());
+        let result = self
+            .bridge
+            .flush_with_output(&self.events.as_input(), &mut OutputEvents::void());
         self.shared.fault.store(result.is_err(), Ordering::Relaxed);
         self.bridge.reset();
         self.generation = generation;
@@ -549,20 +552,22 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
             config.max_frames_count as usize,
             MAXIMUM_EVENTS,
             product.layouts()[0],
-        )?;
+        )?
+        .with_output_events(if product.notes().output {
+            MAXIMUM_EVENTS
+        } else {
+            0
+        });
         let processor = wrap(P::create(), &shared.product)
             .ok_or(PluginError::Message("denormal flushing is unavailable"))?;
         let note_port = product.notes().input.then_some(0);
-        let bridge = MainBusBridge::prepare(processor, config, note_port)
-            .map_err(|_| PluginError::Message("RAVET processor rejected activation"))?;
-        let latency = bridge.processor().latency_samples();
-        shared.latency.store(latency, Ordering::Release);
-        shared.restart.store(false, Ordering::Release);
-        if main.reported_latency.swap(latency, Ordering::AcqRel) != latency
-            && let Some(host_latency) = main.host.get_extension::<HostLatency>()
-        {
-            host_latency.changed(&main.host);
-        }
+        let bridge = MainBusBridge::prepare_with_output(
+            processor,
+            config,
+            note_port,
+            product.notes().output.then_some(0),
+        )
+        .map_err(|_| PluginError::Message("RAVET processor rejected activation"))?;
         let mut audio = Self {
             host,
             shared,
@@ -571,6 +576,14 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
             generation: shared.parameters.generation().wrapping_sub(1),
         };
         audio.synchronize();
+        shared.restart.store(false, Ordering::Release);
+        let latency = audio.bridge.processor().latency_samples();
+        shared.latency.store(latency, Ordering::Release);
+        if main.reported_latency.swap(latency, Ordering::AcqRel) != latency
+            && let Some(host_latency) = main.host.get_extension::<HostLatency>()
+        {
+            host_latency.changed(&main.host);
+        }
         Ok(audio)
     }
     fn process(
@@ -591,10 +604,13 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
         self.shared
             .deliver_edits(events.output, &mut self.events, room);
         self.canonicalize(events.input);
-        let result = self
-            .bridge
-            .process(&mut audio, &self.events.as_input(), process.transport);
-        self.after_processing(result.is_ok());
+        let result = self.bridge.process_with_output(
+            &mut audio,
+            &self.events.as_input(),
+            process.transport,
+            events.output,
+        );
+        self.after_processing(result.as_ref().is_ok_and(|r| r.delivery.reason.is_none()));
         Ok(ProcessStatus::Continue)
     }
     fn reset(&mut self) {
@@ -616,8 +632,10 @@ impl<P: PluginExport> PluginAudioProcessorParams for ClapAudio<'_, P> {
         };
         self.shared.deliver_edits(output, &mut self.events, room);
         self.canonicalize(input);
-        let result = self.bridge.flush(&self.events.as_input());
-        self.shared.fault.store(result.is_err(), Ordering::Relaxed);
+        let result = self
+            .bridge
+            .flush_with_output(&self.events.as_input(), output);
+        self.after_processing(result.as_ref().is_ok_and(|r| r.delivery.reason.is_none()));
     }
 }
 

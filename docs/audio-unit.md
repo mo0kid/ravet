@@ -94,7 +94,7 @@ Control calls marked MAIN by the table are dispatched to the AppKit thread.
 Hosts must provide a running main loop for these calls and notifications.
 
 `--validate` runs in-process actual-component contracts; the supplied product
-smoke fixture expects a stereo layout and an editor. Other products can build
+smoke fixture expects a stereo layout and, except for Evidence Synth, an editor. Other products can build
 without this fixture. For the delay it also
 checks the 120 BPM eighth-note impulse at sample 2,000 at 8 kHz, state saved
 before render, complete bypass recall, offset-16 automation and dynamic tail.
@@ -260,3 +260,12 @@ unvalidated. See [decision 0085](decisions/0085-auv2-factory-programs.md).
 See [decision 0100](decisions/0100-auv2-meter-transfer.md) for the scoped AU
 meter transfer evidence. It does not establish real-time timer delivery or DAW
 meter forwarding beyond this owned synthetic host.
+
+## Generic instrument evidence — 5 November 2026
+
+The [Evidence Synth](synth-plugin.md) passes actual MusicDevice component
+checks for note/CC input, exact delayed click audio and finite tail, MIDI output
+bytes/offsets, and latency property notifications, plus `auval` on macOS arm64.
+The product fixture now handles this editor-free instrument. These are synthetic
+host checks, with no new Logic Pro instrument evidence.
+See the [receipt](WORK_STATUS.md#release-010-instrument-evidence).

@@ -307,6 +307,29 @@ int main(int argc, char **argv) {
     descriptor->activate(plugin);
 
     if (!mock) {
+        if (std::string(entry->product->plugin_id)=="org.ravet.evidence-synth") {
+            CHECK(inputs==0 && outputs==2 && midiPort>=0);
+            events.midi(host,0,{0xb0,1,64}); events.midi(host,7,{0x90,60,127}); events.midi(host,17,{0x80,60,0});
+            run(frames);
+            const float amplitude=.25f*(64.f/127.f);
+            for (const auto &channel:out) for (uint32_t f=0;f<frames;++f) {
+                const float expected=f>=39 && f<103 ? ((f-39)%2 ? -amplitude : amplitude) : 0.f;
+                CHECK(std::fabs(channel[f]-expected)<1e-7);
+            }
+            CHECK(controls[latencyPort]==32.f);
+            uint32_t count=0;
+            LV2_ATOM_SEQUENCE_FOREACH(midiOut.seq(),e) {
+                CHECK(e->body.type==host.id(LV2_MIDI__MidiEvent) && e->body.size==3);
+                const auto *bytes=static_cast<const uint8_t *>(LV2_ATOM_BODY_CONST(&e->body));
+                const int expectedOffset[]={0,7,17}; const uint8_t expected[][3]={{0xb0,1,64},{0x90,60,127},{0x80,60,0}};
+                CHECK(count<3);
+                if (count<3) CHECK(e->time.frames==expectedOffset[count] && !std::memcmp(bytes,expected[count],3));
+                ++count;
+            }
+            CHECK(count==3);
+            controls[bySymbol.at("lookahead")]=0.f; run(frames); CHECK(controls[latencyPort]==0.f);
+            std::puts("PASS evidence synth LV2 notes/CC, exact delayed audio/tail, Atom MIDI bytes/offsets, latency change");
+        }
         run(frames);
         bool finite = true;
         for (auto &channel : out) for (float v : channel) finite &= std::isfinite(v);
@@ -319,7 +342,7 @@ int main(int argc, char **argv) {
         // UI: open the product's editor in a native parent, idle, resize, close.
         // Only macOS (Cocoa) hosts an editor in this release; elsewhere the UI
         // refuses to instantiate, which is what this checks there.
-        const bool shipsUi = std::string(argv[3]) != "-";
+        const bool shipsUi = entry->product->editor_width && std::string(argv[3]) != "-";
         CHECK(shipsUi == (manifest.find("ui:binary") != std::string::npos));
         void *uiModule = shipsUi ? open(bundle + argv[3]) : nullptr;
         auto uiDescriptorFn = uiModule ? reinterpret_cast<const LV2UI_Descriptor *(*)(uint32_t)>(symbol(uiModule, "lv2ui_descriptor")) : nullptr;
