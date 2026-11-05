@@ -1,0 +1,26 @@
+name: Close outside pull requests
+
+# RAVET does not accept outside pull requests (see CONTRIBUTING.md). This job
+# never checks out or runs pull-request code: it only comments and closes.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    if: >-
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment and close
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh pr close "$NUMBER" --repo "$REPOSITORY" --comment "Thanks for your interest in RAVET. The project does not accept pull requests from outside contributors, so this one has been closed automatically. Bug reports, questions and host test results are welcome as issues; see CONTRIBUTING.md."

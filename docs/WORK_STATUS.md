@@ -7788,7 +7788,8 @@ support is claimed.
 
 ### Contributor terms (2026-11-05)
 
-The owner approved the [RAVET Contributor Terms](../CONTRIBUTOR_TERMS.md),
+The owner approved the RAVET Contributor Terms (`CONTRIBUTOR_TERMS.md`, since
+withdrawn; see the contribution policy entry below),
 version 1.0: contributors keep copyright and grant a non-exclusive copyright
 and patent licence that includes relicensing under the commercial route; RAVET
 commits to keeping contributions available under the GPL. The licensor is David
@@ -7901,3 +7902,17 @@ Delay and Gain packaging runs after that merge retain **47/0 each** and mock
 CTest **1/0**. `codesign --verify --deep --strict` passes for all three bundles.
 The adapter's CMake link dependencies include the product image so a later Cargo
 rebuild updates the nested library even when adapter C++ is unchanged.
+
+### Contribution policy: no outside pull requests (2026-11-05)
+
+The owner decided that RAVET does not accept outside pull requests or code
+contributions, with no plan to accept them later. This replaces the contributor
+terms recorded earlier today, which were withdrawn before use after an
+independent AI review found gaps (an unconditional grant to recipients and no
+patent sublicensing); no contribution was accepted under them.
+`CONTRIBUTOR_TERMS.md` is removed; `CONTRIBUTING.md` and `LICENSING.md` state the
+policy, and `.github/workflows/close-pull-requests.yml` comments on and closes
+pull requests from authors who are not the owner, members or collaborators. The
+job uses `pull_request_target` with only `pull-requests: write` and never checks
+out or runs pull-request code. It has not run yet: it takes effect once merged
+to `main`.
