@@ -8349,3 +8349,37 @@ the render, with no blocking dialog). VST3 in REAPER on macOS still stalls
 before the script runs on this machine, as recorded earlier, because REAPER
 scans the system VST3 folders there; macOS VST3 evidence comes from Ableton Live
 12 instead.
+
+### Web-editor keyboard focus for Pro Tools (2026-11-05)
+
+Follows the Pro Tools 26.4 AAX delay check, where typed values could not be
+entered. AAX SDK 2.8 (local copy) has no keyboard-focus call:
+`AAX_IViewContainer` offers view type and pointer, `GetModifiers`,
+`SetViewSize` and parameter mouse-event forwarding only, and
+`AAX_IEffectGUI`/`AAX_CEffectGUI` have no key handling. The Cocoa web view
+(`RavetWebView.mm`) now takes key status and first responder while a page text
+field has focus, returns key status afterwards if it took it, and forwards
+plain typing through a local event monitor when the window refuses key status
+([decision 0286](decisions/0286-editor-keyboard-focus.md)). The editor
+protocol, `client.js` and `RavetPlugin.h` are unchanged.
+
+Evidence on macOS 27 arm64:
+
+- New `ravet-web-keyboard-focus` ctest (real AppKit windows): panel that becomes
+  key only if needed, window refusing key status, ordinary key window, three
+  groups pass. Against the previous `RavetWebView.mm` it fails at "panel became
+  key for the text field". All 17 native web-view ctests pass
+  (`cmake -S crates/ravet-surface/native -DRAVET_WEB_EDITOR_TESTS=ON`).
+- `bundle-aax.py --plugin delay` against the local AAX SDK: bundle check passes,
+  and `ravet_aax_check --editor` opens both delay editors in a real `NSView`.
+- `bundle-clap.py --plugin delay`, `bundle-vst3.py --plugin delay` (SDK
+  validator 47 passed, 0 failed) and `bundle-au.py --plugin delay --validate`
+  (editor lifetime and real-delay contracts pass) build with the change.
+- `cargo test -p ravet-webview` and `cargo test -p ravet-plugin --features
+  native,clap` pass; `check-native-semantics.py` passes.
+  `check-window-lifecycle.py` fails to compile its Rust fixture
+  (`unresolved import crate::accessibility`), independent of this change.
+
+Not yet confirmed in Pro Tools: the bundle must be signed by the owner and
+loaded there. If Pro Tools consumes key events before AppKit's local event
+monitors run, this change cannot help.
