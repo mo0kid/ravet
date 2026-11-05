@@ -370,6 +370,11 @@ RAVET injects its editor client into the page's `<head>`. The client speaks the
 | `begin(key)`, `update(key, value)`, `updateNormalized(key, n)`, `end(key)` | A continuous gesture |
 | `send(data)` | A product-channel message; `PluginExport::editor_message` may reply |
 
+On macOS, focusing a text field in the page takes keyboard focus from hosts
+that keep it for their own shortcuts, such as Pro Tools, and gives it back when
+the field loses focus; see [keyboard focus](native-editor.md#keyboard-focus).
+The editor protocol is unchanged.
+
 `examples/gain-plugin/editor/index.html` is a minimal example;
 `examples/delay-plugin/editor/index.html` draws knobs and a division selector.
 

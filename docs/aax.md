@@ -100,6 +100,8 @@ Behaviour:
 - **Editor.** `CreateViewContainer` calls `editor_open` with
   `RAVET_PLUGIN_VIEW_COCOA` for an `NSView` or `RAVET_PLUGIN_VIEW_WIN32` for an
   `HWND`; the GUI timer calls `editor_idle`; removing the view calls `editor_close`.
+  Text fields in the editor ask for keyboard focus through the web view, not
+  the AAX view container, which has no such call.
 
 ### Signing
 
@@ -130,10 +132,14 @@ into `Contents/Resources/notices`, and installs nothing into host folders.
 
 Neither is Avid's validator (DSH/`aaxval`, distributed to AAX developers under
 NDA) and neither is a Pro Tools run. A vendor-signed delay build has been run in
-Pro Tools 26.4 on macOS arm64; see [work status](WORK_STATUS.md). Known
-limitation from that run: Pro Tools keeps keyboard input for its own shortcuts,
-so text fields in a web editor (such as the delay's typed values) cannot be
-typed into; mouse editing works. Where the validator is installed, run its
+Pro Tools 26.4 on macOS arm64; see [work status](WORK_STATUS.md). That run
+found that Pro Tools keeps keyboard input for its own shortcuts, so text fields
+in the web editor (such as the delay's typed values) could not be typed into;
+mouse editing worked. AAX SDK 2.8 has no keyboard-focus call, so the macOS web
+view now takes key status itself while a text field has focus and returns it
+afterwards (see [keyboard focus](native-editor.md#keyboard-focus)). This is
+checked with AppKit fixtures only and has not yet been confirmed in Pro Tools.
+Where the validator is installed, run its
 standard test suite on the built bundle as its own documentation describes, and
 record the validator version and results with the build.
 

@@ -17,11 +17,40 @@
 @property(nonatomic, strong) NSTimer* timer;
 @property(nonatomic, copy) NSString* delivered;
 @property(nonatomic) BOOL evaluating;
+// Keyboard focus while a page text field is focused (see beginTyping).
+@property(nonatomic) BOOL typing;
+@property(nonatomic) BOOL madeKey;
+@property(nonatomic, weak) NSWindow* previousKey;
+@property(nonatomic, strong) id keyMonitor;
+@property(nonatomic, strong) id mouseMonitor;
+@property(nonatomic, strong) id resignObserver;
 - (void)poll:(NSTimer*)timer;
+- (void)endTyping:(BOOL)blur;
 @end
+
+// Reports to native code whether the focused element accepts typed text, so a
+// host that keeps key status for its own shortcuts (Pro Tools) can be asked
+// for it only while the page is editing text. Posts true/false on change only.
+static NSString* const kKeyboardScript = @"(()=>{'use strict';"
+    "const h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.ravetKeyboard;if(!h)return;"
+    "const plain=new Set(['button','checkbox','color','file','hidden','image','radio','range','reset','submit']);"
+    "const editable=e=>!!e&&(e.isContentEditable||(!e.disabled&&!e.readOnly&&(e.tagName==='TEXTAREA'||"
+    "(e.tagName==='INPUT'&&!plain.has((e.type||'').toLowerCase())))));"
+    "let on=false,timer=0;"
+    "const check=()=>{const now=editable(document.activeElement);if(now===on)return;on=now;"
+    "if(on)timer=setInterval(check,100);else{clearInterval(timer);timer=0;}h.postMessage(on);};"
+    "document.addEventListener('focusin',check,true);"
+    "document.addEventListener('focusout',()=>setTimeout(check,0),true);"
+    "})();";
 
 @implementation RavetWebBridge
 - (void)userContentController:(WKUserContentController*)controller didReceiveScriptMessage:(WKScriptMessage*)message {
+    if ([message.name isEqualToString:@"ravetKeyboard"]) {
+        if (![message.body isKindOfClass:NSNumber.class]) return;
+        if ([message.body boolValue]) [self beginTyping];
+        else [self endTyping:NO];
+        return;
+    }
     if (!_message || ![message.body isKindOfClass:[NSDictionary class]]) return;
     NSData* json = [NSJSONSerialization dataWithJSONObject:message.body options:0 error:nil];
     if (json.length > 65536) return;
@@ -58,7 +87,66 @@
         if (!error && [result isKindOfClass:NSNumber.class] && [result boolValue]) bridge.delivered = json;
     }];
 }
+// A text field has focus. Make the editor's window key and the web view first
+// responder; hosts such as Logic and Live already have, so nothing changes
+// there. If the host refuses key status, forward plain typing (no Command key)
+// from the application's key events to the web view until the field loses
+// focus, a mouse button goes down in another window, or the application
+// resigns active; the last two blur the field. The AAX SDK has no keyboard
+// focus call, so this is done in AppKit for every format.
+- (void)beginTyping {
+    WKWebView* web = _web;
+    NSWindow* window = web.window;
+    if (_typing || !web || !window) return;
+    _typing = YES;
+    if (!window.isKeyWindow) {
+        NSWindow* previous = NSApp.keyWindow;
+        if (window.canBecomeKeyWindow) [window makeKeyWindow];
+        if (window.isKeyWindow) { _madeKey = YES; _previousKey = previous; }
+    }
+    NSResponder* responder = window.firstResponder;
+    if (![responder isKindOfClass:NSView.class] || ![(NSView*)responder isDescendantOf:web])
+        [window makeFirstResponder:web];
+    if (window.isKeyWindow) return;
+    __weak RavetWebBridge* weak = self;
+    _keyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp
+                                                         handler:^NSEvent*(NSEvent* event) {
+        WKWebView* view = weak.web;
+        if (!view || !view.window || view.window.isKeyWindow || event.window == view.window ||
+            (event.modifierFlags & NSEventModifierFlagCommand)) return event;
+        if (event.type == NSEventTypeKeyDown) [view keyDown:event];
+        else [view keyUp:event];
+        return nil;
+    }];
+    _mouseMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown |
+                         NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown
+                                                           handler:^NSEvent*(NSEvent* event) {
+        RavetWebBridge* bridge = weak;
+        if (bridge && event.window != bridge.web.window) [bridge endTyping:YES];
+        return event;
+    }];
+    _resignObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification
+        object:nil queue:nil usingBlock:^(NSNotification*) { [weak endTyping:YES]; }];
+}
+// The field lost focus (or, with blur, must lose it). Give key status back to
+// the window that had it, but only if this editor took it and still has it.
+- (void)endTyping:(BOOL)blur {
+    if (!_typing) return;
+    _typing = NO;
+    if (_keyMonitor) [NSEvent removeMonitor:_keyMonitor];
+    if (_mouseMonitor) [NSEvent removeMonitor:_mouseMonitor];
+    if (_resignObserver) [NSNotificationCenter.defaultCenter removeObserver:_resignObserver];
+    _keyMonitor = _mouseMonitor = _resignObserver = nil;
+    WKWebView* web = _web;
+    NSWindow* window = web.window;
+    NSWindow* previous = _previousKey;
+    if (_madeKey && window.isKeyWindow && previous && previous != window && previous.isVisible &&
+        previous.canBecomeKeyWindow) [previous makeKeyWindow];
+    _madeKey = NO; _previousKey = nil;
+    if (blur && web) [web evaluateJavaScript:@"document.activeElement&&document.activeElement.blur()" completionHandler:nil];
+}
 - (void)webView:(WKWebView*)web didFinishNavigation:(WKNavigation*)navigation { _delivered = nil; }
+- (void)webView:(WKWebView*)web didStartProvisionalNavigation:(WKNavigation*)navigation { [self endTyping:NO]; }
 - (void)webView:(WKWebView*)web decidePolicyForNavigationAction:(WKNavigationAction*)action decisionHandler:(void (^)(WKNavigationActionPolicy))handler {
     NSURL* url = action.request.URL;
     BOOL local = _root && url.isFileURL && [url.URLByResolvingSymlinksInPath.path.stringByStandardizingPath hasPrefix:[_root.path stringByAppendingString:@"/"]];
@@ -116,7 +204,10 @@ static RavetWebContainer* createContainer(double width, double height, void* con
     [configuration.userContentController addUserScript:[[WKUserScript alloc]
         initWithSource:@"window.addEventListener('contextmenu',event=>event.preventDefault(),{capture:true,passive:false});"
         injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
+    [configuration.userContentController addUserScript:[[WKUserScript alloc]
+        initWithSource:kKeyboardScript injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
     [configuration.userContentController addScriptMessageHandler:bridge name:@"ravet"];
+    [configuration.userContentController addScriptMessageHandler:bridge name:@"ravetKeyboard"];
     WKWebView* web = [[RavetEditorWebView alloc] initWithFrame:container.bounds configuration:configuration];
     web.wantsLayer = YES;
     web.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -177,16 +268,20 @@ extern "C" void ravet_web_attach(void* view, void* parent) {
 }
 extern "C" void ravet_web_detach(void* view) {
     NSCAssert(NSThread.isMainThread, @"main thread required");
-    if (view) [(__bridge NSView*)view removeFromSuperview];
+    if (!view) return;
+    [((__bridge RavetWebContainer*)view).bridge endTyping:NO];
+    [(__bridge NSView*)view removeFromSuperview];
 }
 extern "C" void ravet_web_destroy(void* view) {
     NSCAssert(NSThread.isMainThread, @"main thread required");
     if (!view) return;
     RavetWebContainer* container = (__bridge_transfer RavetWebContainer*)view;
     [container.accessibilityOwner retire]; container.accessibilityOwner=nil;
+    [container.bridge endTyping:NO];
     [container.bridge.timer invalidate]; container.bridge.timer = nil;
     container.bridge.message = nullptr; container.bridge.snapshot = nullptr; container.bridge.bufferSnapshot = nullptr; container.bridge.context = nullptr;
     [container.web.configuration.userContentController removeScriptMessageHandlerForName:@"ravet"];
+    [container.web.configuration.userContentController removeScriptMessageHandlerForName:@"ravetKeyboard"];
     container.web.navigationDelegate = nil; [container.web stopLoading]; container.bridge.web = nil;
     [container removeFromSuperview]; container.web = nil; container.bridge = nil;
 }
