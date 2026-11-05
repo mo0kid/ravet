@@ -115,7 +115,9 @@ function(ravet_lv2_bundle name library dependency with_ui)
         COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:ravet_lv2>" "${bundle}/ravet_lv2${ravet_lv2_suffix}"
         ${ui_commands}
         COMMAND "${CMAKE_COMMAND}" -E copy "${library}" "${bundle}/ravet_product${ravet_lv2_suffix}"
-        COMMAND "$<TARGET_FILE:ravet_lv2_turtle>" "${bundle}/ravet_product${ravet_lv2_suffix}" "${bundle}"
+        # The target name (not its file) lets CMake prepend
+        # CMAKE_CROSSCOMPILING_EMULATOR, e.g. wine for Windows cross builds.
+        COMMAND ravet_lv2_turtle "${bundle}/ravet_product${ravet_lv2_suffix}" "${bundle}"
                 --binary "ravet_lv2${ravet_lv2_suffix}" ${ui_args} ${license_args}
         DEPENDS ravet_lv2 ravet_lv2_ui ravet_lv2_turtle ${dependency} "${library}"
         VERBATIM)
@@ -130,7 +132,10 @@ add_test(NAME ravet_lv2_mock_contracts
                  "ravet_lv2${ravet_lv2_suffix}" "ravet_lv2_ui${ravet_lv2_suffix}" --mock)
 
 # Optional independent check through lilv (pkg-config lilv-0), when installed.
-find_package(PkgConfig QUIET)
+# Skipped when cross-compiling: pkg-config would find the build machine's lilv.
+if(NOT CMAKE_CROSSCOMPILING)
+    find_package(PkgConfig QUIET)
+endif()
 if(PkgConfig_FOUND)
     pkg_check_modules(LILV QUIET IMPORTED_TARGET lilv-0)
 endif()

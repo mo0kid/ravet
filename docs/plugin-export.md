@@ -151,7 +151,9 @@ Limits for now:
 - Only the first declared layout is used (no audio-port configurations).
 - Processing is f32.
 - Note output and product extra state are not exported.
-- The editor runs on macOS only; Windows and Linux editors follow.
+- The editor runs on macOS only; Windows and Linux editors follow. Linux and
+  Windows bundles build and validate without one; see
+  [Linux and Windows builds](#linux-and-windows-builds).
 - The automation reflection racing a concurrent state load can keep the
   automated value for that parameter.
 
@@ -215,6 +217,74 @@ unsigned `.aaxplugin` on macOS and Windows from the product's table
 <external AAX SDK>`, or `--package <crate>` for another product crate. Vendors
 sign (PACE-wrap) their own builds. See [AAX](aax.md#generic-aax-adapter-010) for
 what maps where, the Windows commands, checks and limits.
+
+## Linux and Windows builds
+
+On Linux the bundle scripts run natively and produce CLAP, VST3 and LV2 bundles
+(AAX is built on macOS and Windows only):
+
+```sh
+python3 scripts/bundle-clap.py --plugin delay        # target/clap/release/RAVET Delay.clap
+python3 scripts/bundle-vst3.py --plugin delay --sdk /path/to/vst3sdk
+python3 scripts/bundle-lv2.py --plugin delay --sdk /path/to/lv2
+```
+
+The CLAP bundle on Linux and Windows is the product library itself, renamed to
+`<Name>.clap`. Editors do not open on Linux or Windows in this release (the
+table hosts Cocoa views only); the bundles build and pass their validators
+without one.
+
+### Windows cross-builds
+
+`--target windows` on `bundle-clap.py`, `bundle-vst3.py`, `bundle-lv2.py` and
+`bundle-aax.py` builds the x86_64 Windows bundles from Linux (or macOS)
+([decision 0285](decisions/0285-linux-windows-plugin-builds.md)):
+
+```sh
+# Once: cargo-xwin and the Windows target. The first cargo-xwin run downloads
+# Microsoft's CRT and Windows SDK and asks you to accept their licence.
+cargo install --locked cargo-xwin
+rustup target add x86_64-pc-windows-msvc
+# Also needed: CMake, clang (clang-cl), and Wine for LV2 (optional otherwise).
+
+python3 scripts/bundle-clap.py --plugin delay --target windows
+python3 scripts/bundle-vst3.py --plugin delay --sdk /path/to/vst3sdk --target windows
+python3 scripts/bundle-lv2.py --plugin delay --sdk /path/to/lv2 --target windows
+python3 scripts/bundle-aax.py --plugin delay --aax-sdk /path/to/AAX_SDK --target windows
+```
+
+| Format | Windows bundle | Windows check to run there |
+|---|---|---|
+| CLAP | `target/clap/windows/release/RAVET Delay.clap` | `clap-validator.exe validate "RAVET Delay.clap"` |
+| VST3 | `target/vst3/generic/delay/windows-release/VST3/Release/ravet_delay_vst3.vst3` | `validator.exe` from that build's `bin/` |
+| LV2 | `target/lv2/windows/ravet_delay.lv2` | `ravet_lv2_contracts.exe` from `target/lv2/windows/generic-ravet_delay/` |
+| AAX | `target/aax-plugin/windows-delay/RAVET Delay.aaxplugin` | `ravet_aax_check.exe` from the same directory (not Avid's validator) |
+
+How it works:
+
+- Rust is built with `cargo xwin build|rustc --target x86_64-pc-windows-msvc`.
+  The C++ adapters are configured with
+  `-DCMAKE_TOOLCHAIN_FILE=scripts/cmake/windows-xwin.cmake`, which wraps
+  cargo-xwin's clang-cl toolchain file and restores the Windows system
+  libraries it clears. The scripts take `PATH` and that toolchain's location
+  from `cargo xwin env`; CMake's default generator (Makefiles) is used.
+- The C runtime is linked statically on both sides (Rust
+  `-C target-feature=+crt-static`, C++ `/MT`), so bundles and the cross-built
+  tools need only system DLLs and run on Windows without the Visual C++
+  Redistributable.
+- Programs that must run at build time run under Wine
+  (`CMAKE_CROSSCOMPILING_EMULATOR`): the LV2 Turtle generator (required) and
+  the contract tests (skipped without Wine). Format validators are not run on
+  the build machine.
+- The VST3 SDK's Windows folder-icon step calls `attrib`; the scripts put a
+  no-op `attrib` on `PATH`, so the bundle folder's system attribute is not set.
+
+The official clap-validator Windows release needs the Visual C++
+Redistributable; on a Windows installation without it, build clap-validator
+from source with `cargo xwin build --release --target x86_64-pc-windows-msvc`
+and `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static"`.
+Native Windows builds (MSVC) use the commands in each format's guide; they have
+not been run. Evidence for both platforms is in [work status](WORK_STATUS.md).
 
 ## Format identities
 

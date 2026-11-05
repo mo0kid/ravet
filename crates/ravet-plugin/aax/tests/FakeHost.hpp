@@ -203,6 +203,9 @@ inline AAX_EStemFormat stem(int32_t value) { return AAX_EStemFormat(value); }
 
 // One algorithm instance: context fields laid out as the component registered them.
 struct Context {
+    // Host buffers hold every block size the tests run, including the
+    // oversized block the adapter must silence: it writes all `frames` samples.
+    static constexpr int32_t kCapacity = 2048;
     std::array<void *, 8> fields{};
     void *owner = nullptr;
     int32_t frames = 0;
@@ -211,8 +214,8 @@ struct Context {
     MidiNode midiIn, midiOut;
     const Component &component;
     Context(const Component &c, uint32_t inputChannels, uint32_t outputChannels) : component(c) {
-        inputs.assign(inputChannels, std::vector<float>(1024));
-        outputs.assign(outputChannels, std::vector<float>(1024));
+        inputs.assign(inputChannels, std::vector<float>(kCapacity));
+        outputs.assign(outputChannels, std::vector<float>(kCapacity));
         for (auto &b : inputs) inputPointers.push_back(b.data());
         for (auto &b : outputs) outputPointers.push_back(b.data());
         fields[size_t(c.privateField)] = &owner;
@@ -224,6 +227,7 @@ struct Context {
         if (mo >= 0) fields[size_t(mo)] = static_cast<AAX_IMIDINode *>(&midiOut);
     }
     void run(int32_t count) {
+        require(count <= kCapacity, "test block exceeds the fake host's buffers");
         frames = count;
         void *instances[] = {fields.data()};
         component.process(instances, instances + 1);
