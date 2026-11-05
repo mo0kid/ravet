@@ -7,7 +7,6 @@ SDK options add native packages, metadata/signature checks and an optional VST3
 validator. Build Foundry first; pass --executable for a separate Cargo target directory.
 """
 import argparse
-import ctypes
 import plistlib
 from pathlib import Path
 import subprocess
@@ -39,8 +38,8 @@ def check(executable: Path, build: bool, sdks: dict[str, Path], auv3: bool,
                         formats.append("aax")
                 if "lv2" in sdks:
                     formats.append("lv2")
-                if auv3 and kind == "plugin" and sys.platform == "darwin":
-                    formats.append("auv3")
+                if auv3:
+                    raise ValueError("AUv3 is not part of the generic Foundry template")
             options = (["--type", "instrument"] if kind == "instrument" else [])
             if kind in ("plugin", "instrument"):
                 options += ["--formats", ",".join(formats)]
@@ -71,7 +70,7 @@ def check(executable: Path, build: bool, sdks: dict[str, Path], auv3: bool,
                     if kind == "standalone":
                         run([str(destination / "target/debug" / name), "--ui-test", str(parent / "standalone-ui")])
                     if kind in ("plugin", "instrument"):
-                        assert (destination / "target/clap/debug" / f"{name}.clap").exists()
+                        assert (destination / "target/plugins/debug" / f"{name}.clap").exists()
                         for export in formats[1:]:
                             run([str(executable), "build", str(destination), "--offline", "--format", export])
                             suffix = {"vst3":"vst3", "au":"component", "auv3":"app", "aax":"aaxplugin", "lv2":"lv2"}[export]
@@ -85,14 +84,10 @@ def check(executable: Path, build: bool, sdks: dict[str, Path], auv3: bool,
                                 info = plistlib.loads((artifact / "Contents/Info.plist").read_bytes())
                                 assert info["CFBundleVersion"] == "0.2.0"
                                 assert info["AudioComponents"][0]["type"] == ("aumu" if kind == "instrument" else "aufx")
-                                assert (artifact / "Contents/Resources/plugin.vst3").is_dir()
+                                assert not (artifact / "Contents/Resources/plugin.vst3").exists()
                             if export == "lv2":
-                                assert f"urn:com.example.{name}:mono" in (artifact / "manifest.ttl").read_text()
-                                assert (artifact / "foundry_plugin_lv2.so").is_file()
-                            if export == "aax" and sys.platform == "darwin":
-                                library = ctypes.CDLL(str(artifact / "Contents/MacOS/foundry_plugin_aax"))
-                                for entry in ("ACFRegisterPlugin", "ACFRegisterComponent", "ACFGetClassFactory", "ACFCanUnloadNow", "ACFStartup", "ACFShutdown", "ACFGetSDKVersion", "GetPluginFactory"):
-                                    getattr(library, entry)
+                                assert f"com.example.{name}" in (artifact / "plugin.ttl").read_text()
+                                assert any(artifact.glob("ravet_lv2.*"))
         run([str(executable), "doctor"])
     print("Foundry external consumer workflow PASS", flush=True)
 

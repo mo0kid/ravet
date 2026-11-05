@@ -14,6 +14,9 @@ SOURCE_NOTE = {
 }
 
 
+# Release preparation: switch this line to "tag" when the release tag exists.
+DEFAULT_RAVET_SOURCE = "path"
+
 def framework_tag(root: Path) -> str:
     """Release tag matching the checkout's workspace version, e.g. v0.1.0."""
     with open(root / "Cargo.toml", "rb") as manifest:
@@ -164,7 +167,7 @@ def main():
     parser.add_argument("--kind", choices=["offline", "embedded-rust", "arduino", "pi-linux"], default="offline")
     parser.add_argument("--name", required=True)
     parser.add_argument("--license", dest="license_id", required=True)
-    parser.add_argument("--ravet-source", choices=["path", "tag"], default="path",
+    parser.add_argument("--ravet-source", choices=["path", "tag"], default=DEFAULT_RAVET_SOURCE,
                         help="local checkout paths (default) or the release tag matching this checkout")
     args = parser.parse_args()
     try:
