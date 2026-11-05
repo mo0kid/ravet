@@ -1,0 +1,113 @@
+# Support matrix
+
+**Evidence as of: 5 November 2026.** This hand-maintained page summarizes
+recorded runs of the generic export layer's **RAVET Delay** example on
+`release/0.1.0` through `628af5d`, plus the local validator rerun in the docs/CI
+work package. It is not a certification of every product,
+host version, device or deadline. Format adapters remain prototypes. Earlier
+0.0.1 reference checks remain in [work status](WORK_STATUS.md) and
+[host validation](host-validation.md); they do not qualify the new adapters.
+
+Only named host runs appear in the first table. A validator or adapter test
+does not establish host support. “Not recorded” means no such evidence is
+recorded here, rather than a failed test. Host point versions not recorded in
+the source entry are explicitly left unspecified.
+
+## Format × platform: named host runs
+
+Every run below is dated **5 November 2026**. Each evidence link names its
+dated WORK_STATUS entry.
+
+| Format | macOS arm64 | Windows 11 x64 VM | Arch Linux x86_64 |
+|---|---|---|---|
+| CLAP | REAPER 7.82/macOS-arm64 on macOS 27.0.1: fixed/synced renders, edits/readback and project recall ([run](WORK_STATUS.md#release-010-reaper-delay), [merged-harness reruns](WORK_STATUS.md#release-010-host-integration)) | REAPER 7.82/x64, WaveOut: same harness, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) | REAPER 7.82/linux-x86_64, JACK: same harness ([run](WORK_STATUS.md#release-010-reaper-delay), [rerun](WORK_STATUS.md#release-010-reaper-win-linux)) |
+| VST3 | Ableton Live 12 Suite on macOS 27 arm64 (point version not recorded): manual fixed/synced exports match the strict sample checker ([run](WORK_STATUS.md#release-010-live-delay)) | REAPER 7.82/x64, WaveOut: edits/readback, project recall and fixed/synced renders, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) | REAPER 7.82/linux-x86_64, JACK: same harness, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) |
+| LV2 | REAPER 7.82/macOS-arm64 on macOS 27.0.1: edits/readback, project recall and fixed/synced renders ([run](WORK_STATUS.md#release-010-reaper-delay)) | REAPER 7.82/x64, WaveOut: same harness, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) | REAPER 7.82/linux-x86_64, JACK: same harness ([run](WORK_STATUS.md#release-010-reaper-delay), [rerun](WORK_STATUS.md#release-010-reaper-win-linux)) |
+| AUv2 | Logic Pro on macOS 27 arm64 (Logic version not recorded): manual fixed/synced bounces, typed values, editor reopening and saved-project recall ([run](WORK_STATUS.md#release-010-logic-delay)) | Not applicable | Not applicable |
+| AAX | Pro Tools 26.4, macOS arm64 (OS version not recorded in this entry): manual fixed/synced bounces, mouse editor use; keyboard typing fails ([run](WORK_STATUS.md#release-010-pro-tools-delay)) | **Provisional**, owner decision on 5 November 2026: Windows bundle built and adapter-checked; **not run in Pro Tools for Windows** ([build/checks](WORK_STATUS.md#release-010-platform-builds), [decision recorded in release plan](releases/0.1.0.md#5-platform-and-host-evidence)) | Not applicable |
+
+The REAPER harness checks 48 kHz offline master-mix renders, 63 host checks per
+run, two project recalls and exact echo positions/mix/silence. It does not
+exercise live playback, custom editors or automation. The VM's WaveOut and
+Linux JACK settings identify the environment; they do not qualify a device.
+The macOS merged-harness CLAP rerun also records one initial startup timeout.
+
+The manual Live exports match the strict checker after unwarping the clip and
+typing exact values; editor lifecycle and session recall were not recorded.
+Logic's bounces include the metronome, so checks used exact delay sample
+positions and amplitudes rather than a whole-file checker pass. In Pro Tools,
+echo timing and sync were measured, but the strict checker fails amplitudes
+because the dragged/reset values differ from exact targets; the fixed default
+also has a small one-sample split from normalized parameter precision. The
+release plan's previous blanket “sample-exactly” wording must not be read as a
+strict checker pass for these manual runs.
+
+## Validators and adapter checks (separate from hosts)
+
+All entries below were recorded on **5 November 2026**. These are results from
+the cited receipts. The macOS 0.4.1 row is a new local rerun for this docs/CI
+work package; other rows summarize earlier receipts.
+
+| Format | Platform and tool | Recorded result and evidence |
+|---|---|---|
+| CLAP | macOS arm64, clap-validator 0.3.2-127 | Delay: 33 passed, 0 failed, 11 skipped; skips include f64, preset discovery, port configurations and note tests ([run](WORK_STATUS.md#release-010-delay-example), [policy regression](WORK_STATUS.md#release-010-native-table)) |
+| CLAP | macOS 27.0.1 arm64, pinned official clap-validator 0.4.1 (`152b982`) | Locally rebuilt Delay: 33 passed, 0 failed, 0 warnings, 11 skipped; not a hosted CI run ([run](WORK_STATUS.md#release-010-docs-ci)) |
+| CLAP | Linux x86_64, clap-validator 0.4.1 (`152b982`) | 33 passed, 0 failed, 11 skipped, 0 warnings; repeated seven times ([run](WORK_STATUS.md#release-010-platform-builds)) |
+| CLAP | Windows 11 x64 VM, clap-validator 0.4.1 (`152b982`, source-built with static CRT) | 32 passed, 0 failed, 12 skipped; denormal timing warning in 3 of 7 runs; the additional skip is Linux-only `scan-rtld-now` ([run](WORK_STATUS.md#release-010-platform-builds)) |
+| VST3 | macOS arm64, Steinberg SDK 3.8.1 validator | Delay, Gain and mock: 47 passed, 0 failed each; mock CTest 1/1 ([run](WORK_STATUS.md#release-010-vst3-products), [merged Delay rerun](WORK_STATUS.md#release-010-adapter-integration)) |
+| VST3 | Linux x86_64 and Windows 11 x64 VM, SDK 3.8.1 validator | Delay and mock: 47 passed, 0 failed on each OS; Windows mock contracts also run under Wine ([run](WORK_STATUS.md#release-010-platform-builds)) |
+| AUv2 | macOS 27.0.1 arm64, AU Validation Tool 1.10.0 and RAVET component checks; AudioUnitSDK 1.4.0 | Effect/instrument/MIDI-effect mocks pass `auval`; merged Delay passes `auval -v aufx QFKS TYDS` and in-process state/render/automation/retained-view checks ([mock run](WORK_STATUS.md#release-010-auv2-adapter), [Delay run](WORK_STATUS.md#release-010-adapter-integration)) |
+| LV2 | macOS arm64, LV2 1.18.10, lilv 0.28.0, sord 0.16.22 | Delay/Gain/mock adapter, lilv and render checks pass; `lv2_validate` reports 0 errors; real Cocoa editor smoke included ([run](WORK_STATUS.md#release-010-lv2-adapter)) |
+| LV2 | Linux x86_64; Windows 11 x64 VM, LV2 1.18.10 | Linux CTest 4/4; Windows mock 100 and Delay smoke 32 checks with 0 failures; Windows CTest 2/2 under Wine. `lv2_validate` reports 0 Turtle errors. No Windows lilv; **lv2lint not run** ([run](WORK_STATUS.md#release-010-platform-builds)) |
+| AAX | macOS arm64, AAX SDK 2.8.0 and RAVET checks | Mock CTest 2/2; Delay mono/stereo rendering, parameters, state and off-screen editor check pass. **Avid validator not run** ([run](WORK_STATUS.md#release-010-aax-adapter)) |
+| AAX | Windows 11 x64 VM, AAX SDK 2.8 and RAVET checks | Delay mono/stereo, eight parameters, rendering and state corruption checks pass; mock passes; unsigned. **Avid validator not run** ([run](WORK_STATUS.md#release-010-platform-builds)) |
+
+Windows bundles in these receipts were cross-built on Linux using cargo-xwin
+and a static CRT. Native MSVC builds are not established by them. Hosted CI is
+[configured](runtime-validation.md) separately and has not run for this change.
+
+## Known limits
+
+- **Editors on Windows and Linux are not yet supported** by the generic
+  layer. Win32/X11 attachment returns refusal; LV2 ships no UI there by
+  default, and the registered Windows AAX view would be empty.
+- **Pro Tools keyboard typing failed** in the macOS web editor in the recorded
+  run; mouse editing works. A fix (the web view takes key status while a text
+  field has focus, [decision 0286](decisions/0286-editor-keyboard-focus.md))
+  passes AppKit fixture tests but has not yet been confirmed in Pro Tools.
+- Generic processing is **f32 and main bus only**. CLAP and LV2 use the first
+  declared layout. This page does not qualify the separate f64/auxiliary
+  reference adapters or AUv3/mobile integrations.
+- The generic CLAP export has **no note/MIDI output**. Native adapters carry
+  bounded MIDI 1 short messages; SysEx/UMP is outside this export scope.
+  At most 1,024 processor input events fit a block; excess cached changes can
+  wait until the next block. No physical MIDI device is qualified here.
+- Product extra state is not saved by the generic exports. State and editor
+  messages are bounded; the editor protocol accepts at most 64 KiB and its
+  edit queue holds 256 edits. A concurrent automation reflection can retain
+  an automated value over a concurrent state load.
+- The default native table uses prepared audio scratch. Frozen bypass avoids
+  dry scratch copies, switches on block boundaries and discards notes while
+  bypassed; framework dry bypass is not latency-compensated.
+- Delay accepts sample rates up to 768 kHz, allocates two two-second delay
+  lines at prepare, reads tempo once per block, clamps synced time to two
+  seconds and has no editor meters.
+- macOS x86_64 runs, standalone audio/MIDI on all three platforms with named
+  devices, production signing for arbitrary vendors and real-time deadlines
+  remain unestablished. AAX vendor signing is separate from adapter checks.
+  AAX applies automation once per block and reports no tail through SDK 2.8.
+  VST2 is excluded.
+
+The [feature registry](features.toml) and generated [catalogue](FEATURES.md)
+contain the exact per-adapter limits; see also [plug-in exports](plugin-export.md),
+[VST3](vst3.md), [AUv2](audio-unit.md), [AAX](aax.md) and [LV2](lv2.md).
+
+## Maintaining this page
+
+Keep this page hand-written: the WORK_STATUS receipts include qualifications,
+partial manual checks and missing versions that cannot be inferred from a
+feature's implemented/prototype status. When adding evidence, retain the date,
+product, architecture, host/version, checked scope and a stable receipt link.
+Keep validators separate and change the evidence-as-of date only after review.
+The documentation checker validates local file links; semantic claims and
+anchors require review under [maintenance](maintenance.md).
