@@ -165,8 +165,10 @@ knob (Shift for fine steps), double-click it to reset, or click its value to
 type one (Enter applies, Escape cancels; `6k` means 6,000 Hz). Values that are
 not whole show a decimal, so 100.3 ms never reads as 100 ms. The editor
 shows no meters yet: the export layer has no audio-to-editor data path.
-Evidence is offline and from development hosts on macOS arm64 only; no DAW run
-has been recorded.
+Dated Delay host runs and separate validator/adapter checks on macOS arm64,
+Windows 11 x64 and Arch Linux x86_64 are in the
+[support matrix](support-matrix.md). Generic editors remain macOS-only; typed
+values do not work in Pro Tools, where mouse editing works.
 
 ## MPE performance
 

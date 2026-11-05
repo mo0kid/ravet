@@ -143,8 +143,8 @@ record the validator version and results with the build.
   channel counts are skipped, because the table carries no channel roles.
 - Automation is applied once per block; AAX packets and sample-accurate
   automation are not used.
-- `set_value` is a main-thread call in the table. Pro Tools is expected to call
-  `UpdateParameterNormalizedValue` there; this has not been observed in a host.
+- `get_value` and `set_value` may be called from any thread; they touch only
+  lock-free shared parameter state.
 - Generated MIDI is posted as short messages only; SysEx is neither delivered
   nor generated.
 - No tail is reported: the AAX SDK 2.8 native interface has no tail property.
@@ -157,7 +157,9 @@ record the validator version and results with the build.
 - Evidence is local: macOS arm64 builds and the checks above, and a Windows x64
   cross-build whose bundle check and adapter tests pass natively on Windows 11
   (see [work status](WORK_STATUS.md)). Avid's validator is not available
-  locally, the builds are not PACE-signed, and no Pro Tools run has been made.
+  locally. The unsigned build checks are separate from the owner-signed macOS
+  Delay run in Pro Tools 26.4. Windows AAX remains provisional without a Pro
+  Tools for Windows run; see the [support matrix](support-matrix.md).
 
 The rest of this page describes the 0.0.1 references.
 

@@ -1,0 +1,79 @@
+name: Hosted portable release checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No secrets, external format SDKs or self-hosted runners. Outside PR workflows
+# still require maintainer approval in repository settings (docs/maintenance.md).
+jobs:
+  portable:
+    name: Portable crates and Delay CLAP (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TARGET_DIR: target
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build portable crates (default features)
+        run: >-
+          cargo build --locked --all-targets
+          -p ravet-foundation -p ravet-embedded -p ravet-signal -p ravet-state
+          -p ravet-data -p ravet-graph -p ravet-instrument -p ravet-audio-file
+          -p ravet-osc -p ravet-surface -p ravet-native -p ravet-native-dsp
+          -p ravet-clap
+      - name: Test portable crates (default features)
+        run: >-
+          cargo test --locked --all-targets
+          -p ravet-foundation -p ravet-embedded -p ravet-signal -p ravet-state
+          -p ravet-data -p ravet-graph -p ravet-instrument -p ravet-audio-file
+          -p ravet-osc -p ravet-surface -p ravet-native -p ravet-native-dsp
+          -p ravet-clap
+      - name: Test optional portable crypto and processor guard
+        run: |
+          cargo test --locked -p ravet-data --all-features
+          cargo test --locked -p ravet-native-dsp --all-features
+      - name: Build and test the generic export layer
+        run: |
+          cargo build --locked -p ravet-plugin --all-targets --all-features
+          cargo test --locked -p ravet-plugin --all-features
+          cargo test --locked -p ravet-delay-plugin
+      - name: Test validator download integrity checks
+        run: python scripts/tests/test_clap_validator_download.py -v
+      - name: Build the Delay CLAP bundle
+        run: python scripts/bundle-clap.py --plugin delay --profile release
+      - name: Fetch checksum-pinned clap-validator 0.4.1
+        run: python scripts/fetch-clap-validator.py target/ci/clap-validator
+      - name: Validate the actual Delay bundle
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            target/ci/clap-validator/clap-validator.exe validate "target/clap/release/RAVET Delay.clap"
+          else
+            target/ci/clap-validator/clap-validator validate "target/clap/release/RAVET Delay.clap"
+          fi
