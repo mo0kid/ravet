@@ -27,6 +27,9 @@ pub(crate) fn binary32(op: Binary, a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
         vst1q_f32(out.as_mut_ptr(), r);
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_ps(a.as_ptr());
@@ -56,6 +59,9 @@ pub(crate) fn sqrt32(a: [f32; 4]) -> [f32; 4] {
         vst1q_f32(out.as_mut_ptr(), vsqrtq_f32(vld1q_f32(a.as_ptr())));
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         _mm_storeu_ps(out.as_mut_ptr(), _mm_sqrt_ps(_mm_loadu_ps(a.as_ptr())));
@@ -86,6 +92,9 @@ pub(crate) fn select32(mask: u8, a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
         );
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let m: [u32; 4] =
@@ -115,6 +124,9 @@ pub(crate) fn convert32(a: [i32; 4]) -> [f32; 4] {
         vst1q_f32(out.as_mut_ptr(), vcvtq_f32_s32(vld1q_s32(a.as_ptr())));
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         _mm_storeu_ps(
@@ -147,6 +159,9 @@ pub(crate) fn compare32(op: Comparison, a: [f32; 4], b: [f32; 4]) -> u8 {
         vst1q_u32(lanes.as_mut_ptr(), r);
         (0..4).fold(0, |bits, i| bits | ((lanes[i] != 0) as u8) << i)
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_ps(a.as_ptr());
@@ -178,6 +193,9 @@ pub(crate) fn zip32(a: [f32; 4], b: [f32; 4]) -> ([f32; 4], [f32; 4]) {
         vst1q_f32(hi.as_mut_ptr(), vzip2q_f32(a, b));
         (lo, hi)
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_ps(a.as_ptr());
@@ -204,6 +222,9 @@ pub(crate) fn unzip32(a: [f32; 4], b: [f32; 4]) -> ([f32; 4], [f32; 4]) {
         vst1q_f32(hi.as_mut_ptr(), vuzp2q_f32(a, b));
         (lo, hi)
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_ps(a.as_ptr());
@@ -236,6 +257,9 @@ pub(crate) fn binary64(op: Binary, a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
         vst1q_f64(out.as_mut_ptr(), r);
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_pd(a.as_ptr());
@@ -265,6 +289,9 @@ pub(crate) fn sqrt64(a: [f64; 2]) -> [f64; 2] {
         vst1q_f64(out.as_mut_ptr(), vsqrtq_f64(vld1q_f64(a.as_ptr())));
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         _mm_storeu_pd(out.as_mut_ptr(), _mm_sqrt_pd(_mm_loadu_pd(a.as_ptr())));
@@ -295,6 +322,9 @@ pub(crate) fn select64(mask: u8, a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
         );
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let m: [u64; 2] =
@@ -327,6 +357,9 @@ pub(crate) fn convert64(a: [i32; 2]) -> [f64; 2] {
         );
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         _mm_storeu_pd(
@@ -359,6 +392,9 @@ pub(crate) fn compare64(op: Comparison, a: [f64; 2], b: [f64; 2]) -> u8 {
         vst1q_u64(lanes.as_mut_ptr(), r);
         (0..2).fold(0, |bits, i| bits | ((lanes[i] != 0) as u8) << i)
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_pd(a.as_ptr());
@@ -390,6 +426,9 @@ pub(crate) fn zip64(a: [f64; 2], b: [f64; 2]) -> ([f64; 2], [f64; 2]) {
         vst1q_f64(hi.as_mut_ptr(), vzip2q_f64(a, b));
         (lo, hi)
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_pd(a.as_ptr());
@@ -416,6 +455,9 @@ pub(crate) fn unzip64(a: [f64; 2], b: [f64; 2]) -> ([f64; 2], [f64; 2]) {
         vst1q_f64(hi.as_mut_ptr(), vuzp2q_f64(a, b));
         (lo, hi)
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_pd(a.as_ptr());
@@ -490,6 +532,9 @@ pub(crate) fn bits32(a: [f32; 4], clear_sign: bool) -> [f32; 4] {
         vst1q_f32(out.as_mut_ptr(), vreinterpretq_f32_u32(r));
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_ps(a.as_ptr());
@@ -529,6 +574,9 @@ pub(crate) fn bits64(a: [f64; 2], clear_sign: bool) -> [f64; 2] {
         vst1q_f64(out.as_mut_ptr(), vreinterpretq_f64_u64(r));
         out
     }
+    // SAFETY: as for the AArch64 path: complete fixed-width local arrays; SSE2 is
+    // part of the x86_64 baseline; unaligned loads/stores (`loadu`/`storeu`) are
+    // used, and no raw pointer survives this operation.
     #[cfg(target_arch = "x86_64")]
     unsafe {
         let a = _mm_loadu_pd(a.as_ptr());
