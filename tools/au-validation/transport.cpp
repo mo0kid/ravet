@@ -1,12 +1,14 @@
 #include "RavetAuVst3Transport.hpp"
 #include "RavetVst3Transport.hpp"
 #include "RavetPerformance.h"
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <new>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 namespace allocation { bool track = false; size_t created = 0, retired = 0; }
 void *operator new(size_t size) { if (allocation::track) ++allocation::created; if (auto p = std::malloc(size ? size : 1)) return p; throw std::bad_alloc(); }
 void *operator new[](size_t size) { return ::operator new(size); }
@@ -114,6 +116,15 @@ void cases() {
     h.sample = 0x1p63; reject("+2^63 rejects before cast");
     h.sample = std::nextafter(-0x1p63, -foreignInfinity()); reject("below -2^63 rejects before cast");
     h.sample = .5; reject("fractional sample rejects before cast");
+    h.sample = 3584. + 0x1p-19; reject("sample beyond Float64 residue tolerance rejects");
+    h.sample = 0x1p40 + 0x1p-9; reject("large sample beyond absolute residue cap rejects");
+    // REAPER 7.82 values observed for whole 512-frame block starts at 48 kHz.
+    for (const auto [observed, whole] : {std::pair{3584.0000000000005, INT64_C(3584)}, {13823.999999999998, INT64_C(13824)},
+                                          {std::nextafter(0., 1.), INT64_C(0)}, {-std::nextafter(240., 0.), INT64_C(-240)}}) {
+        h.sample = observed;
+        require(nativeTransport(host, snapshot) && snapshot.transport().sample_position == whole, "Float64 residue canonicalizes to whole sample");
+    }
+    require(nativeTransport(host, snapshot), "restore valid snapshot after residue cases");
     foreignNaN(h.sample); reject("NaN sample rejects before cast");
     h.sample = foreignInfinity(); reject("infinite sample rejects before cast");
     h.sample = -240; h.numerator = 3.5f; reject("fractional signature rejects before cast");

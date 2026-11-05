@@ -75,7 +75,12 @@ Latency and tail are cached from `timing` after preparation and between render
 calls. Changes schedule main-run-loop property notifications, including
 `latency_changed` and tail changes without latency changes. Infinite tails use
 positive infinity. Host beat/tempo, signature and transport callbacks are
-validated through `RavetAuTransport.hpp` at block start. Short MIDI input maps
+validated through `RavetAuTransport.hpp` at block start. A transport sample
+position within Float64 residue of an integer (REAPER reports, for example,
+`3584.0000000000005`) is canonicalized to that integer. A malformed tuple,
+including a genuinely fractional position, still makes the block output silence
+and return an error without calling the product
+([decision 0294](decisions/0294-au-transport-sample-residue.md)). Short MIDI input maps
 to native MIDI events; declared note output uses the bounded
 `kAudioUnitProperty_MIDIOutputCallback` path. Missing/rejecting output callbacks
 do not undo audio or replay events; callback changes require an uninitialized
@@ -98,6 +103,10 @@ smoke fixture expects a stereo layout and, except for Evidence Synth, an editor.
 without this fixture. For the delay it also
 checks the 120 BPM eighth-note impulse at sample 2,000 at 8 kHz, state saved
 before render, complete bypass recall, offset-16 automation and dynamic tail.
+It also replays REAPER 7.82's 48 kHz/512-frame calling pattern, with transport
+samples one ulp off whole block starts: fixed 100 ms echoes must land at
+exactly +4,800 and synced eighth-note echoes at 150 BPM at exactly +9,600. The
+generic host callback reports 456 plus one ulp for every product.
 The mock exercises effects, instruments and audio-backed MIDI effects:
 
 ```sh

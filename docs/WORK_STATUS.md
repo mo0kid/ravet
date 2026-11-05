@@ -9375,3 +9375,93 @@ Checks on the merged branch:
   denied for the same three crates, and `bundle-plugin.py --target windows`
   builds the delay CLAP, VST3 and LV2 bundles with notices. Not run on Windows
   after the merge.
+
+<a id="release-010-reaper-au-timing"></a>
+
+### AUv2 in REAPER: transport sample residue fixed; exact renders (2026-11-05)
+
+Branch `fix/auv2-reaper-timing` from `release/0.1.0` at `1421865`. Machine:
+Apple M4 Pro, macOS 27.0.1, REAPER 7.82 (private copy under
+`target/reaper-delay/app`), AudioUnitSDK 1.4.0, Mac mini Speakers at
+48 kHz/512 frames in the disposable configuration.
+
+**Root cause.** A temporary, environment-gated trace of the adapter's render
+path (removed before commit) showed REAPER calling `Render` once per 512-frame
+block with continuous sample times. It sets the parameters once from the main
+thread before the render. No reset, re-initialization or format change happened
+mid-render. In one traced run, 147 of about 1,200 renders received a
+`TransportState2` result: a whole block start with one ulp of Float64
+residue, for example `3584.0000000000005`, `7168.0000000000009` and
+`13823.999999999998`. `RavetAuTransport.hpp` required an exact integral sample,
+so `nativeTransport` failed. The adapter then silenced the block and returned
+`kAudioUnitErr_InvalidPropertyValue` (-10851) without calling the product, so
+the delay line did not advance. Each rejected block between an impulse and its
+echo delayed the echo by 512 frames. The observed errors correspond to four
+rejected blocks for fixed renders (+2,048), and six and nine for synced renders
+(+3,072 and +4,608). Dry positions
+stayed exact because the impulse blocks were accepted. Logic Pro reports exact
+integers. CLAP, VST3 and LV2 renders in REAPER were already exact; those
+adapters do not use this AU collector.
+
+**Fix** ([decision 0294](decisions/0294-au-transport-sample-residue.md)):
+`nativeTransport` canonicalizes a sample position within
+`min(2^-10, max(|n|, 2^20) × 2^-40)` samples of an integer `n` to `n`.
+Genuinely fractional positions, such as 0.5, still reject. No adapter code
+changed. The performance AU shares the helper.
+
+**Tests.**
+- `tools/au-plugin-validation/delay.mm` adds a REAPER-pattern case on the
+  actual delay component: 48 kHz, 512-frame renders with continuous sample
+  times, main-thread `SetParameter`, beat/tempo (150 BPM), signature and
+  `TransportState2` callbacks, and one-ulp residue on two of every seven blocks.
+  Fixed 100 ms must give exactly two peaks at 28,800 and 100,800. Synced 1/8,
+  mix 50 must give peaks at exactly 24,000, 33,600, 96,000 and 105,600.
+  - Before the header fix, this failed with `FAIL REAPER-pattern render`.
+  - After the fix, `scripts/bundle-au.py --plugin delay ... --validate` passes.
+- The generic `contracts.mm` host transport now reports
+  `nextafter(456, +inf)`. The mock still requires exactly 456.
+- `tools/au-validation/transport.cpp` adds the observed REAPER values, a
+  near-zero residue, a below-zero whole value and two rejections: a value
+  beyond tolerance and a large value beyond the absolute cap.
+
+**Results.**
+- `bundle-au.py --plugin performance --vst3-sdk ... --audio-unit-sdk ... --validate`:
+  `PASS AU native transport callback/preflight/projection contracts` twice
+  (normal and `-O3 -ffast-math`). The actual performance bundle checks also
+  passed, including host transport faults/recovery, plus the remaining AU
+  performance/precision contracts.
+- `bundle-plugin.py --package ravet-delay-plugin --formats au --release --validate`:
+  generic contracts, delay contracts (including the REAPER pattern) and
+  `AU VALIDATION SUCCEEDED.`
+- `--arch universal --validate`: the same contracts, plus auval for both
+  slices (the x86_64 slice through process-local registration).
+- `--package ravet-synth-plugin --formats au --release --validate`: three Evidence
+  Synth cycles, both passing under the residue callback, and auval succeeded.
+  The instrument shares the render and transport path, so before this fix it
+  would also have lost audio and the block's queued MIDI on rejected blocks.
+  The instrument REAPER harness does not cover AU, so there is no REAPER
+  instrument AU run.
+- `bundle-au.py --mock effect|instrument|midi --validate`: all three mock
+  contracts passed.
+
+**REAPER Delay AU, macOS arm64**: 63 host checks passed with
+`RESULT PASS` (`target/reaper-delay/au-fix-arm64`; owner's identity
+`aufx QFKS TYDS` installed at
+`~/Library/Audio/Plug-Ins/Components/RAVET Delay.component`, then
+`AudioComponentRegistrar` restarted). Both channels were exact, with zero
+residual elsewhere over 192,000 frames:
+- Fixed: echoes at 28,800 and 100,800 (+4,800). Channel 0 amplitude 0.5,
+  channel 1 amplitude −0.25, no dry signal.
+- Recalled: same as fixed.
+- Synced: echoes at 33,600 and 105,600 (+9,600). Channel 0 echo 0.25 with dry
+  0.25; channel 1 echo −0.125 with dry −0.125.
+
+**REAPER 7.82/OSX64 under Rosetta 2** (`--arch x86_64`, universal bundle
+installed at the same path, `target/reaper-delay/au-fix-x86_64`): 63 host
+checks and the same exact positions for fixed, recalled and synced,
+`RESULT PASS`. The normal REAPER resource directory stayed unchanged in every
+run.
+
+The universal fixed build remains installed. These are offline renders only.
+They make no claim for live playback, editors, automation, devices or native
+Intel hardware.
