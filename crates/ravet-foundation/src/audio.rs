@@ -216,6 +216,28 @@ impl<'channels, 'samples, S: Sample> AudioBuffer<'channels, 'samples, S> {
         true
     }
 
+    /// Copy the input to the output without scratch storage, for bypass.
+    ///
+    /// With separate storage, output channel `c` receives input channel `c`, or
+    /// the last input channel when there are fewer inputs (so mono feeds every
+    /// output); with no inputs the outputs are cleared. In-place storage already
+    /// holds the input, so it is left unchanged. Only active frames are written;
+    /// backing tails are retained. Never allocates.
+    pub fn pass_through(&mut self) {
+        let frames = self.frames;
+        match &mut self.storage {
+            Storage::InPlace(_) => {}
+            Storage::Separate { inputs, outputs } => {
+                for (channel, output) in outputs.iter_mut().enumerate() {
+                    match inputs.get(channel).or(inputs.last()) {
+                        Some(input) => output[..frames].copy_from_slice(&input[..frames]),
+                        None => output[..frames].fill(S::default()),
+                    }
+                }
+            }
+        }
+    }
+
     /// Initialize all active output frames without touching backing tails.
     pub fn clear_outputs(&mut self) {
         let outputs = match &mut self.storage {
