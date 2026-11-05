@@ -302,7 +302,16 @@ impl OscSocket {
     /// them. Borrowed packet data stays valid until the next mutable operation.
     /// Timeout and other I/O errors retain their io::Error kind.
     pub fn receive(&mut self) -> Result<ReceivedPacket<'_>, OscError> {
-        let (length, sender) = self.socket.recv_from(&mut self.scratch)?;
+        let (length, sender) = match self.socket.recv_from(&mut self.scratch) {
+            Ok(received) => received,
+            // Windows does not truncate an oversized datagram silently: it
+            // fills the buffer and reports WSAEMSGSIZE (10040). Report it as
+            // the same capacity refusal other platforms give for long datagrams.
+            Err(error) if cfg!(windows) && error.raw_os_error() == Some(10040) => {
+                return Err(OscError::Capacity);
+            }
+            Err(error) => return Err(error.into()),
+        };
         if length > self.maximum {
             return Err(OscError::Capacity);
         }
