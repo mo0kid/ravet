@@ -8189,3 +8189,11 @@ are at frames 28,800 and 100,800 (+4,800 frames = 100 ms after the impulses at
 24,000 and 96,000) with amplitudes exactly 0.5 / −0.25, no dry signal, and a
 maximum residual of 0 over all 288,000 frames on both channels. This is a manual
 export checked offline, not a scripted session.
+
+Repeat of the synced case in Live 12 with the clip unwarped (sync on, 1/8,
+feedback 0 %, mix 50 %, project tempo 150 BPM), 48 kHz, 24-bit: the checker
+(200 ms, mix 0.5) passes. Dry impulses at frames 24,000 and 96,000 and echoes at
+33,600 and 105,600 (+9,600 frames, an eighth note at 150 BPM), all exactly
+0.25 / −0.125, with a maximum residual of 0 over all 192,000 frames. Together
+with the fixed case, both delay renders match the REAPER harness results
+sample for sample.
