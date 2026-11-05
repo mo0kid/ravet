@@ -319,6 +319,7 @@ See [Getting started](getting-started.md) for commands,
 | [Local control disabled and label ownership](#local-control-semantic-ownership) | Implemented | Custom knobs coordinate disabled Tab/input state and retryable parameter ownership; meters preserve explicit label precedence and reject retired formatter writes. |
 | [Plug-in product description, versioned state envelope and editor protocol](#plugin-product-description) | Prototype | A const Product describes a plug-in once: category, layouts, notes, precision and keyed parameters. Resolution validates it, assigns explicit or key-derived permanent parameter IDs, derives CLAP/VST3/AU/AAX/LV2 identities with optional overrides, one versioned state envelope supports migration and foreign-state import hooks, and a versioned JSON editor protocol addresses parameters by key with gesture tracking. |
 | [Generic CLAP export and web editor through export_plugin!](#generic-clap-export) | Prototype | A PluginExport marker names any f32 Processor and its Product; export_plugin! emits a CLAP entry whose descriptor, ports, note input, parameters, versioned state with hooks, latency, tail and denormal flushing come from the product. Host values are snapped to range and kept in a shared parameter cache updated immediately by main-thread flushes. Products may add a web editor: RAVET injects a protocol client (window.ravetPlugin), and on macOS the CLAP GUI extension carries editor gestures to the host through a bounded lock-free queue. |
+| [Tempo-synced delay plug-in example](#delay-plugin-example) | Prototype | examples/delay-plugin exports a portable stereo delay through export_plugin! as a CLAP effect with a web editor: eight explicit-ID parameters (time, feedback, mix, host bypass, ping-pong, sync, a 12-step note division and a feedback-path tone low-pass), block-start host-tempo sync with last-tempo hold and millisecond fallback, 50 ms time glide, 5 ms ramps and bypass crossfade, mono/stereo layouts and a feedback-dependent tail. bundle-clap.py --plugin delay bundles it and ravet-clap-smoke --delay checks it through the CLAP ABI. |
 | [Production distribution and compatibility](#release-support) | Planned | Establish supported platform, architecture, toolchain, and DAW matrices, release packaging, and project templates. The 0.1.0 plan targets VST3, CLAP and LV2 on macOS, Windows and Linux, AU on macOS and AAX on macOS and Windows, distributed through immutable Git tags. |
 | [Standalone device playback](#standalone-device) | Planned | Run the portable processor through a separate audio-device adapter. |
 | [Additional formats and advanced tooling](#additional-integrations) | Planned | Extend formats, mobile/UI, graph, DSP/codec and application facilities beyond the current scoped implementations. |
@@ -4771,6 +4772,20 @@ A PluginExport marker names any f32 Processor and its Product; export_plugin! em
 
 **Documentation:** [`docs/plugin-export.md`](../docs/plugin-export.md), [`docs/decisions/0281-generic-export-layer.md`](../docs/decisions/0281-generic-export-layer.md).
 
+<a id="delay-plugin-example"></a>
+
+### Tempo-synced delay plug-in example
+
+examples/delay-plugin exports a portable stereo delay through export_plugin! as a CLAP effect with a web editor: eight explicit-ID parameters (time, feedback, mix, host bypass, ping-pong, sync, a 12-step note division and a feedback-path tone low-pass), block-start host-tempo sync with last-tempo hold and millisecond fallback, 50 ms time glide, 5 ms ramps and bypass crossfade, mono/stereo layouts and a feedback-dependent tail. bundle-clap.py --plugin delay bundles it and ravet-clap-smoke --delay checks it through the CLAP ABI.
+
+**Limits:** CLAP only, f32, macOS editor only (inherits generic-clap-export limits). Sample rates up to 768 kHz; two 2-second delay lines allocated at prepare. Tempo read once per block, no mid-block tempo changes; synced times clamp to 2 s. Hosts display the division as its index 0..11. No editor meters (no audio-to-editor data path). Evidence: offline tests, the development smoke host and clap-validator 0.3.2 (33 passed, 0 failed, 11 skipped) on macOS arm64; no DAW, Windows or Linux run.
+
+**Source:** [`examples/delay-plugin/src/dsp.rs`](../examples/delay-plugin/src/dsp.rs), [`examples/delay-plugin/src/lib.rs`](../examples/delay-plugin/src/lib.rs), [`examples/delay-plugin/editor/index.html`](../examples/delay-plugin/editor/index.html), [`examples/delay-plugin/Cargo.toml`](../examples/delay-plugin/Cargo.toml), [`scripts/bundle-clap.py`](../scripts/bundle-clap.py), [`tools/clap-smoke/src/delay.rs`](../tools/clap-smoke/src/delay.rs), [`tools/clap-smoke/src/main.rs`](../tools/clap-smoke/src/main.rs).
+
+**Tests:** [`examples/delay-plugin/tests/delay.rs`](../examples/delay-plugin/tests/delay.rs), [`tools/clap-smoke/src/delay.rs`](../tools/clap-smoke/src/delay.rs).
+
+**Documentation:** [`docs/examples.md`](../docs/examples.md), [`docs/plugin-export.md`](../docs/plugin-export.md), [`README.md`](../README.md).
+
 <a id="standalone-measured-grid-workspace"></a>
 
 ### Measured standalone content size and grid workspace consumption
@@ -4941,6 +4956,7 @@ roles; feature records above determine implementation status.
 | `ravet-clap-smoke` | Development host that loads and exercises a built RAVET CLAP bundle | [`tools/clap-smoke/Cargo.toml`](../tools/clap-smoke/Cargo.toml) |
 | `ravet-core-midi` | Explicit macOS CoreMIDI UMP ports and bounded callback handoff | [`crates/ravet-core-midi/Cargo.toml`](../crates/ravet-core-midi/Cargo.toml) |
 | `ravet-data` | Bounded control-thread XML and legacy data compatibility primitives | [`crates/ravet-data/Cargo.toml`](../crates/ravet-data/Cargo.toml) |
+| `ravet-delay-plugin` | Tempo-synced stereo delay exported through RAVET's generic plug-in layer | [`examples/delay-plugin/Cargo.toml`](../examples/delay-plugin/Cargo.toml) |
 | `ravet-device` | Explicit standalone audio device adapter for RAVET | [`crates/ravet-device/Cargo.toml`](../crates/ravet-device/Cargo.toml) |
 | `ravet-device-probe` | Explicit standalone and offline audio device/graph validation for RAVET | [`tools/device-probe/Cargo.toml`](../tools/device-probe/Cargo.toml) |
 | `ravet-editor-smoke` | Native macOS main-loop host probe for the RAVET Gain CLAP editor | [`tools/editor-smoke/Cargo.toml`](../tools/editor-smoke/Cargo.toml) |

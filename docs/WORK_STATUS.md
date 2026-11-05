@@ -7609,3 +7609,35 @@ Observation, not caused by this change: the existing gain editor probe
 JavaScript self-test. A clean build of committed HEAD `e1c712c` in a temporary
 worktree fails the same way, so it predates this work. The likely cause is the
 WebKit in macOS 27.0.1; it is open.
+
+### Tempo-synced delay plug-in example (2026-11-05)
+
+New example `examples/delay-plugin` (`ravet-delay-plugin`) replaces gain as the
+showcase in the README. `dsp::SyncedDelay` is a format-independent stereo delay
+with host-tempo sync (12 divisions, block-start tempo, last-tempo hold,
+millisecond fallback), a feedback-path tone low-pass, ping-pong, 50 ms time glide,
+5 ms ramps and a 5 ms bypass crossfade. The crate root describes the product with
+explicit parameter IDs 1–8, state tag `RVTDLY01` and a web editor. The teaching
+delay in `examples/tutorials` is unchanged: its 1,024-frame and 128-event limits
+would refuse CLAP activation (1,024 events), and hosted walkthroughs link to its
+line numbers. `bundle-clap.py --plugin delay` bundles the plug-in;
+`ravet-clap-smoke --delay` is a new delay fixture.
+
+Local macOS 27 arm64 validation:
+
+- 12 offline tests: product/processor consistency, state round trip, repeat
+  position, tempo sync and fallback, tempo-change glide, block-size independence
+  (1, 64, 517 and 3,000 frames), ping-pong, bypass crossfade, transactional
+  fault on invalid values, tail, mono with 20,000-frame blocks, and no heap
+  activity across 1,000 blocks with events and tempo changes.
+- `ravet-clap-smoke --delay` on the release bundle: parameters, inactive flush,
+  a 120 BPM eighth-note repeat at exactly 2,000 samples at 8 kHz on a separate
+  audio thread, and state recall.
+- clap-validator 0.3.2-127: 33 passed, 0 failed, 11 skipped (preset discovery,
+  f64, note-port and port-configuration tests that do not apply). The first run
+  failed `process-varying-sample-rates` at 768 kHz and 1,234.57 Hz; the
+  processor now accepts any rate up to 768 kHz.
+- The editor page was rendered with a stubbed bridge only; it has not been
+  opened in a plug-in host.
+
+No DAW, Windows or Linux run.

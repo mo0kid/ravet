@@ -1,5 +1,6 @@
 //! Development host fixtures for the RAVET Gain CLAP product.
 //! This host exercises lifecycle/automation offline; it does not open a device.
+//! [`delay`] holds the fixture for the RAVET Delay generic-layer export.
 use clack_extensions::{
     audio_ports::{AudioPortInfoBuffer, PluginAudioPorts},
     audio_ports_config::PluginAudioPortsConfig,
@@ -16,6 +17,8 @@ use std::{
     ffi::CStr,
     sync::atomic::{AtomicUsize, Ordering},
 };
+
+pub mod delay;
 
 pub const GAIN_ID: ClapId = ClapId::new(1);
 pub const BYPASS_ID: ClapId = ClapId::new(2);

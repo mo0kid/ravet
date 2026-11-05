@@ -9,8 +9,11 @@ Version **0.0.1** is an early source preview with provisional APIs and scoped
 validation. See the [release notes](docs/releases/0.0.1.md) for capabilities,
 checks and publication limits.
 
-The first working milestone is a portable mono/stereo gain processor with
-sample-timed automation, linear smoothing, and deterministic offline tests.
+The [tempo-synced delay plug-in](docs/examples.md#tempo-synced-delay-plug-in)
+shows a complete effect: one portable processor, a product description and a web
+editor, exported as CLAP through the generic plug-in layer. The portable
+mono/stereo gain processor remains the minimal reference, with sample-timed
+automation, linear smoothing and deterministic offline tests.
 A loadable CLAP gain prototype is now implemented and tested on macOS arm64.
 Reusable parameter/state primitives are implemented, with complete CLAP
 [gain/bypass recall](docs/session-state.md) and a prototype macOS
@@ -25,7 +28,20 @@ API reference, and the [feature catalogue](docs/FEATURES.md). Documentation is
 updated alongside implementation; [maintenance](docs/maintenance.md) describes
 the registry, generation, and continuous checks.
 
-## Run the first example
+## Build the delay plug-in
+
+```sh
+python3 scripts/bundle-clap.py --plugin delay
+cargo run -p ravet-clap-smoke --locked -- --delay "target/clap/release/RAVET Delay.clap"
+```
+
+This builds an ad hoc signed `RAVET Delay.clap` into Cargo's target directory
+on macOS and checks it in the development smoke host. It is not installed into a
+plug-in folder. Copy it to `~/Library/Audio/Plug-Ins/CLAP` to try it in a CLAP
+host; no DAW run has been recorded yet. Its source is in
+[`examples/delay-plugin`](examples/delay-plugin/src/lib.rs).
+
+## Run the minimal example
 
 From the workspace root:
 

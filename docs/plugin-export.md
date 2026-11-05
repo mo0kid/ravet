@@ -61,7 +61,10 @@ ravet_plugin::export_plugin!(GainPlugin);
 Any existing `Processor<f32>` can be exported unchanged. The crate must not
 `forbid(unsafe_code)`, because the plug-in entry point is a foreign function;
 `deny` is fine. `examples/gain-plugin` exports the gain reference this way, and
-`python3 scripts/bundle-clap.py --plugin generic` bundles it.
+`python3 scripts/bundle-clap.py --plugin generic` bundles it. The
+[tempo-synced delay](examples.md#tempo-synced-delay-plug-in) in
+`examples/delay-plugin` is a fuller example with explicit parameter IDs, host
+tempo, a tail and a web editor; `--plugin delay` bundles it.
 
 The processor receives parameter changes as `ParameterValue` events with the
 product's host IDs and physical values, already clamped and snapped to range.
@@ -175,7 +178,8 @@ RAVET injects its editor client into the page's `<head>`. The client speaks the
 | `begin(key)`, `update(key, value)`, `updateNormalized(key, n)`, `end(key)` | A continuous gesture |
 | `send(data)` | A product-channel message; `PluginExport::editor_message` may reply |
 
-`examples/gain-plugin/editor/index.html` is a complete example.
+`examples/gain-plugin/editor/index.html` is a minimal example;
+`examples/delay-plugin/editor/index.html` draws knobs and a division selector.
 
 Editor edits update the parameter cache immediately, then travel through a
 bounded lock-free queue (256 edits) to whichever thread delivers parameter

@@ -1453,6 +1453,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-delay-plugin"
+version = "0.0.1"
+dependencies = [
+ "allocation-counter",
+ "ravet-foundation",
+ "ravet-plugin",
+ "ravet-signal",
+]
+
+[[package]]
 name = "ravet-device"
 version = "0.0.1"
 dependencies = [
