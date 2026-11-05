@@ -160,7 +160,10 @@ feedback is above zero, otherwise two seconds.
 The processor accepts any block size and event count and sample rates up to
 768 kHz; preparation allocates two 2-second delay lines and processing allocates
 nothing. Tempo changes within a block are not followed. Hosts show the division
-as its index (0–11), not its label; the editor shows the labels. The editor
+as its index (0–11), not its label; the editor shows the labels. In the editor, drag a
+knob (Shift for fine steps), double-click it to reset, or click its value to
+type one (Enter applies, Escape cancels; `6k` means 6,000 Hz). Values that are
+not whole show a decimal, so 100.3 ms never reads as 100 ms. The editor
 shows no meters yet: the export layer has no audio-to-editor data path.
 Evidence is offline and from development hosts on macOS arm64 only; no DAW run
 has been recorded.
