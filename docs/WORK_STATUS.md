@@ -8197,3 +8197,29 @@ feedback 0 %, mix 50 %, project tempo 150 BPM), 48 kHz, 24-bit: the checker
 0.25 / −0.125, with a maximum residual of 0 over all 192,000 frames. Together
 with the fixed case, both delay renders match the REAPER harness results
 sample for sample.
+
+### Pro Tools 26.4 AAX delay check (2026-11-05)
+
+The owner supplied a PACE wrap configuration, and the macOS arm64 delay
+`.aaxplugin` from `bundle-aax.py --plugin delay` was signed outside the
+repository with the owner's account and Developer ID certificate (`wraptool
+sign`; signed, not copy-protection wrapped; `codesign --verify --strict` and
+`wraptool verify` pass), installed into
+`/Library/Application Support/Avid/Audio/Plug-Ins`, and loaded by the owner in
+Pro Tools 26.4 at 48 kHz and 150 BPM. Signing material is not stored in RAVET.
+Bounces of the synthetic impulse input (48 kHz, 24-bit), measured offline:
+
+- Fixed (sync off, feedback 0, mix 100, Time reset to its 375 ms default):
+  echoes at frames 42,000 and 114,000, exactly 18,000 samples after the impulses
+  at 24,000 and 96,000, no dry signal. A further 0.00073 of the 0.5 peak sits one
+  sample earlier (the two sum to exactly 0.5), i.e. a delay of about
+  374.99997 ms: the reset value lost precision in the host's normalized
+  parameter round trip.
+- Synced (sync on, 1/8, feedback 0): echoes exactly 9,600 samples (200 ms, an
+  eighth note at 150 BPM) after each impulse. Dry 0.2479 and echo 0.2521 per
+  unit (summing to exactly 0.5) show the dragged mix was about 50.4 %, not 50 %.
+
+The strict checker fails both files on amplitude only, because the parameters
+were not set exactly; echo positions and tempo sync are exact. Keyboard entry
+into the web editor does not work in Pro Tools, which keeps key input for its
+own shortcuts; mouse editing works. This is a manual single-host check.
