@@ -154,10 +154,13 @@ record the validator version and results with the build.
 - Generated MIDI is posted as short messages only; SysEx is neither delivered
   nor generated.
 - No tail is reported: the AAX SDK 2.8 native interface has no tail property.
-- Editors keep the product's size (no host-driven resizing). In this release
-  the table hosts editors on macOS only, so a Windows build opens no editor. A
-  product with an editor size still registers its GUI on Windows, so a host
-  that opens it shows an empty view.
+- Editors keep the product's size (no host-driven resizing). On Windows the
+  editor opens in the host's `HWND` (WebView2; the WebView2 Runtime must be
+  installed). `ravet_aax_check <bundle> --editor` opens each effect's editor
+  through its `AAX_IEffectGUI` in a real parent (an `NSView` on macOS, a
+  top-level `HWND` on Windows) with a synthetic host;
+  `RAVET_AAX_EDITOR_HOLD=<seconds>` keeps it open for a screenshot. This is not
+  Pro Tools: Windows AAX remains provisional.
 - No AudioSuite, sidechain or auxiliary outputs, meters or page tables.
 - The AAX category is coarse: the table has no finer AAX category (EQ, Delay…).
 - Evidence is local: macOS arm64 builds and the checks above, and a Windows x64

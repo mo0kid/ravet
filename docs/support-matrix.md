@@ -42,6 +42,26 @@ also has a small one-sample split from normalized parameter precision. The
 release plan's previous blanket “sample-exactly” wording must not be read as a
 strict checker pass for these manual runs.
 
+### Editor runs on Windows and Linux
+
+Separate from the render harness above: `tools/reaper-validation/editor.py`
+opens the Delay's web editor in a floating REAPER 7.82 FX window, sets a
+parameter from the host, closes and reopens the editor and removes the plug-in
+with its editor open, in a disposable configuration
+([run](WORK_STATUS.md#release-010-editors-win-linux)).
+
+| Format | Windows 11 x64 VM (WebView2 156) | Arch Linux x86_64 (XWayland) |
+|---|---|---|
+| CLAP | Renders; host edit shown; close/reopen/remove; quits cleanly. Editor input not exercised | Renders inside REAPER's plain (non-XEmbed) child window; host edit shown; XTest click and drag reach the host; close/reopen/remove |
+| VST3 | Same as CLAP | Same as CLAP |
+| LV2 | Same as CLAP (`WindowsUI`) | Same as CLAP (`X11UI`) |
+| AAX | Synthetic AAX host only (`ravet_aax_check --editor`, real HWND); **no Pro Tools** | Not applicable |
+
+The Gain example's asset-served page also rendered in REAPER's CLAP host on
+both platforms. These are scripted observations in one host per platform: no
+keyboard input, accessibility, other DAW, display scaling above 100 % or
+real-time claim.
+
 ## Validators and adapter checks (separate from hosts)
 
 All entries below were recorded on **5 November 2026**. These are results from
@@ -68,9 +88,10 @@ and a static CRT. Native MSVC builds are not established by them. Hosted CI is
 
 ## Known limits
 
-- **Editors on Windows and Linux are not yet supported** by the generic
-  layer. Win32/X11 attachment returns refusal; LV2 ships no UI there by
-  default, and the registered Windows AAX view would be empty.
+- **Windows and Linux editors** are prototypes with REAPER-only evidence (see
+  [editor runs](#editor-runs-on-windows-and-linux)). Keyboard input is not
+  validated there; Windows editors do not negotiate display scaling; Linux
+  needs X11/XWayland and refuses GTK 2/GTK 4 and Wayland GTK hosts.
 - **Pro Tools keyboard typing failed** in the macOS web editor in the recorded
   run; mouse editing works. A fix (the web view takes key status while a text
   field has focus, [decision 0286](decisions/0286-editor-keyboard-focus.md))
