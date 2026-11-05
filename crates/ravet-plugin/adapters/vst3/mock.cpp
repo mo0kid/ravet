@@ -82,7 +82,7 @@ int32_t load(void* p, const uint8_t* data, uint32_t length) {
 }
 int32_t prepare(void* p, const RavetNativeProcessorConfigV1* c) {
     if (!c || c->version != 1 || c->bus_count != 1 || !c->maximum_frames || c->maximum_frames > 65536 ||
-        !std::isfinite(c->sample_rate) || c->sample_rate <= 0. ||
+        !std::isfinite(c->sample_rate) || c->sample_rate <= 0. || c->sample_rate > 768000. ||
         c->buses[0].inputs != c->buses[0].outputs || c->buses[0].inputs < 1 || c->buses[0].inputs > 2) return 1;
     auto& s = *static_cast<Instance*>(p); s.config = *c; s.active = true; return 0;
 }

@@ -55,6 +55,8 @@ int main() {
     CHECK(component->setBusArrangements(&mono, 1, &mono, 1) == kResultOk);
     ProcessSetup setup{}; setup.sampleRate = 48000.; setup.maxSamplesPerBlock = 16; setup.symbolicSampleSize = kSample32;
     CHECK(component->setupProcessing(setup) == kResultOk);
+    auto rejected = setup; rejected.sampleRate = 1234567.8;
+    CHECK(component->setupProcessing(rejected) == kResultFalse);
     CHECK(component->canProcessSampleSize(kSample64) == kResultFalse);
     CHECK(component->setActive(true) == kResultOk);
     CHECK(component->getTailSamples() == 24000);
@@ -123,6 +125,8 @@ int main() {
     const auto platform = kPlatformTypeX11EmbedWindowID;
 #endif
     CHECK(view->attached(reinterpret_cast<void*>(1), platform) == kResultOk);
+    ViewRect constraint(0, 0, 1, 9000); CHECK(view->checkSizeConstraint(&constraint) == kResultOk);
+    CHECK(constraint.getWidth() == 400 && constraint.getHeight() == 960);
     ViewRect rect(0, 0, 600, 300); CHECK(view->onSize(&rect) == kResultOk);
     controller->idle(); CHECK(ravet_mock::idled == 1 && handler->edits == std::vector<int>({0, 1, 2}));
     MemoryStream edited; CHECK(component->getState(&edited) == kResultOk);

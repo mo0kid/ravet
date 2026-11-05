@@ -7681,3 +7681,43 @@ Windows/Linux commands are documented in `docs/vst3.md` for coordinator executio
 This evidence does not establish their runtime support, f64 processing, arbitrary
 speaker identities, SysEx/UMP, real-time deadlines or production signing.
 Actual Rust-product integration is recorded separately when executed.
+
+## 5 November 2026: Generic VST3 adapter — actual Rust Gain and Delay integration
+
+Merged `plugin/native-table` through `f4b1082` into `adapter/vst3` to validate the
+real `ravet_plugin_v1()` entry. No product-specific C++ or Rust changes were
+needed. Both examples enable the native feature and remain Cargo cdylibs.
+The adapter loads a bundled product image by module-relative path. Only
+`ravet-delay-plugin` and `ravet-gain-plugin` were built with Cargo, not the whole
+workspace.
+
+Full maintained Release commands on the same macOS arm64/Xcode/SDK environment:
+
+- `python3 scripts/bundle-vst3.py --plugin delay --sdk <SDK>`: **47 SDK tests
+  passed, 0 failed**. Final artifact:
+  `target/vst3/generic/delay/release/VST3/Release/ravet_delay_vst3.vst3`.
+- `python3 scripts/bundle-vst3.py --plugin gain --sdk <SDK>`: **47 SDK tests
+  passed, 0 failed**. Final artifact:
+  `target/vst3/generic/gain/release/VST3/Release/ravet_gain_vst3.vst3`.
+- Final maintained mock rebuild: CTest **1 passed, 0 failed**; SDK validator
+  **47 passed, 0 failed**. All three bundles carry nested product/local ad hoc
+  signatures where applicable and copied public notices.
+- Focused Python VST3 bundler suite: **9 passed, 0 failed**. Documentation
+  regeneration/check and `git diff --check`: PASS.
+
+The first Delay run reported **31 passed, 1 failed** plus 15 setup failures:
+output-event capacity was incorrectly requested for a product without note
+output. After fixing that, it reported **46 passed, 1 failed** at a sample rate
+above Delay's 768 kHz limit. Setup now asks the product to prepare/deactivate on
+stopped MAIN before accepting the negotiation, retaining the previous accepted
+VST3 setup on rejection. Activation prepares the accepted setup again. The final
+run reports **47/0**; the SDK still logs its informational unsupported-rate
+message for 1,234,567.8 Hz, which Delay intentionally rejects. These observations
+are retained to explain the final negotiation behavior.
+
+No actual product editor was attached and no DAW was run for this generic
+adapter. The current native table provides a macOS Cocoa editor only;
+Windows/Linux attachment is implemented in the adapter but requires the table's
+platform backends. f32/main-bus processing, bounded events/state, no SysEx/UMP,
+count-based speaker maps and Linux host-run-loop requirements remain as listed
+in `docs/vst3.md`. No change to `RavetPlugin.h` was authored by this adapter task.
