@@ -9465,3 +9465,15 @@ run.
 The universal fixed build remains installed. These are offline renders only.
 They make no claim for live playback, editors, automation, devices or native
 Intel hardware.
+
+### Integration: AUv2 REAPER timing fix merged (2026-11-05)
+
+Merged `fix/auv2-reaper-timing`; its decision record became 0294 (0293 was taken
+by the editors work), amending 0188. Root cause: REAPER reports some AU sample
+positions with Float64 residue (for example `3584.0000000000005`), which
+`RavetAuTransport.hpp` rejected, silencing those blocks without advancing the
+product; positions within 2^-10 of a whole sample now round to it. With the
+fix, the REAPER 7.82 AU delay harness passes on arm64 and under Rosetta with
+exact echo positions (see the entry above). The design question of whether a
+malformed transport callback should still process audio without transport,
+instead of silencing the block, is left open under decision 0188.
