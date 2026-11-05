@@ -14,7 +14,7 @@ categories.workspace = true
 description = "Fixed-capacity no_std audio adaptation for embedded RAVET consumers"
 
 [dependencies]
-ravet-foundation = { path = "../ravet-foundation", version = "0.0.1", default-features = false }
+ravet-foundation = { path = "../ravet-foundation", version = "0.1.0", default-features = false }
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"

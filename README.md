@@ -5,12 +5,12 @@
 **Rust Audio Visual Engineering Toolkit** — a Rust framework in development
 for audio plug-ins and standalone audio applications.
 
-Version **0.0.1** is an early source preview with provisional APIs and scoped
-validation. See the [release notes](docs/releases/0.0.1.md) for capabilities,
-checks and publication limits.
-The [0.1.0 notes](docs/releases/0.1.0-notes.md) are a draft; the
-[changelog](CHANGELOG.md) and [support matrix](docs/support-matrix.md) describe
-the unreleased work and its recorded host/platform scope.
+Version **0.1.0** exports one product description as CLAP, VST3, AUv2, AAX and
+LV2 plug-ins on macOS, Windows and Linux. See the
+[release notes](docs/releases/0.1.0-notes.md), the [changelog](CHANGELOG.md) and
+the [support matrix](docs/support-matrix.md) for what is included, which hosts
+and platforms have recorded evidence, and the limits. APIs may still change in
+0.x minor releases under the [compatibility policy](docs/compatibility.md).
 
 The [tempo-synced delay plug-in](docs/examples.md#tempo-synced-delay-plug-in)
 shows a complete effect: one portable processor, a product description and a web

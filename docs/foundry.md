@@ -131,15 +131,15 @@ an independent `[workspace]`, `publish = false`, template licence text and a
 version-one `ravet-project.toml`. Creation does not build, fetch, install or open
 devices. Proprietary consumers stay outside RAVET.
 
-**RAVET dependencies** (`framework_source`) selects local checkout paths (`path`,
-the default) or Git dependencies on the release tag matching the checkout's
-workspace version (`tag`). All RAVET packages use the same source. The tag must
+**RAVET dependencies** (`framework_source`) selects Git dependencies on the
+release tag matching the checkout's workspace version (`tag`, the default from
+0.1.0) or local checkout paths (`path`, for working on RAVET itself). All RAVET packages use the same source. The tag must
 exist and be fetchable. Templates, adapters and bundle tooling always use the
-local `framework_path`; keep it at the matching release. At release time, change
-`DEFAULT_FRAMEWORK_SOURCE` in `tools/foundry/src/project.rs` from `Path` to `Tag`
-on one line to change both GUI and CLI defaults. The starter CLI has its own
-one-line `DEFAULT_RAVET_SOURCE` in `scripts/new-project.py`. Neither default has
-been switched for the unreleased 0.1.0 tag.
+local `framework_path`; keep it at the matching release. The defaults are
+`DEFAULT_FRAMEWORK_SOURCE` in `tools/foundry/src/project.rs` (GUI and CLI) and
+`DEFAULT_RAVET_SOURCE` in `scripts/new-project.py` (starter CLI); both were
+switched to the tag in the 0.1.0 release commit. Choose `path` between releases
+when a project must build against unreleased RAVET changes.
 
 The offline template remains a four-frame gain fixture. The standalone template
 retains the public multi-mode synth/delay source, four-tab UI, default Audio/MIDI
