@@ -56,6 +56,11 @@ impl Processor<f32> for Recorder {
         Ok(())
     }
     fn process(&mut self, block: &mut ProcessBlock<'_, '_, '_, f32>) -> ProcessStatus {
+        let state = ravet_native_dsp::current_float_state().unwrap();
+        assert!(
+            state.input_flush() && state.result_flush(),
+            "native table default guard"
+        );
         let Some(config) = self.config else {
             block.clear_outputs();
             return ProcessStatus::Fault(ProcessError::NotPrepared);

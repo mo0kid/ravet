@@ -214,3 +214,13 @@ speedup nor a deadline; compiler optimization, machine load and instruction
 selection remain relevant. These reusable primitives do not claim whole FFT/FIR
 kernels have been vectorized, or imply host/device support, AVX/AVX512, half/SVE,
 integer-register families, or automatic runtime vector-width dispatch.
+
+## Scoped C callback for exported products
+
+Products built with `ravet-plugin` feature `native` also expose
+`ravet_plugin_with_denormal_mode_v1` in `RavetPlugin.h`. It runs one synchronous
+C callback under the Rust `ScopedDenormalMode`, restores exact control/status,
+and refuses unsupported environments before calling it. See the full
+[callback contract](plugin-export.md#denormal-guard). All five generic formats
+already protect product DSP with `DenormalProcessor(FlushBoth)` by default.
+This does not change portable standalone DSP defaults.

@@ -111,6 +111,8 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
         std::cout << "  " << pid.Get() << " \"" << name.Get() << "\" = \"" << text.Get() << "\" steps " << steps << "\n";
     }
 
+    const bool synth = descriptor.name == "RAVET Evidence Synth";
+    if (synth) require(component.midi.size()==2 && inputs==0 && outputs==2,"synth MIDI nodes/layout");
     fake::Context context(component, inputs, outputs);
     require(model->ResetFieldData(0, &context.owner, sizeof(void *)) == AAX_SUCCESS && context.owner, id + ": private owner");
     for (int block = 0; block < 8; ++block) {
@@ -120,12 +122,44 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
             context.midiIn.in.clear();
             AAX_CMidiPacket on{};
             on.mTimestamp = 3; on.mLength = 3; on.mData[0] = 0x90; on.mData[1] = 60; on.mData[2] = 100;
+            if (synth) {
+                auto cc=on; cc.mTimestamp=0; cc.mData[0]=0xb0; cc.mData[1]=1; cc.mData[2]=64;
+                context.midiIn.in.push_back(cc);
+            }
             context.midiIn.in.push_back(on);
+            if (synth) {
+                auto off=on; off.mTimestamp=17; off.mData[0]=0x80; off.mData[2]=0;
+                context.midiIn.in.push_back(off);
+            }
         }
-        context.run(block == 3 ? 64 : 512);
+        context.run(!synth && block == 3 ? 64 : 512);
         for (auto &channel : context.outputs)
             for (int32_t f = 0; f < context.frames; ++f) require(std::isfinite(channel[size_t(f)]), id + ": finite output");
+        if (synth) {
+            const float amplitude=(100.f/127.f)*.25f*(64.f/127.f);
+            for (uint32_t c=0;c<outputs;++c) for (int f=0;f<context.frames;++f) {
+                const float expected = f>=35 && f<99 ? ((f-35)%2 ? -amplitude : amplitude) : 0.f;
+                require(std::fabs(context.outputs[c][f]-expected)<1e-7,"synth AAX exact onset/CC/tail");
+            }
+            require(context.midiOut.posted.size()==size_t((block+1)*3),"synth AAX output packet count");
+            const auto &cc=context.midiOut.posted[size_t(block)*3];
+            require(cc.mTimestamp==0 && cc.mLength==3 && cc.mData[0]==0xb0 && cc.mData[1]==1 && cc.mData[2]==64,"synth AAX CC echo");
+            const auto &off=context.midiOut.posted.back();
+            require(off.mTimestamp==17 && off.mLength==3 && off.mData[0]==0x80 && off.mData[1]==60 && off.mData[2]==0,"synth AAX note-off echo");
+            const auto &on=context.midiOut.posted[context.midiOut.posted.size()-2];
+            require(on.mTimestamp==3 && on.mLength==3 && on.mData[0]==0x90 && on.mData[1]==60 && on.mData[2]==100,"synth AAX note echo");
+        }
         model->TimerWakeup();
+    }
+    if (synth) {
+        // Drain the preceding click before changing latency. Parameter IDs are
+        // native permanent IDs encoded by the generic AAX adapter.
+        context.midiIn.in.clear(); context.run(512);
+        const auto latencyUpdates=host.latencyUpdates;
+        require(model->UpdateParameterNormalizedValue("p2",0.,AAX_eUpdateSource_Unspecified)==AAX_SUCCESS,"synth lookahead edit");
+        context.run(512); model->TimerWakeup(); context.run(512); model->TimerWakeup();
+        require(host.latencyUpdates==latencyUpdates+1,"synth AAX latency change notification");
+        std::cout << "  PASS synth MIDI input/output, CC audio, exact 32-sample onset and finite audio tail; latency change processed\n";
     }
     context.run(0);
     std::cout << "  processed 8 blocks + 1 empty block; MIDI out packets " << context.midiOut.posted.size() << "\n";

@@ -6,6 +6,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 
 import aax_plugin
@@ -215,7 +216,20 @@ def validate(format, artifact, runner, *, build=None, cross=None, clap_validator
             shutil.copytree(artifact, installed, dirs_exist_ok=True)
             with (artifact / "Contents/Info.plist").open("rb") as source:
                 identity = plistlib.load(source)["AudioComponents"][0]
-            runner.run(["auval", "-v", identity["type"], identity["subtype"], identity["manufacturer"]])
+            command = ["auval", "-v", identity["type"], identity["subtype"], identity["manufacturer"]]
+            # AudioComponentRegistrar discovers a new installation asynchronously.
+            # Retry discovery only; a validation failure must remain a failure.
+            for attempt in range(6):
+                try:
+                    result = runner.run(command, capture=True)
+                    print(result or "", end="")
+                    break
+                except subprocess.CalledProcessError as error:
+                    output = str(error.output or "") + str(error.stderr or "")
+                    if "didn't find the component" not in output or attempt == 5:
+                        raise
+                    time.sleep(2)
+
         finally:
             shutil.rmtree(installed)
 

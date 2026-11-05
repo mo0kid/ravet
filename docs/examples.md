@@ -289,3 +289,10 @@ The [local font fallback consumer](font-fallback.md) runs as
 `cargo run -p ravet-examples --bin font_fallback --features font-fallback --locked`.
 Its `--export` mode is headless; `--fixture` owns a hidden macOS window and checks
 actual Rust-selected fonts, native resize, the default settings popup and cleanup.
+
+## Generic MIDI instrument evidence
+
+The [deterministic instrument](synth-plugin.md) in `examples/synth-plugin`
+uses the generic export layer for notes-to-audio, short-MIDI echo, CC 1 level
+response, switchable 32-sample latency and a bounded finite tail. It complements
+the musical subtractive synth tutorial with an exact-sample REAPER fixture.

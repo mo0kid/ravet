@@ -157,3 +157,11 @@ macOS, VST3, AUv2 and AAX, at the root of an LV2 bundle, and in a
 `<package> notices` folder beside a single-file `.clap` on Windows and Linux,
 which installers must ship with it. See
 [dependency notices](dependency-notices.md).
+
+For `ravet-synth-plugin`, VST3 `--validate` additionally builds and runs the
+real-product instrument adapter fixture (CMake
+`RAVET_VST3_INSTRUMENT_TESTS=ON`), before validating the final module. It checks
+hidden MIDI controller assignments, note IDs/output offsets, exact audio/tail
+and latency notification. See the [instrument guide](synth-plugin.md). AU
+validation retries only temporary registrar discovery failures, then removes
+its exclusive temporary component installation on either success or failure.

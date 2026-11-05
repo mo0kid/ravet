@@ -400,3 +400,12 @@ registered output nodes; default references retain output capacity zero. See
 preflight, consumed readiness, exact partial SDK delivery and actual initialized
 Rust NoteRouting consumer. These receipts do not establish Pro Tools/PACE or a
 packaged output-enabled plug-in.
+
+## Generic instrument evidence — 5 November 2026
+
+The [Evidence Synth](synth-plugin.md) passes the actual unsigned AAX bundle
+checker on macOS arm64: 0x2 layout, two local MIDI nodes, CC-scaled exact click
+audio, note output bytes/offsets, finite audio tail and a host latency-change
+notification. SDK 2.8 exposes no native tail report here. This is neither an
+Avid validator run nor a Pro Tools instrument run.
+See the [receipt](WORK_STATUS.md#release-010-instrument-evidence).
