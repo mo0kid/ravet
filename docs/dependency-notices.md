@@ -89,11 +89,10 @@ toolchain's `share/doc/rust/COPYRIGHT-library.html` (installed with the
 | Microsoft C runtime and Windows SDK import libraries | Windows builds (CRT linked statically) | Microsoft's terms, accepted when cargo-xwin downloads them; see [the Windows C runtime](#the-windows-c-runtime) | No file required |
 | glibc, libgcc_s, libstdc++ | Linux builds | System libraries, dynamically linked (glibc LGPL-2.1+; GCC Runtime Library Exception) | No |
 
-Plug-in editors open on macOS only in this release (see
-[plug-in export](plugin-export.md#linux-and-windows-builds)). A Windows or Linux
-product that enables the `editor` feature, or any standalone application built
-on `StandaloneWindow`, links `ravet-webview` and with it the WebView2 or
-WebKitGTK components described below.
+A Windows or Linux product that enables the `editor` feature (plug-in editors
+open on all three platforms), or any standalone application built on
+`StandaloneWindow`, links `ravet-webview` and with it the WebView2 or WebKitGTK
+components described below.
 
 ## Web views and standalone applications
 
@@ -145,17 +144,18 @@ should take them from the upstream repositories (`madsmtm/objc2`,
 
 | Component | Used by | Terms | Commercial route | What must ship |
 |---|---|---|---|---|
-| WebView2 SDK headers (`RAVET_WEBVIEW2_SDK`, compiled in) and `WebView2Loader.dll` (shipped beside the product binary) | Windows web views | BSD-3-Clause-style `LICENSE.txt` of the `Microsoft.Web.WebView2` NuGet package (checked for 1.0.4314.35); its `NOTICE.txt` lists third-party components of the package | Compatible: binary redistribution with the notice and disclaimer | `WebView2-SDK-LICENSE.txt` and `WebView2-SDK-NOTICE.txt`, written by the notice generator |
+| WebView2 SDK headers (`RAVET_WEBVIEW2_SDK`, compiled in) and its loader (static `WebView2LoaderStatic.lib` on MSVC; `WebView2Loader.dll` beside the binary on MinGW) | Windows web views | BSD-3-Clause-style `LICENSE.txt` of the `Microsoft.Web.WebView2` NuGet package (checked for 1.0.4314.35); its `NOTICE.txt` lists third-party components of the package | Compatible: binary redistribution with the notice and disclaimer | `WebView2-SDK-LICENSE.txt` and `WebView2-SDK-NOTICE.txt`, written by the notice generator |
 | Microsoft Edge WebView2 Runtime | Windows web views | Microsoft's runtime terms; installed on the user's machine, not redistributed by RAVET or its bundles | Not shipped | Nothing; installers that bundle the runtime take on Microsoft's runtime distribution terms |
 | GTK 3/GDK, WebKitGTK 4.1 with JavaScriptCoreGTK, JSON-GLib, GLib/GObject/GIO | Linux web views | LGPL 2.1 or later (parts of WebKitGTK BSD-style); system-provided, linked dynamically, not redistributed | Compatible when dynamically linked: the product must not prohibit replacing the libraries or reverse engineering to debug such changes | `SYSTEM-LIBRARIES-LGPL.txt`: names the libraries, states the replacement and debugging permission, and carries the LGPL 2.1 text from the build machine |
 | ALSA library (`libasound`, through alsa-sys) | Linux audio and MIDI devices | LGPL 2.1 or later; system-provided, linked dynamically | As above | Listed in `SYSTEM-LIBRARIES-LGPL.txt` |
 | mingw `eventtoken.h` shim (`crates/ravet-surface/native/mingw/EventToken.h`) | mingw builds of the Windows web view | First-party: a one-line `#include_next` forwarder; the forwarded header is the toolchain's | — | Nothing |
 | CoreAudio, CoreMIDI, WASAPI, WinMM and other system audio/MIDI APIs | Device crates | Operating-system components, dynamically linked | — | Nothing |
 
-A Windows product that links `ravet-webview` must also ship
-`WebView2Loader.dll` beside its binary, where the web view loads it; the
-notice files above cover it. The bundle scripts do not yet copy the DLL for
-Windows editor builds.
+MSVC builds link the SDK's static loader (`WebView2LoaderStatic.lib`), so no
+`WebView2Loader.dll` ships; the notice files above cover the linked loader.
+MinGW builds still load `WebView2Loader.dll` from beside the binary and must
+ship it. (Before the editors work merged on 5 November 2026, every Windows
+build loaded the DLL.)
 
 ### The Windows C runtime
 
@@ -170,6 +170,19 @@ tools for what kind of development (for example, whether a Visual Studio or
 Build Tools licence is needed for commercial work) is decided by those terms,
 not by RAVET; check them for your organisation. On the GPL route, the C
 runtime is a System Library of the compiler under GPL-3.0 section 1.
+
+Editor products also use the platform web engine
+([plug-in editors](plugin-export.md#editors)):
+
+| Component | Where | Licence route | Shipped in bundles |
+|---|---|---|---|
+| Microsoft WebView2 SDK static loader (`WebView2LoaderStatic.lib`, SDK 1.0.3650.58 tested) | Windows editor builds (MSVC), linked in | BSD-3-Clause (the SDK's `LICENSE.txt`); binary redistributions reproduce its notice | Yes: `bundle-plugin.py` copies `WEBVIEW2-SDK-LICENSE.txt` and `WEBVIEW2-SDK-NOTICE.txt` into the notices of Windows bundles of editor products |
+| Microsoft Edge WebView2 Runtime | Windows editors at run time | Installed by the user or Windows | No |
+| GTK 3, WebKitGTK 4.1, JSON-GLib | Linux editor builds, dynamically linked | LGPL-2.1+ system libraries from the distribution | No |
+
+The per-format legacy scripts (`bundle-clap.py` and the others) do not copy the
+WebView2 notices; use `bundle-plugin.py`, or add them, when shipping Windows
+editors.
 
 ## What the bundle scripts ship
 

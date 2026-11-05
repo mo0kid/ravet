@@ -117,7 +117,8 @@ Windows/Linux picker execution remains pending alongside their GUI validation.
 Plugin projects select **Effect** or **Instrument**, and one or more of CLAP,
 VST3, native AUv2, AAX and LV2. Both roles use the generic export layer. AUv3 has
 no generic adapter and is unavailable; VST2 is excluded. AUv2 requires macOS;
-AAX requires macOS/Windows. The custom editor currently opens on macOS only.
+AAX requires macOS/Windows. The custom editor opens on macOS, Windows and Linux
+(Windows builds need `RAVET_WEBVIEW2_SDK`; Linux builds need WebKitGTK 4.1).
 Generated DSP is a small stereo gain effect or monophonic sine instrument with
 sample-timed gain/bypass and note input, intended for replacement by consumer DSP.
 It is not a full synth or MPE template.

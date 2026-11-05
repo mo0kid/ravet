@@ -188,18 +188,22 @@ typedef struct RavetPluginEntryV1 {
 
     /* ---- Editor view (MAIN) ----
        editor_open attaches the product's web editor to a host native view of
-       the given kind and size in logical pixels. RAVET injects the editor
-       client and runs the editor protocol. One editor per instance. A view
-       kind the platform cannot host returns 1; this release hosts
-       RAVET_PLUGIN_VIEW_COCOA on macOS only. Resizable editors accept one to
+       the given kind and size in logical pixels (on Windows, the parent's
+       physical pixels). RAVET injects the editor client and runs the editor
+       protocol. One editor per instance. A view kind the platform cannot host
+       returns 1: the table hosts RAVET_PLUGIN_VIEW_COCOA on macOS,
+       RAVET_PLUGIN_VIEW_WIN32 (an HWND) on Windows and RAVET_PLUGIN_VIEW_X11
+       (an X11 Window ID, cast to the pointer; the parent need not be an XEmbed
+       socket) on Linux. Resizable editors accept one to
        four times the product's editor size (editor_open clamps to that range;
        editor_resize returns 1 outside it); other editors keep their size. */
     int32_t (*editor_open)(void *instance, uint32_t view_kind, void *parent, uint32_t width, uint32_t height);
     int32_t (*editor_resize)(void *instance, uint32_t width, uint32_t height);
     void (*editor_close)(void *instance);
     /* Bring the editor up to date with the cache: call periodically on MAIN
-       (e.g. from a 30 Hz timer) while the editor is open. (The macOS web view
-       currently polls the cache itself, so this does nothing there.) */
+       (e.g. from a 30 Hz timer) while the editor is open. The web view polls
+       the cache itself; on Linux this also dispatches pending GTK work, which
+       hosts that run no GLib main loop need. Nothing on macOS and Windows. */
     void (*editor_idle)(void *instance);
 } RavetPluginEntryV1;
 

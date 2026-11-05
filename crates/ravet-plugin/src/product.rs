@@ -265,6 +265,7 @@ pub struct Product<'a> {
     state: StateFormat,
     identities: IdentityOverrides<'a>,
     editor: Option<Editor<'a>>,
+    editor_assets: &'a [EditorAsset<'a>],
     automation: AutomationPolicy,
     bypass: BypassPolicy,
 }
@@ -284,6 +285,57 @@ pub struct Editor<'a> {
 
 /// Largest accepted editor page.
 pub const MAXIMUM_EDITOR_HTML_BYTES: usize = 1 << 20;
+
+/// A file the editor page loads by relative URL, embedded in the binary, for
+/// example `EditorAsset::new("img/knob.png", include_bytes!("../editor/img/knob.png"))`.
+///
+/// With assets, the editor page is served from a local asset origin together
+/// with them, so images, fonts, scripts and styles need not be inlined into the
+/// 1 MiB page or sent through 64 KiB editor messages. Requests are answered from
+/// memory: no file system or network access is involved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EditorAsset<'a> {
+    /// Relative path: ASCII letters, digits and `._-/`, at most 512 bytes, no
+    /// `.`, `..` or empty segment, no leading or trailing `/`. `index.html` is
+    /// reserved for the page.
+    pub path: &'a str,
+    /// Content type such as `image/png`; empty infers it from the extension.
+    pub mime: &'a str,
+    pub data: &'a [u8],
+}
+
+impl<'a> EditorAsset<'a> {
+    /// An asset whose content type follows from its extension.
+    pub const fn new(path: &'a str, data: &'a [u8]) -> Self {
+        Self {
+            path,
+            mime: "",
+            data,
+        }
+    }
+    fn is_valid(&self) -> bool {
+        let path = self.path;
+        !path.is_empty()
+            && path.len() <= 512
+            && path != "index.html"
+            && path
+                .split('/')
+                .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+            && path
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/'))
+            && self.mime.len() <= 127
+            && self.mime.bytes().all(|b| (0x20..=0x7e).contains(&b))
+            && self.data.len() <= MAXIMUM_EDITOR_ASSET_BYTES
+    }
+}
+
+/// Most editor assets per product.
+pub const MAXIMUM_EDITOR_ASSETS: usize = 4096;
+/// Largest single editor asset (64 MiB).
+pub const MAXIMUM_EDITOR_ASSET_BYTES: usize = 64 << 20;
+/// Largest total size of a product's editor assets (256 MiB).
+pub const MAXIMUM_EDITOR_ASSETS_TOTAL_BYTES: usize = 256 << 20;
 
 impl<'a> Product<'a> {
     /// A product with a stereo layout (stereo output only for instruments), f32
@@ -319,6 +371,7 @@ impl<'a> Product<'a> {
             state,
             identities: IdentityOverrides::NONE,
             editor: None,
+            editor_assets: &[],
             automation: AutomationPolicy::SampleAccurate,
             bypass: BypassPolicy::Processor,
         }
@@ -347,6 +400,12 @@ impl<'a> Product<'a> {
     /// Give the product a web editor.
     pub const fn with_editor(mut self, editor: Editor<'a>) -> Self {
         self.editor = Some(editor);
+        self
+    }
+    /// Files the editor page loads by relative URL; see [`EditorAsset`].
+    /// Requires [`Product::with_editor`].
+    pub const fn with_editor_assets(mut self, assets: &'a [EditorAsset<'a>]) -> Self {
+        self.editor_assets = assets;
         self
     }
     /// Keep format identities from an earlier product instead of deriving them.
@@ -406,6 +465,9 @@ impl<'a> Product<'a> {
     pub fn editor(&self) -> Option<Editor<'a>> {
         self.editor
     }
+    pub fn editor_assets(&self) -> &'a [EditorAsset<'a>] {
+        self.editor_assets
+    }
     pub fn automation(&self) -> AutomationPolicy {
         self.automation
     }
@@ -440,6 +502,23 @@ impl<'a> Product<'a> {
                 || !(64..=4096).contains(&editor.height))
         {
             return Err(ProductError::InvalidEditor);
+        }
+        if !self.editor_assets.is_empty() && self.editor.is_none()
+            || self.editor_assets.len() > MAXIMUM_EDITOR_ASSETS
+        {
+            return Err(ProductError::InvalidEditorAsset(0));
+        }
+        let mut total = 0_usize;
+        for (index, asset) in self.editor_assets.iter().enumerate() {
+            total = total.saturating_add(asset.data.len());
+            if !asset.is_valid()
+                || total > MAXIMUM_EDITOR_ASSETS_TOTAL_BYTES
+                || self.editor_assets[..index]
+                    .iter()
+                    .any(|other| other.path == asset.path)
+            {
+                return Err(ProductError::InvalidEditorAsset(index));
+            }
         }
         if self.layouts.is_empty() {
             return Err(ProductError::NoLayouts);
@@ -587,6 +666,10 @@ pub enum ProductError {
     InvalidIdentity(&'static str),
     /// The editor page is empty or over 1 MiB, or its size is outside 64 to 4096.
     InvalidEditor,
+    /// An editor asset has an invalid path or content type, repeats a path or
+    /// exceeds the size limits; or there are assets without an editor, or more
+    /// than [`MAXIMUM_EDITOR_ASSETS`] (both reported at index 0).
+    InvalidEditorAsset(usize),
     /// A bypass policy other than [`BypassPolicy::Processor`] needs a
     /// [`Parameter::bypass`] parameter.
     BypassPolicyWithoutParameter,

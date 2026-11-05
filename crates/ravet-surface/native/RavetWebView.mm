@@ -2,6 +2,7 @@
 #import <WebKit/WebKit.h>
 #include "RavetWebView.h"
 #include "RavetObjcNames.h"
+#include "RavetWebAssets.h"
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -10,6 +11,8 @@
 @interface RavetWebBridge : NSObject <WKScriptMessageHandler, WKNavigationDelegate>
 @property(nonatomic, weak) WKWebView* web;
 @property(nonatomic, strong) NSURL* root;
+// Pages loaded by ravet_web_create_assets may navigate within ravet://editor/.
+@property(nonatomic) BOOL assetOrigin;
 @property(nonatomic) void* context;
 @property(nonatomic) RavetWebMessage message;
 @property(nonatomic) RavetWebSnapshot snapshot;
@@ -156,6 +159,7 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
 - (void)webView:(WKWebView*)web decidePolicyForNavigationAction:(WKNavigationAction*)action decisionHandler:(void (^)(WKNavigationActionPolicy))handler {
     NSURL* url = action.request.URL;
     BOOL local = _root && url.isFileURL && [url.URLByResolvingSymlinksInPath.path.stringByStandardizingPath hasPrefix:[_root.path stringByAppendingString:@"/"]];
+    if (_assetOrigin && [url.absoluteString hasPrefix:@"ravet://editor/"]) local = YES;
     handler(local || [url.absoluteString isEqualToString:@"about:blank"] ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
 }
 @end
@@ -164,6 +168,40 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
 @end
 @implementation RavetEditorWebView
 - (BOOL)acceptsFirstMouse:(NSEvent*)event { return YES; }
+@end
+
+// Serves ravet_web_create_assets content at ravet://editor/. Lookups and
+// responses complete synchronously on the main thread.
+@interface RavetAssetHandler : NSObject <WKURLSchemeHandler>
+@end
+@implementation RavetAssetHandler {
+    ravet_web_assets::Table _assets;
+    std::string _page;
+}
+- (instancetype)initWithPage:(std::string)page assets:(ravet_web_assets::Table)assets {
+    if ((self = [super init])) { _page = std::move(page); _assets = std::move(assets); }
+    return self;
+}
+- (void)webView:(WKWebView*)web startURLSchemeTask:(id<WKURLSchemeTask>)task {
+    NSURL* url = task.request.URL;
+    const char* text = url.absoluteString.UTF8String;
+    std::string path = ravet_web_assets::pathOf(text ? text : "", "ravet://editor/");
+    if (path.empty()) path = "index.html";
+    const void* data = nullptr; size_t size = 0; NSString* mime = nil;
+    if (path == "index.html") { data = _page.data(); size = _page.size(); mime = @"text/html; charset=utf-8"; }
+    else if (auto found = _assets.find(path); found != _assets.end()) {
+        data = found->second.data; size = found->second.size; mime = @(found->second.mime.c_str());
+    }
+    BOOL get = [task.request.HTTPMethod isEqualToString:@"GET"] || !task.request.HTTPMethod;
+    NSInteger status = mime && get ? 200 : 404;
+    NSDictionary* headers = @{ @"Content-Type": status == 200 ? mime : @"text/plain",
+                               @"Content-Length": [NSString stringWithFormat:@"%zu", status == 200 ? size : 0],
+                               @"Cache-Control": @"no-cache" };
+    [task didReceiveResponse:[[NSHTTPURLResponse alloc] initWithURL:url statusCode:status HTTPVersion:@"HTTP/1.1" headerFields:headers]];
+    if (status == 200 && size) [task didReceiveData:[NSData dataWithBytes:data length:size]];
+    [task didFinish];
+}
+- (void)webView:(WKWebView*)web stopURLSchemeTask:(id<WKURLSchemeTask>)task {}
 @end
 
 @class RavetAccessibilityOwner;
@@ -196,7 +234,7 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
 - (void)drawRect:(NSRect)dirtyRect { [_background setFill]; NSRectFill(dirtyRect); }
 @end
 
-static RavetWebContainer* createContainer(double width, double height, void* context, RavetWebMessage message, RavetWebSnapshot snapshot, RavetWebSnapshotBuffer bufferSnapshot) {
+static RavetWebContainer* createContainer(double width, double height, void* context, RavetWebMessage message, RavetWebSnapshot snapshot, RavetWebSnapshotBuffer bufferSnapshot, RavetAssetHandler* assets = nil) {
     if (!std::isfinite(width) || !std::isfinite(height) || width <= 0 || height <= 0) return nil;
     RavetWebContainer* container = [[RavetWebContainer alloc] initWithFrame:NSMakeRect(0,0,width,height)];
     container.background = NSColor.whiteColor;
@@ -205,6 +243,7 @@ static RavetWebContainer* createContainer(double width, double height, void* con
     RavetWebBridge* bridge = [RavetWebBridge new];
     bridge.context = context; bridge.message = message; bridge.snapshot = snapshot; bridge.bufferSnapshot = bufferSnapshot;
     WKWebViewConfiguration* configuration = [WKWebViewConfiguration new];
+    if (assets) { [configuration setURLSchemeHandler:assets forURLScheme:@"ravet"]; bridge.assetOrigin = YES; }
     // Cancel only the browser menu; controls still receive right-click events.
     [configuration.userContentController addUserScript:[[WKUserScript alloc]
         initWithSource:@"window.addEventListener('contextmenu',event=>event.preventDefault(),{capture:true,passive:false});"
@@ -243,6 +282,18 @@ extern "C" void* ravet_web_create_html(const char* html, double width, double he
     RavetWebContainer* container=createContainer(width,height,context,message,nullptr,snapshot);
     if (!container) return nullptr;
     [container.web loadHTMLString:page baseURL:nil];
+    return (__bridge_retained void*)container;
+}
+extern "C" void* ravet_web_create_assets(const char* html, const RavetWebAsset* assets, size_t count, double width, double height, void* context, RavetWebMessage message, RavetWebSnapshotBuffer snapshot) noexcept {
+    // Like ravet_web_create_html: a wrong-thread call fails instead of raising
+    // an Objective-C exception into the caller (decision 0292).
+    if (!NSThread.isMainThread || !html || strnlen(html,1048577)>1048576) return nullptr;
+    ravet_web_assets::Table table;
+    if (!ravet_web_assets::build(assets,count,table)) return nullptr;
+    RavetAssetHandler* handler=[[RavetAssetHandler alloc] initWithPage:std::string(html) assets:std::move(table)];
+    RavetWebContainer* container=createContainer(width,height,context,message,nullptr,snapshot,handler);
+    if (!container) return nullptr;
+    [container.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"ravet://editor/index.html"]]];
     return (__bridge_retained void*)container;
 }
 extern "C" bool ravet_web_set_size(void* view, double width, double height) {

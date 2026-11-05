@@ -115,8 +115,10 @@ fn main() {
 }
 
 /// Win32/WebView2 backend. `RAVET_WEBVIEW2_SDK` names an extracted
-/// Microsoft.Web.WebView2 NuGet package; consumers ship its x64
-/// `WebView2Loader.dll` beside the binary that links this crate.
+/// Microsoft.Web.WebView2 NuGet package. MSVC builds link its
+/// `WebView2LoaderStatic.lib`, so nothing ships beside the binary; GNU (MinGW)
+/// builds load its x64 `WebView2Loader.dll` from beside the binary that links
+/// this crate.
 fn windows() {
     println!("cargo:rerun-if-env-changed=RAVET_WEBVIEW2_SDK");
     let sdk = PathBuf::from(
@@ -138,12 +140,32 @@ fn windows() {
         .define("_UNICODE", None)
         .file("../ravet-surface/native/RavetWebViewWindows.cpp")
         .file("native/StandaloneWindowWindows.cpp");
-    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
-        build.include("../ravet-surface/native/mingw");
+    let msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("gnu");
+    if msvc {
+        build
+            .flag("/EHsc")
+            .flag("/utf-8")
+            .define("RAVET_WEBVIEW2_STATIC_LOADER", "1");
     } else {
-        build.flag("/EHsc").flag("/utf-8");
+        build.include("../ravet-surface/native/mingw");
     }
     build.compile("ravet_webview");
+    if msvc {
+        let architecture = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+            Ok("aarch64") => "arm64",
+            Ok("x86") => "x86",
+            _ => "x64",
+        };
+        let loader = sdk.join("build/native").join(architecture);
+        assert!(
+            loader.join("WebView2LoaderStatic.lib").exists(),
+            "RAVET_WEBVIEW2_SDK has no build/native/{architecture}/WebView2LoaderStatic.lib"
+        );
+        println!("cargo:rustc-link-search=native={}", loader.display());
+        println!("cargo:rustc-link-lib=static=WebView2LoaderStatic");
+        println!("cargo:rustc-link-lib=advapi32");
+        println!("cargo:rustc-link-lib=version");
+    }
     for library in ["ole32", "user32", "shell32", "shlwapi", "uuid", "gdi32"] {
         println!("cargo:rustc-link-lib={library}");
     }

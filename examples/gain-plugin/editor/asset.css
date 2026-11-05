@@ -1,0 +1,4 @@
+/* An embedded editor asset (Product::with_editor_assets), served from the
+   editor's local asset origin; the editor smoke checks that it applied. */
+:root { --ravet-asset: loaded; }
+#status { letter-spacing: .02em; }

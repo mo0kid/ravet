@@ -19,16 +19,11 @@ set(RAVET_LV2_SDK "" CACHE PATH "External LV2 source SDK")
 set(RAVET_PLUGIN_LIBRARY "" CACHE FILEPATH "Product library exporting ravet_plugin_v1 (optional)")
 set(RAVET_LV2_BUNDLE_NAME "" CACHE STRING "Bundle name for RAVET_PLUGIN_LIBRARY (without .lv2)")
 set(RAVET_LV2_LICENSE "" CACHE STRING "Optional doap:license URI written to plugin.ttl")
-# The product table hosts editors in Cocoa views only in this release, so
-# product bundles declare their LV2 UI on macOS by default. Turn this on
-# elsewhere once the table hosts X11/Win32 editors. The mock bundle always
-# includes the UI, so the UI module's X11/Win32 paths stay tested.
-if(APPLE)
-    set(ravet_lv2_ui_default ON)
-else()
-    set(ravet_lv2_ui_default OFF)
-endif()
-option(RAVET_LV2_UI "Declare and ship the LV2 UI in product bundles" ${ravet_lv2_ui_default})
+# The product table hosts editors in Cocoa views (macOS), HWNDs (Windows) and
+# X11 windows (Linux), so product bundles declare their LV2 UI everywhere by
+# default; products without an editor (0 x 0) still get none. The mock bundle
+# always includes the UI.
+option(RAVET_LV2_UI "Declare and ship the LV2 UI in product bundles" ON)
 
 if(EXISTS "${RAVET_LV2_SDK}/include/lv2/core/lv2.h")
     set(lv2_include "${RAVET_LV2_SDK}/include")

@@ -85,8 +85,10 @@ state bytes and rejection, zero-frame flush, delayed latency restart, editor
 resize/gestures and retained-view teardown. Editor tests use the mock callbacks,
 not a real web view. The real table is merged from `plugin/native-table`; actual product web editors,
 DAWs remain separate requirements; Linux x86_64 and Windows x64 validator runs
-are recorded below. The current Rust table accepts Cocoa editors only, so
-Windows/Linux views reject attachment until their table backends land. See [work status](WORK_STATUS.md).
+are recorded below. The Rust table accepts `HWND` views on Windows and
+`X11EmbedWindowID` views on Linux (the parent need not be an XEmbed socket);
+Linux editors are pumped from the host `IRunLoop` timer through `editor_idle`.
+See [work status](WORK_STATUS.md).
 
 ### Windows and Linux commands
 
@@ -135,8 +137,9 @@ with `-DSMTG_USE_STATIC_CRT=ON` (and build the product with
 been run; the cross-build has. Evidence (Linux x86_64 and Windows 11 x64:
 Delay and mock 47 passed, 0 failed) is in [work status](WORK_STATUS.md).
 Subsequent REAPER 7.82 Delay runs on both platforms and Live 12 on macOS are
-scoped in the [support matrix](support-matrix.md). Editors do not open on
-Windows or Linux.
+scoped in the [support matrix](support-matrix.md). The Delay's editor opened,
+followed host edits and closed/reopened in REAPER 7.82 on both platforms (see
+[work status](WORK_STATUS.md)); other hosts are not established.
 
 ## Legacy 0.0.1 gain reference
 

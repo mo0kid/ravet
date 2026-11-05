@@ -56,6 +56,10 @@ Other options:
   Cargo dependencies. Foundry uses this before generating a missing lockfile.
 - `--settings /path/ravet-sdks.toml`: select a project settings file explicitly.
 - `--vst3-sdk`, `--audio-unit-sdk`, `--aax-sdk`, `--lv2-sdk`: explicit SDK paths.
+- `--webview2-sdk` (also `RAVET_WEBVIEW2_SDK` or `[sdks].webview2`): the
+  extracted `Microsoft.Web.WebView2` NuGet package, passed to Windows product
+  builds (`--target windows` or native Windows) for products with a web editor.
+  MSVC builds link its static loader, so no `WebView2Loader.dll` is bundled.
 - `--target windows`: cross-build x86_64 MSVC from Linux/macOS with cargo-xwin,
   clang-cl, lld-link and Wine. Rust and C++ link the static CRT. Wine runs the
   target metadata reader and LV2 Turtle generator. Native Windows builds omit
@@ -76,6 +80,7 @@ vst3 = "/SDKs/vst3"
 audio_unit = "/SDKs/AudioUnitSDK"
 aax = "/SDKs/AAX"
 lv2 = "/SDKs/lv2"
+webview2 = "/SDKs/Microsoft.Web.WebView2"
 ```
 
 Use a project `ravet-sdks.toml` beside the product's Cargo.toml or in an ancestor

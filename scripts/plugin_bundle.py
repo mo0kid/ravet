@@ -343,6 +343,25 @@ def write_notices(artifact, format, platform, package, manifest_path, runner, cr
     return directory
 
 
+def webview2_notices(directory, sdk):
+    """Ship the WebView2 SDK's licence and notice with a Windows editor bundle.
+
+    MSVC builds link the SDK's static loader into the product (BSD-3-Clause:
+    binary redistributions reproduce its notice).
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for name, target in (("LICENSE.txt", "WEBVIEW2-SDK-LICENSE.txt"), ("NOTICE.txt", "WEBVIEW2-SDK-NOTICE.txt")):
+        source = Path(sdk) / name
+        if source.is_file():
+            shutil.copy2(source, directory / target)
+            copied.append(directory / target)
+    if not copied:
+        raise ValueError(f"WebView2 SDK at {sdk} has no LICENSE.txt or NOTICE.txt")
+    return copied
+
+
 def bundle(args):
     args.manifest_path = args.manifest_path.expanduser().resolve()
     project = args.manifest_path.parent
@@ -362,6 +381,9 @@ def bundle(args):
     runner = Runner(project)
     if args.offline:
         runner.environment["CARGO_NET_OFFLINE"] = "true"
+    # Windows products with a web editor build ravet-webview against WebView2.
+    if "webview2" in paths and (args.target or sys.platform == "win32"):
+        runner.environment["RAVET_WEBVIEW2_SDK"] = str(paths["webview2"])
     target, library, archive, links = build_product(args, runner)
     adapter_target = target / "plugin-build" / ("macos-" + args.arch) if args.arch else target
     product = product_metadata(adapter_target, library, runner, args.target, args.arch)
@@ -407,7 +429,10 @@ def bundle(args):
                                       manifest_path=args.manifest_path, plugin=stem, build_dir=build,
                                       validate=args.validate, cmake_options=cmake_options)
             copy_artifact(au_native_bundle.build(ROOT, options, runner=runner, sign=False, profile=profile), artifact)
-        write_notices(artifact, format, platform, args.package, args.manifest_path, runner, args.target, arch=args.arch)
+        notices = write_notices(artifact, format, platform, args.package, args.manifest_path, runner, args.target,
+                                arch=args.arch)
+        if platform == "win32" and product.get("editor_width") and "webview2" in paths:
+            webview2_notices(notices, paths["webview2"])
         sign(artifact, format, runner, args.sign_command, platform=platform)
         if args.validate:
             validate(format, artifact, runner, build=build, cross=args.target, clap_validator=args.clap_validator, arch=args.arch)

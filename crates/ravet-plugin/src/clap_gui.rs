@@ -1,5 +1,7 @@
-//! The CLAP GUI extension on macOS: the product's web editor
-//! ([`EditorHost`]) attached to the host's Cocoa view.
+//! The CLAP GUI extension: the product's web editor ([`EditorHost`]) embedded
+//! in the host's Cocoa view (macOS), win32 window (Windows) or X11 window
+//! (Linux). On Linux the editor registers a 10 ms host timer (timer-support)
+//! while it exists, to dispatch the web view's GTK work.
 use crate::{
     ResolvedProduct,
     clap::{ClapMain, ClapShared},
@@ -41,13 +43,73 @@ fn gui_size((width, height): (u32, u32)) -> GuiSize {
     GuiSize { width, height }
 }
 
+/// The embedded window API of this platform.
+const PLATFORM_API: GuiApiType<'static> = if cfg!(target_os = "macos") {
+    GuiApiType::COCOA
+} else if cfg!(target_os = "windows") {
+    GuiApiType::WIN32
+} else {
+    GuiApiType::X11
+};
+
+/// The host's parent window as a web view parent, if it has this platform's API.
+fn parent(window: &Window) -> Option<NonNull<std::ffi::c_void>> {
+    #[cfg(target_os = "macos")]
+    let raw = window.as_cocoa_nsview();
+    #[cfg(target_os = "windows")]
+    let raw = window.as_win32_hwnd();
+    // X11 Window IDs travel as pointer-sized integers.
+    #[cfg(target_os = "linux")]
+    let raw = window
+        .as_x11_handle()
+        .map(|id| std::ptr::without_provenance_mut(id as usize));
+    raw.and_then(NonNull::new)
+}
+
+#[cfg(target_os = "linux")]
+impl clack_extensions::timer::PluginTimerImpl for ClapMain<'_> {
+    fn on_timer(&self, timer: clack_extensions::timer::TimerId) {
+        if self.timer().get() == Some(timer)
+            && let Ok(state) = self.gui().try_borrow()
+            && let Some(state) = state.as_ref()
+        {
+            state.idle();
+        }
+    }
+}
+
+impl ClapMain<'_> {
+    /// Start the Linux pump timer (no-op elsewhere or without timer-support).
+    fn start_timer(&self) {
+        #[cfg(target_os = "linux")]
+        if self.timer().get().is_none()
+            && let Some(timer) = self
+                .host()
+                .get_extension::<clack_extensions::timer::HostTimer>()
+            && let Ok(id) = timer.register_timer(self.host(), 10)
+        {
+            self.timer().set(Some(id));
+        }
+    }
+    fn stop_timer(&self) {
+        #[cfg(target_os = "linux")]
+        if let Some(id) = self.timer().take()
+            && let Some(timer) = self
+                .host()
+                .get_extension::<clack_extensions::timer::HostTimer>()
+        {
+            let _ = timer.unregister_timer(self.host(), id);
+        }
+    }
+}
+
 impl PluginGuiImpl for ClapMain<'_> {
     fn is_api_supported(&self, configuration: GuiConfiguration) -> bool {
-        configuration.api_type == GuiApiType::COCOA && !configuration.is_floating
+        configuration.api_type == PLATFORM_API && !configuration.is_floating
     }
     fn get_preferred_api(&self) -> Option<GuiConfiguration<'_>> {
         Some(GuiConfiguration {
-            api_type: GuiApiType::COCOA,
+            api_type: PLATFORM_API,
             is_floating: false,
         })
     }
@@ -66,9 +128,11 @@ impl PluginGuiImpl for ClapMain<'_> {
             "no editor, editor creation failed or wrong thread",
         ))?;
         *self.gui().borrow_mut() = Some(editor);
+        self.start_timer();
         Ok(())
     }
     fn destroy(&self) {
+        self.stop_timer();
         let editor = self.gui().borrow_mut().take();
         drop(editor);
     }
@@ -117,19 +181,16 @@ impl PluginGuiImpl for ClapMain<'_> {
         Ok(())
     }
     fn set_parent(&self, window: Window) -> Result<(), PluginError> {
-        let parent =
-            window
-                .as_cocoa_nsview()
-                .and_then(NonNull::new)
-                .ok_or(PluginError::Message(
-                    "editor requires a Cocoa NSView parent",
-                ))?;
+        let parent = parent(&window).ok_or(PluginError::Message(
+            "editor requires a parent window of the platform's API",
+        ))?;
         let mut state = self.gui().borrow_mut();
         let state = state
             .as_mut()
             .ok_or(PluginError::Message("editor not created"))?;
-        // SAFETY: the CLAP GUI contract requires the host to supply a live NSView
-        // on the main thread and keep it alive until the editor is destroyed.
+        // SAFETY: the CLAP GUI contract requires the host to supply a live
+        // window of the negotiated API on the main thread and keep it alive
+        // until the editor is destroyed.
         #[allow(unsafe_code)]
         unsafe {
             state.attach(parent);
