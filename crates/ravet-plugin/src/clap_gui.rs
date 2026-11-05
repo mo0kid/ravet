@@ -80,7 +80,10 @@ impl PluginGuiImpl for ClapMain<'_> {
         }
     }
     fn get_size(&self) -> Option<GuiSize> {
-        self.gui().borrow().as_ref().map(|state| gui_size(state.size()))
+        self.gui()
+            .borrow()
+            .as_ref()
+            .map(|state| gui_size(state.size()))
     }
     fn can_resize(&self) -> bool {
         self.shared()
