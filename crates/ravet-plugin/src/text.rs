@@ -6,14 +6,25 @@ use crate::product::{Parameter, ParameterRole};
 use ravet_foundation::ParameterScale;
 use std::fmt::{self, Write};
 
+/// Whether a parameter is an on/off switch: the bypass parameter, or a stepped
+/// parameter with exactly the values 0 and 1 and no unit.
+fn is_switch(parameter: &Parameter<'_>) -> bool {
+    let range = parameter.range();
+    parameter.role() == ParameterRole::Bypass
+        || (range.intervals() == Some(1)
+            && range.minimum() == 0.0
+            && range.maximum() == 1.0
+            && parameter.unit().is_empty())
+}
+
 /// Write a physical value as text: clamped and snapped first, then `On`/`Off`
-/// for the bypass parameter, whole numbers for integral stepped values and
+/// for switches (the bypass parameter and unitless 0/1 toggles), whole numbers for integral stepped values and
 /// logarithmic values of 100 or more, two decimals otherwise, followed by a
 /// space and the unit when the parameter has one. Nonfinite values fail.
 pub fn write_value(parameter: &Parameter<'_>, value: f64, output: &mut impl Write) -> fmt::Result {
     let range = parameter.range();
     let value = range.canonicalize(value as f32).ok_or(fmt::Error)?;
-    if parameter.role() == ParameterRole::Bypass {
+    if is_switch(parameter) {
         return output.write_str(if value >= 0.5 { "On" } else { "Off" });
     }
     let decimals = match (range.intervals(), range.scale()) {
@@ -36,14 +47,14 @@ pub fn format_value(parameter: &Parameter<'_>, value: f64) -> Option<String> {
 }
 
 /// Parse text written by [`write_value`] or typed by a user: a number with an
-/// optional unit suffix, or `On`/`Off` for the bypass parameter. The result is
+/// optional unit suffix, or `On`/`Off` for switches. The result is
 /// clamped and snapped to the parameter's range.
 pub fn parse_value(parameter: &Parameter<'_>, text: &str) -> Option<f32> {
     let text = text.trim();
     let number = text.strip_suffix(parameter.unit()).unwrap_or(text).trim();
-    let value = match (parameter.role(), number) {
-        (ParameterRole::Bypass, "On" | "on") => 1.0,
-        (ParameterRole::Bypass, "Off" | "off") => 0.0,
+    let value = match (is_switch(parameter), number) {
+        (true, "On" | "on") => 1.0,
+        (true, "Off" | "off") => 0.0,
         _ => number.parse::<f32>().ok()?,
     };
     parameter.range().canonicalize(value)
@@ -76,5 +87,14 @@ mod tests {
         assert_eq!(format_value(&bypass, 0.0).unwrap(), "Off");
         assert_eq!(parse_value(&bypass, "on"), Some(1.0));
         assert_eq!(parse_value(&bypass, "Off"), Some(0.0));
+
+        let toggle = Parameter::toggle("sync", "Sync", true);
+        assert_eq!(format_value(&toggle, 1.0).unwrap(), "On");
+        assert_eq!(format_value(&toggle, 0.0).unwrap(), "Off");
+        assert_eq!(parse_value(&toggle, "off"), Some(0.0));
+        assert_eq!(parse_value(&toggle, "1"), Some(1.0));
+        // A two-value stepped parameter with a unit stays numeric.
+        let pair = Parameter::stepped("octave", "Octave", 0.0, 1.0, 1, 0.0).with_unit("oct");
+        assert_eq!(format_value(&pair, 1.0).unwrap(), "1 oct");
     }
 }

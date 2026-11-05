@@ -7796,3 +7796,21 @@ Whiting, trading as DJW Audio; the contact address is support@djwaudio.co; the
 terms are governed by the law of England and Wales. Contributors accept them
 with a `RAVET-Contributor-Terms: 1.0` commit trailer. `CONTRIBUTING.md` and
 `LICENSING.md` now point to them. The text has not had independent legal review.
+
+### Integration: AAX and LV2 merged, switch text, thread rule (2026-11-05)
+
+`release/0.1.0` now contains the native table and policies, the generic AAX
+adapter and the generic LV2 adapter. Conflicts were additive documentation
+only. On the merged branch: `ravet-plugin` (all features) and
+`ravet-delay-plugin` tests pass, `bundle-aax.py --plugin delay` builds and its
+bundle check passes, and `bundle-lv2.py --plugin delay` passes its four CTest
+suites with `lv2_validate` reporting 0 errors (macOS arm64, Homebrew LV2
+1.18.10). The same LV2 delay build, run on Linux x86_64 (Arch, LV2 headers
+v1.18.10, lilv 0.28.0), passes all four CTest suites and `lv2_validate` with 0
+errors. No host has loaded either bundle yet.
+
+Unitless stepped 0/1 parameters (such as the delay's Sync and Ping-pong) now
+read `On`/`Off` in every format, as the bypass parameter already did.
+`RavetPlugin.h` now allows `get_value` and `set_value` from any thread, because
+both touch only lock-free shared state; AAX hosts can call parameter updates
+off the main thread.

@@ -134,8 +134,9 @@ typedef struct RavetPluginEntryV1 {
     void (*destroy)(void *instance);
 
     /* ---- Parameter cache ----
-       get_value: any thread. set_value: MAIN, a host-side change (not automation
-       inside process); it updates the cache at once, so state saved afterwards
+       get_value and set_value: any thread, including a host's automation or
+       parameter thread (both touch only lock-free shared state). set_value is a
+       host-side change (not automation inside process); it updates the cache at once, so state saved afterwards
        includes it, and reaches the processor at the start of the next block.
        Values are clamped and snapped; set_value returns 1 for an unknown index
        or a nonfinite value, and get_value returns NaN for an unknown index. */
