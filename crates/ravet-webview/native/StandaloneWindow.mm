@@ -42,6 +42,8 @@ static WKWebView* findWeb(NSView* node,unsigned depth);
 @implementation RavetSettingsStore
 -(void)userContentController:(WKUserContentController*)controller didReceiveScriptMessage:(WKScriptMessage*)message {
     if(![message.body isKindOfClass:NSDictionary.class]||![message.body[@"version"] isEqual:@1])return;
+    // dataWithJSONObject raises for values JSON cannot encode (a Date, NaN).
+    if(![NSJSONSerialization isValidJSONObject:message.body])return;
     NSData* data=[NSJSONSerialization dataWithJSONObject:message.body options:0 error:nil];
     if(!data||data.length>8192)return;
     self.saved=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
@@ -50,13 +52,15 @@ static WKWebView* findWeb(NSView* node,unsigned depth);
 }
 @end
 struct Window { RavetStandaloneWindow* window; NSButton* settings; RavetSettingsAction* action; RavetSettingsStore* store; NSSize aspect; NSSize originalMin; NSSize originalMax; };
-extern "C" void* ravet_standalone_create(bool hidden,bool settings,const char* title,double width,double height,bool lockAspect) {
+extern "C" void* ravet_standalone_create(bool hidden,bool settings,const char* title,double width,double height,bool lockAspect) noexcept {
+    NSString* name=title?[NSString stringWithUTF8String:title]:nil;
+    if(!name||![NSThread isMainThread])return nullptr;
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:hidden?NSApplicationActivationPolicyProhibited:NSApplicationActivationPolicyRegular];
     RavetStandaloneWindow* window=[[RavetStandaloneWindow alloc] initWithContentRect:NSMakeRect(0,0,width,height)
         styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
-    window.releasedWhenClosed=NO; window.title=[NSString stringWithUTF8String:title];
+    window.releasedWhenClosed=NO; window.title=name;
     window.minSize=NSMakeSize(640,560); [window center];
     if(lockAspect){
         window.contentAspectRatio=NSMakeSize(width,height);
@@ -139,11 +143,12 @@ extern "C" void ravet_standalone_fit_editor(void* handle) {
     }
 }
 extern "C" bool ravet_standalone_eval(void* handle,const char* script) {
-    if(!handle||!script||![NSThread isMainThread])return false;
+    NSString* source=script?[NSString stringWithUTF8String:script]:nil;
+    if(!handle||!source||![NSThread isMainThread])return false;
     auto* host=static_cast<Window*>(handle);if(host->window.ravetIsClosed)return false;
     WKWebView* web=findWeb(host->window.contentView,0);if(!web)return false;
     __block bool done=false,ok=false;
-    [web evaluateJavaScript:[NSString stringWithUTF8String:script] completionHandler:^(id result,NSError* error){ok=!error&&[result respondsToSelector:@selector(boolValue)]&&[result boolValue];done=true;}];
+    [web evaluateJavaScript:source completionHandler:^(id result,NSError* error){ok=!error&&[result respondsToSelector:@selector(boolValue)]&&[result boolValue];done=true;}];
     for(int i=0;i<60&&!done&&!host->window.ravetIsClosed;++i)ravet_standalone_pump(handle,.05);return !host->window.ravetIsClosed&&done&&ok;
 }
 extern "C" bool ravet_standalone_snapshot(void* handle,const char* path) {
@@ -151,13 +156,14 @@ extern "C" bool ravet_standalone_snapshot(void* handle,const char* path) {
     auto* host=static_cast<Window*>(handle);RavetStandaloneWindow* window=host->window;
     if(window.ravetIsClosed)return false;
     WKWebView* web=findWeb(window.contentView,0);if(!web)return false;
-    NSString* destination=[NSString stringWithUTF8String:path]; __block bool done=false,ok=false;
+    NSString* destination=[NSString stringWithUTF8String:path]; if(!destination)return false;
+    __block bool done=false,ok=false;
     [web takeSnapshotWithConfiguration:nil completionHandler:^(NSImage* image,NSError* error){
         if(image&&!error&&!window.ravetIsClosed){NSBitmapImageRep* bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];
             NSData* png=[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];ok=!window.ravetIsClosed&&[png writeToFile:destination atomically:YES];}done=true;}];
     for(int i=0;i<60&&!done&&!window.ravetIsClosed;++i)ravet_standalone_pump(handle,.05);return !window.ravetIsClosed&&done&&ok;
 }
-extern "C" void ravet_standalone_destroy(void* handle) {auto* host=static_cast<Window*>(handle);[host->window close];delete host;}
+extern "C" void ravet_standalone_destroy(void* handle) {if(!handle)return;auto* host=static_cast<Window*>(handle);[host->window close];delete host;}
 
 extern "C" bool ravet_standalone_open_settings(void* handle) {
     if(!handle||![NSThread isMainThread])return false;

@@ -49,7 +49,7 @@ void openSettings(Window& w) {
     if (w.view && !w.closed)
         ravet_web_eval(w.view, "typeof window.ravetOpenSettings==='function'&&window.ravetOpenSettings()", nullptr, nullptr);
 }
-LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
+LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) noexcept {
     auto* w = reinterpret_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (!w) return DefWindowProcW(hwnd, message, wp, lp);
     switch (message) {
@@ -106,7 +106,8 @@ Window* live(void* handle) {
 }
 }
 
-extern "C" void* ravet_standalone_create(bool hidden, bool settings, const char* title, double width, double height, bool lockAspect) {
+// Allocating entry points are noexcept: no exception unwinds into Rust.
+extern "C" void* ravet_standalone_create(bool hidden, bool settings, const char* title, double width, double height, bool lockAspect) noexcept {
     if (!title || !ravet_web_is_main_thread()) return nullptr;
     using SetAwareness = BOOL(WINAPI*)(HANDLE);
     if (auto set = reinterpret_cast<SetAwareness>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetProcessDpiAwarenessContext")))
@@ -186,7 +187,7 @@ extern "C" bool ravet_standalone_pump(void* handle, double seconds) {
 extern "C" void ravet_standalone_fit_editor(void* handle) {
     if (auto* w = live(handle)) fitView(*w);
 }
-extern "C" bool ravet_standalone_eval(void* handle, const char* script) {
+extern "C" bool ravet_standalone_eval(void* handle, const char* script) noexcept {
     auto* w = live(handle);
     if (!w || !w->view || !script) return false;
     struct Result { bool done = false, truthy = false; };

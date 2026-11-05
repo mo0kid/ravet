@@ -1,10 +1,12 @@
 #![allow(dead_code)]
+#[path = "../../src/accessibility.rs"]
+pub mod accessibility;
 #[path = "../../src/content_constraints.rs"]
 mod content_constraints;
 pub use content_constraints::ContentConstraints;
-#[path = "../../src/macos.rs"]
-mod macos;
-pub use macos::{Callbacks, WebView, is_main_thread};
+#[path = "../../src/native.rs"]
+mod native;
+pub use native::{Callbacks, WebView, is_main_thread};
 #[path = "../../src/standalone.rs"]
 mod standalone;
 pub use standalone::{StandaloneOptions, StandaloneWindow, StandaloneWindowState};
@@ -239,6 +241,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(window.open_settings());
         assert!(window.eval("document.getElementById('io-settings').open&&!document.getElementById('io-unavailable').hidden")?);
         assert!(window.eval("document.getElementById('close-settings').click();!document.getElementById('io-settings').open")?);
+        // A settings body JSON cannot encode (Date) is dropped, not raised in WebKit.
+        assert!(window.eval("window.webkit.messageHandlers.ravetSettings.postMessage({version:1,when:new Date()});true")?);
+        window.pump(0.1);
+        assert!(window.eval("true")?);
         println!(
             "direct={direct}; hidden-live/visible distinction, embedded owner and default no-device popup PASS"
         );

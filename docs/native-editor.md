@@ -93,6 +93,17 @@ bytes; inline page input is bounded to 1 MiB. Consumers of the raw C++ API own
 pointer validity and callback lifetime. The Rust wrapper supplies those contracts
 for its owned view and context.
 
+No exception crosses this C ABI. `ravet_web_create`, `ravet_web_create_html` and
+`ravet_web_eval` are `noexcept`, as are the backends' WebView2 handlers, window
+procedures and GLib callbacks, so an allocation failure inside them terminates
+the process (as a Rust allocation failure does) instead of unwinding into the
+caller. Cocoa calls made off the main thread return their failure value (null,
+false or no effect) rather than asserting. Page message bodies that JSON cannot
+encode, such as a `Date`, are dropped. A message or snapshot callback may
+destroy its own view. On Windows the `WebView2Loader.dll` loaded by the first
+editor stays loaded for the rest of the process. See
+[decision 0292](decisions/0292-webview-robustness-and-system-notices.md).
+
 Opaque layer backing is configurable through finite clamped RGB values. The
 WebKit under-page colour requires macOS 12. A 50 ms timer delivers validated JSON
 objects/arrays through `window.ravetUpdate`. Identical strings are suppressed

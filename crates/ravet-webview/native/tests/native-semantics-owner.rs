@@ -1,8 +1,8 @@
 #[path = "../../src/accessibility.rs"]
 pub mod accessibility;
-#[path = "../../src/macos.rs"]
-mod macos;
-pub use macos::{Callbacks, WebView, WebViewError, is_main_thread};
+#[path = "../../src/native.rs"]
+mod native;
+pub use native::{Callbacks, WebView, WebViewError, is_main_thread, pump};
 #[path = "../../src/content_constraints.rs"]
 mod content_constraints;
 pub use content_constraints::ContentConstraints;

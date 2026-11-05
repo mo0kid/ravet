@@ -1,10 +1,12 @@
 #![allow(dead_code)]
+#[path = "../../src/accessibility.rs"]
+pub mod accessibility;
 #[path = "../../src/content_constraints.rs"]
 mod content_constraints;
 pub use content_constraints::ContentConstraints;
-#[path = "../../src/macos.rs"]
-mod macos;
-pub use macos::{Callbacks, WebView, is_main_thread};
+#[path = "../../src/native.rs"]
+mod native;
+pub use native::{Callbacks, WebView, is_main_thread};
 #[path = "../../src/standalone.rs"]
 mod standalone;
 pub use standalone::{StandaloneOptions, StandaloneWindow};

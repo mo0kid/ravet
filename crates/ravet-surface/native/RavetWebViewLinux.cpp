@@ -6,6 +6,7 @@
 #include <json-glib/json-glib.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -16,7 +17,8 @@
 #include <link.h>
 
 namespace {
-std::thread::id uiThread;
+// Adopted by the first creation; read by every entry point.
+std::atomic<std::thread::id> uiThread{};
 struct State {
     GtkWidget* box=nullptr;
     GtkWidget* plug=nullptr;
@@ -66,7 +68,7 @@ bool jsonContainer(const char* text) {
     if(valid) { auto* root=json_parser_get_root(parser); valid=JSON_NODE_HOLDS_OBJECT(root)||JSON_NODE_HOLDS_ARRAY(root); }
     g_object_unref(parser); return valid;
 }
-gboolean poll(gpointer data) {
+gboolean poll(gpointer data) noexcept {
     auto owner=*static_cast<Owner*>(data); auto& s=*owner;
     if(s.closed) return G_SOURCE_REMOVE;
     if(s.evaluating||(!s.snapshot&&!s.bufferSnapshot)) return G_SOURCE_CONTINUE;
@@ -83,7 +85,7 @@ gboolean poll(gpointer data) {
     s.evaluating=true;
     auto* pending=new std::pair<Owner,std::string>(owner,next);
     webkit_web_view_evaluate_javascript(s.web,script.c_str(),-1,nullptr,nullptr,nullptr,
-        [](GObject* web,GAsyncResult* result,gpointer data) {
+        [](GObject* web,GAsyncResult* result,gpointer data) noexcept {
             std::unique_ptr<std::pair<Owner,std::string>> pending(static_cast<std::pair<Owner,std::string>*>(data));
             GError* error=nullptr;
             auto* value=webkit_web_view_evaluate_javascript_finish(WEBKIT_WEB_VIEW(web),result,&error);
@@ -135,7 +137,7 @@ Owner create(double width,double height,void* context,RavetWebMessage message,Ra
     // The web view must receive the editor's full allocation, not its 1px
     // minimum height (which also produces unusable compositor buffers).
     gtk_box_pack_start(GTK_BOX(s->box),GTK_WIDGET(s->web),TRUE,TRUE,0);
-    s->messageHandler=g_signal_connect_data(s->manager,"script-message-received::ravet",G_CALLBACK(+[](WebKitUserContentManager*,WebKitJavascriptResult* result,gpointer data) {
+    s->messageHandler=g_signal_connect_data(s->manager,"script-message-received::ravet",G_CALLBACK(+[](WebKitUserContentManager*,WebKitJavascriptResult* result,gpointer data) noexcept {
         auto s=*static_cast<Owner*>(data); if(s->closed||!s->message) return;
         auto* value=webkit_javascript_result_get_js_value(result);
         char* json=jsc_value_to_json(value,0);
@@ -145,7 +147,7 @@ Owner create(double width,double height,void* context,RavetWebMessage message,Ra
     g_signal_connect(s->web,"load-changed",G_CALLBACK(+[](WebKitWebView*,WebKitLoadEvent event,gpointer data) {
         if(event==WEBKIT_LOAD_FINISHED) static_cast<State*>(data)->delivered.clear();
     }),s.get());
-    g_signal_connect(s->web,"decide-policy",G_CALLBACK(+[](WebKitWebView*,WebKitPolicyDecision* decision,WebKitPolicyDecisionType type,gpointer data)->gboolean {
+    g_signal_connect(s->web,"decide-policy",G_CALLBACK(+[](WebKitWebView*,WebKitPolicyDecision* decision,WebKitPolicyDecisionType type,gpointer data) noexcept->gboolean {
         if(type!=WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION&&type!=WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) return FALSE;
         auto& s=*static_cast<State*>(data);
         auto* request=webkit_navigation_policy_decision_get_request(WEBKIT_NAVIGATION_POLICY_DECISION(decision));
@@ -171,15 +173,15 @@ struct XErrorTrap {
     ~XErrorTrap() { if(display) gdk_x11_display_error_trap_pop_ignored(display); }
 };
 }
-extern "C" bool ravet_web_is_main_thread() { return uiThread==std::thread::id()||std::this_thread::get_id()==uiThread; }
+extern "C" bool ravet_web_is_main_thread() { auto ui=uiThread.load(); return ui==std::thread::id()||std::this_thread::get_id()==ui; }
 extern "C" void ravet_web_pump() { for(int i=0;i<32&&g_main_context_pending(nullptr);++i) g_main_context_iteration(nullptr,FALSE); }
-extern "C" void* ravet_web_create(const char* path,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot) {
+extern "C" void* ravet_web_create(const char* path,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot) noexcept {
     if(!path) return nullptr; std::error_code error; auto file=std::filesystem::canonical(path,error); if(error||!std::filesystem::is_regular_file(file,error)) return nullptr;
     auto s=create(w,h,context,message,snapshot,nullptr); if(!s) return nullptr;
     s->root=file.parent_path().string(); char* uri=g_filename_to_uri(file.c_str(),nullptr,nullptr);
     webkit_web_view_load_uri(s->web,uri); g_free(uri); return new Owner(s);
 }
-extern "C" void* ravet_web_create_html(const char* html,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshotBuffer snapshot) {
+extern "C" void* ravet_web_create_html(const char* html,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshotBuffer snapshot) noexcept {
     if(!html||strnlen(html,1048577)>1048576) return nullptr;
     auto s=create(w,h,context,message,nullptr,snapshot); if(!s) return nullptr;
     webkit_web_view_load_html(s->web,html,nullptr); return new Owner(s);
@@ -220,12 +222,12 @@ extern "C" bool ravet_web_set_size(void* view,double w,double h) {
     if(s.plug) gtk_window_resize(GTK_WINDOW(s.plug),width,height);
     return true;
 }
-extern "C" bool ravet_web_eval(void* view,const char* script,void* context,RavetWebEvalDone done) {
+extern "C" bool ravet_web_eval(void* view,const char* script,void* context,RavetWebEvalDone done) noexcept {
     if(!view||!script||strnlen(script,1048577)>1048576) return false;
     auto owner=*static_cast<Owner*>(view); if(owner->closed) return false;
     struct Pending { std::weak_ptr<State> state; void* context; RavetWebEvalDone done; };
     webkit_web_view_evaluate_javascript(owner->web,script,-1,nullptr,nullptr,nullptr,
-        [](GObject* web,GAsyncResult* result,gpointer data) {
+        [](GObject* web,GAsyncResult* result,gpointer data) noexcept {
             std::unique_ptr<Pending> pending(static_cast<Pending*>(data));
             GError* error=nullptr;
             auto* value=webkit_web_view_evaluate_javascript_finish(WEBKIT_WEB_VIEW(web),result,&error);

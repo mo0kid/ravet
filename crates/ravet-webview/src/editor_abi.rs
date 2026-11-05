@@ -75,6 +75,7 @@ pub unsafe extern "C" fn ravet_editor_create_html(
         native,
         scratch: Vec::new(),
     };
+    // SAFETY: by contract `status` is null or writable, aligned storage.
     let Some(status) = (unsafe { status.as_mut() }) else {
         return ptr::null_mut();
     };
@@ -126,6 +127,10 @@ unsafe fn use_editor(
     if !is_main_thread() {
         return 2;
     }
+    if !handle.is_aligned() {
+        return 1;
+    }
+    // SAFETY: non-null, aligned, and by contract a live handle from create.
     let Some(handle) = (unsafe { handle.as_ref() }) else {
         return 1;
     };
@@ -140,6 +145,7 @@ unsafe fn use_editor(
 /// satisfy the contract in `include/RavetWebEditor.h`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ravet_editor_attach(handle: *mut Editor, parent: *mut c_void) -> u32 {
+    // SAFETY: the caller's contract for `handle` is forwarded to `use_editor`.
     unsafe {
         use_editor(handle, |view| {
             let Some(parent) = NonNull::new(parent) else {
@@ -155,6 +161,7 @@ pub unsafe extern "C" fn ravet_editor_attach(handle: *mut Editor, parent: *mut c
 /// satisfy the contract in `include/RavetWebEditor.h`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ravet_editor_detach(handle: *mut Editor) -> u32 {
+    // SAFETY: the caller's contract for `handle` is forwarded to `use_editor`.
     unsafe {
         use_editor(handle, |view| {
             view.detach();
@@ -171,6 +178,7 @@ pub unsafe extern "C" fn ravet_editor_set_size(
     width: f64,
     height: f64,
 ) -> u32 {
+    // SAFETY: the caller's contract for `handle` is forwarded to `use_editor`.
     unsafe { use_editor(handle, |view| view.set_size(width, height)) }
 }
 /// # Safety
@@ -178,6 +186,7 @@ pub unsafe extern "C" fn ravet_editor_set_size(
 /// satisfy the contract in `include/RavetWebEditor.h`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ravet_editor_set_visible(handle: *mut Editor, visible: u32) -> u32 {
+    // SAFETY: the caller's contract for `handle` is forwarded to `use_editor`.
     unsafe {
         use_editor(handle, |view| {
             if visible > 1 {
@@ -198,6 +207,7 @@ pub unsafe extern "C" fn ravet_editor_set_background(
     green: f64,
     blue: f64,
 ) -> u32 {
+    // SAFETY: the caller's contract for `handle` is forwarded to `use_editor`.
     unsafe { use_editor(handle, |view| view.set_background(red, green, blue)) }
 }
 /// # Safety
@@ -207,6 +217,9 @@ pub unsafe extern "C" fn ravet_editor_set_background(
 pub unsafe extern "C" fn ravet_editor_destroy(handle: *mut Editor) -> u32 {
     if handle.is_null() {
         return 0;
+    }
+    if !handle.is_aligned() {
+        return 1;
     }
     if !is_main_thread() {
         return 2;
@@ -227,10 +240,12 @@ mod tests {
         releases: Cell<usize>,
     }
     extern "C" fn release(raw: *mut c_void) {
+        // SAFETY: test context is a live Fixture for the callback's duration.
         let fixture = unsafe { &*raw.cast::<Fixture>() };
         fixture.releases.set(fixture.releases.get() + 1);
     }
     extern "C" fn snapshot(raw: *mut c_void, output: *mut u8, capacity: usize) -> usize {
+        // SAFETY: test context is a live Fixture for the callback's duration.
         let fixture = unsafe { &*raw.cast::<Fixture>() };
         let bytes: &[u8] = match fixture.mode {
             0 => b"",
@@ -239,6 +254,7 @@ mod tests {
             3 => b"{}\0",
             _ => return capacity + 1,
         };
+        // SAFETY: the 65536-byte scratch buffer exceeds every fixture length.
         unsafe {
             ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len());
         }
@@ -278,11 +294,22 @@ mod tests {
         }
     }
     #[test]
+    fn misaligned_handles_are_refused_before_any_dereference() {
+        let misaligned = std::ptr::dangling_mut::<u8>()
+            .wrapping_add(1)
+            .cast::<Editor>();
+        // SAFETY: the misaligned pointer is refused before it is read or freed.
+        assert_eq!(unsafe { ravet_editor_destroy(misaligned) }, 1);
+        // SAFETY: null is the documented no-op destruction.
+        assert_eq!(unsafe { ravet_editor_destroy(ptr::null_mut()) }, 0);
+    }
+    #[test]
     fn failed_creation_consumes_foreign_context_even_without_status_storage() {
         let mut fixture = Fixture {
             mode: 0,
             releases: Cell::new(0),
         };
+        // SAFETY: null HTML is rejected; status is null or local storage.
         let handle = unsafe {
             ravet_editor_create_html(
                 ptr::null(),
@@ -296,6 +323,7 @@ mod tests {
         assert!(handle.is_null());
         assert_eq!(fixture.releases.get(), 1);
         let mut status = 99;
+        // SAFETY: null HTML is rejected; status is null or local storage.
         let handle = unsafe {
             ravet_editor_create_html(
                 ptr::null(),
