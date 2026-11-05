@@ -7916,3 +7916,97 @@ pull requests from authors who are not the owner, members or collaborators. The
 job uses `pull_request_target` with only `pull-requests: write` and never checks
 out or runs pull-request code. It has not run yet: it takes effect once merged
 to `main`.
+
+### Generic native AUv2 product adapter (2026-11-05)
+
+Branch `adapter/auv2` implements the native AUBase choice in decision 0281,
+with the contracts recorded in decision 0283. It fast-forwarded
+`plugin/native-table` through `21088c5` before testing the actual Rust product;
+the adapter itself makes no change to `RavetPlugin.h`. Effects, instruments and
+audio-backed MIDI effects share `adapters/auv2/PluginAU.mm`. Bundle metadata
+comes from the loaded product table, and the component embeds its uniquely named
+product dylib rather than VST3. The legacy reference remains explicit through
+`--vst3-sdk`.
+
+Environment: macOS 27.0.1 (26A434), arm64, Xcode 27.1 (27A9275), Apple's external
+AudioUnitSDK 1.4.0 source checkout. SDK source was compiled in the worktree's
+build directory, not copied into the repository. The JUCE location was checked
+first but is a flattened SDK snapshot, unsuitable for this build. Only the delay
+Cargo package was built, with two jobs; no workspace Cargo build was run.
+
+Executed commands (with `AU_SDK` pointing at that external SDK):
+
+```sh
+python3 scripts/bundle-au.py --mock effect --audio-unit-sdk "$AU_SDK" --validate
+python3 scripts/bundle-au.py --mock instrument --audio-unit-sdk "$AU_SDK" --validate
+python3 scripts/bundle-au.py --mock midi --audio-unit-sdk "$AU_SDK" --validate
+CARGO_BUILD_JOBS=2 python3 scripts/bundle-au.py --plugin delay \
+  --audio-unit-sdk "$AU_SDK" --validate
+```
+
+All returned exit 0. Each mock printed:
+`PASS generic AUv2 mock metadata/stereo+mono/state/schedules/timing/transport/MIDI/editor lifetime/MAIN dispatch (3 retained-view cycles)`.
+Checks include stable physical IDs/ranges, indexed strings and parsing, invalid
+parameter/state rejection, state saved before rendering, complete bypass recall,
+sample-offset immediate events, all-or-none schedule rejection, ramp samples and
+next-block endpoint, dynamic timing notifications, exact host transport,
+short-MIDI loopback for instrument/MIDI effect, mono on a worker thread, and
+balanced create/open/close/destroy with zero off-main table control calls.
+The Cocoa view survives AU disposal, resize and release; no retired timer calls
+occur. Gain has no MIDI input/output, so MIDI loopback applies only to the other
+two variants.
+
+The real delay printed:
+`PASS generic AUv2 product metadata/render/editor lifetime (3 retained-view cycles)`
+and
+`PASS real delay AUv2 8 kHz stereo: 120 BPM repeat at sample 2000, cached-state envelope, complete bypass recall, offset-16 automation, tail and backing tails`.
+Its actual WebKit views were retained past AU disposal in all three cycles.
+The impulse expectation is checked on both channels, state CFData begins with
+`RAVETSTA`, automation retains the wet prefix before offset 16 and reaches dry
+after product smoothing, and tail changes from infinity to exactly 2.000125 s
+without a latency change. This is component evidence, not DAW interaction or
+visual/focus/accessibility qualification.
+
+`scripts/validate-au-mock.py` installed only the test identities below in
+`~/Library/Audio/Plug-Ins/Components`, then removed every test installation in
+`finally`. The final runs of AU Validation Tool 1.10.0 were:
+
+| Exact validator command | Exit | Final result |
+|---|---:|---|
+| `auval -v aufx RvT1 RvTs` | 0 | `AU VALIDATION SUCCEEDED.` |
+| `auval -v aumu RvI1 RvTs` | 0 | `AU VALIDATION SUCCEEDED.` |
+| `auval -v aumf RvM1 RvTs` | 0 | `AU VALIDATION SUCCEEDED.` |
+
+Exact local output is retained in
+`target/au-native/mock-{effect,instrument,midi}/auval.log`. Initial effect/MIDI
+attempts failed discovery with `FATAL ERROR: didn't find the component` before
+AudioComponentRegistrar noticed the new directory. The repeatable validator
+retries only that discovery failure; it does not retry an actual validation
+failure. The real delay identity was never installed globally.
+
+An AddressSanitizer build of the mock effect, adapter, SDK and contract
+executable also returned exit 0 with the same PASS line and no ASan diagnostic:
+
+```sh
+cmake -S adapters/auv2 -B target/au-native/asan-mock \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fsanitize=address \
+  -DCMAKE_OBJCXX_FLAGS=-fsanitize=address \
+  -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address \
+  -DCMAKE_MODULE_LINKER_FLAGS=-fsanitize=address \
+  -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address
+ASAN_OPTIONS=detect_leaks=0 python3 scripts/bundle-au.py --mock effect \
+  --build-dir target/au-native/asan-mock --audio-unit-sdk "$AU_SDK" --validate
+```
+
+Leak detection was disabled; no leak-freedom claim follows. Seven native/legacy
+AU Python packaging tests passed. The documentation generator/checker and
+`git diff --check` passed. No Rust API documentation or example source was
+changed by this adapter work.
+
+Limits: one main native f32 bus, fixed 1,024 queued events, bounded current-block
+ramps, serialized scheduling/MIDI producers, and a running host main loop for
+MAIN calls and notification delivery. No auxiliary buses, f64, SysEx/MIDI 2,
+MusicDevice StartNote/StopNote, factory-program catalogue, zero-audio MIDI
+processor, DAW/device, x86_64, sandbox, production signing or callback-deadline
+support is established. The existing C table was sufficient; the coordinator
+needs no header change.

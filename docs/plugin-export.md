@@ -8,8 +8,9 @@ exist in `ravet-plugin` (umbrella features `plugin`, `plugin-clap` and
 `plugin-native`; crate feature `native` for the table). Generic adapters over
 that table exist as prototypes for
 [VST3](vst3.md#generic-product-adapter-010-prototype),
-[AAX](aax.md#generic-aax-adapter-010) and [LV2](lv2.md#generic-lv2-export).
-The AUv2 adapter, Windows and Linux editors and the bundle tool follow.
+[AUv2](audio-unit.md), [AAX](aax.md#generic-aax-adapter-010) and
+[LV2](lv2.md#generic-lv2-export). Windows and Linux editors and the bundle tool
+follow.
 
 ## Product description
 
