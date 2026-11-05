@@ -11,12 +11,16 @@ documentation.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Main-thread macOS Cocoa/WebKit binding for RAVET editors"
+description = "Main-thread native web view binding for RAVET editors: Cocoa/WebKit, Win32/WebView2 and GTK/WebKitGTK"
 
 [features]
 postscript-fonts = ["system-fonts"]
 default = []
 system-fonts = []
+
+[build-dependencies]
+cc = "=1.6.0"
+pkg-config = "=0.3.34"
 
 [lints.rust]
 unsafe_code = "deny"
