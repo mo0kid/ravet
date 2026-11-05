@@ -269,3 +269,85 @@ fn invalid_descriptions_are_rejected() {
     );
     assert!(GAIN.with_parameters(&many[..1024]).resolve().is_ok());
 }
+
+#[test]
+fn editor_assets_are_validated() {
+    use ravet_plugin::{Editor, EditorAsset, MAXIMUM_EDITOR_ASSET_BYTES};
+    const EDITOR: Editor = Editor {
+        html: "<p>x</p>",
+        width: 300,
+        height: 200,
+        resizable: false,
+    };
+    const ASSETS: &[EditorAsset] = &[
+        EditorAsset::new("app.js", b"ok()"),
+        EditorAsset::new("img/knob.png", &[0x89, b'P', b'N', b'G']),
+        EditorAsset {
+            path: "data/curve.bin",
+            mime: "application/x-curve",
+            data: &[1, 2, 3],
+        },
+    ];
+    let product = GAIN.with_editor(EDITOR).with_editor_assets(ASSETS);
+    assert!(product.resolve().is_ok());
+    assert_eq!(product.editor_assets().len(), 3);
+    // Assets need an editor.
+    assert_eq!(
+        GAIN.with_editor_assets(ASSETS).resolve().err(),
+        Some(ProductError::InvalidEditorAsset(0))
+    );
+    for (index, path) in [
+        "",
+        "/a",
+        "a/",
+        "a//b",
+        "../x",
+        "a/./b",
+        "index.html",
+        "sp ace",
+        "q?x",
+        "é",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bad = [EditorAsset::new("ok.css", b""), EditorAsset::new(path, b"")];
+        assert_eq!(
+            GAIN.with_editor(EDITOR)
+                .with_editor_assets(&bad)
+                .resolve()
+                .err(),
+            Some(ProductError::InvalidEditorAsset(1)),
+            "{index}: {path:?}"
+        );
+    }
+    let duplicate = [EditorAsset::new("a.js", b""), EditorAsset::new("a.js", b"")];
+    assert_eq!(
+        GAIN.with_editor(EDITOR)
+            .with_editor_assets(&duplicate)
+            .resolve()
+            .err(),
+        Some(ProductError::InvalidEditorAsset(1))
+    );
+    let control = [EditorAsset {
+        path: "a",
+        mime: "text/\n",
+        data: b"",
+    }];
+    assert_eq!(
+        GAIN.with_editor(EDITOR)
+            .with_editor_assets(&control)
+            .resolve()
+            .err(),
+        Some(ProductError::InvalidEditorAsset(0))
+    );
+    let big = vec![0_u8; MAXIMUM_EDITOR_ASSET_BYTES + 1];
+    let oversized = [EditorAsset::new("big.bin", &big)];
+    assert_eq!(
+        GAIN.with_editor(EDITOR)
+            .with_editor_assets(&oversized)
+            .resolve()
+            .err(),
+        Some(ProductError::InvalidEditorAsset(0))
+    );
+}

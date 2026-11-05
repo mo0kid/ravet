@@ -16,7 +16,10 @@
 #[allow(unsafe_code)]
 mod native;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-pub use native::{Callbacks, WebView, WebViewError, is_main_thread, pump};
+pub use native::{
+    Asset, Callbacks, MAXIMUM_ASSET_BYTES, MAXIMUM_ASSETS, MAXIMUM_TOTAL_ASSET_BYTES, WebView,
+    WebViewError, assets_valid, is_main_thread, pump,
+};
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod editor_abi;

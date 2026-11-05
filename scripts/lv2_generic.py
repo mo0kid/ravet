@@ -102,7 +102,10 @@ def build_generic(context, *, product_library=None, target_directory=None,
     if target_directory:
         build /= profile
     configure = ["cmake", "-S", context.root / "crates/ravet-plugin/lv2", "-B", build,
-                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_LV2_SDK={context.sdk}"]
+                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_LV2_SDK={context.sdk}",
+                 # Explicit, so build trees configured before UIs were declared
+                 # on every platform pick it up.
+                 "-DRAVET_LV2_UI=ON"]
     platform, release = context.platform, target / "release"
     if context.cross:
         configure += windows_cross.prepare(context.runner, target, platform=context.platform)

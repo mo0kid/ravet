@@ -64,9 +64,15 @@ impl<P: PluginExport> Plugin for ClapPlugin<P> {
             .register::<PluginState>()
             .register::<PluginLatency>()
             .register::<PluginTail>();
-        #[cfg(all(feature = "editor", target_os = "macos"))]
+        #[cfg(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        ))]
         if P::PRODUCT.editor().is_some() {
             builder.register::<clack_extensions::gui::PluginGui>();
+            // The Linux editor pumps GTK from a host timer.
+            #[cfg(target_os = "linux")]
+            builder.register::<clack_extensions::timer::PluginTimer>();
         }
     }
 }
@@ -134,8 +140,13 @@ impl<P: PluginExport> DefaultPluginFactory for ClapPlugin<P> {
             shared,
             params: host.get_extension::<HostParams>(),
             reported_latency: AtomicU32::new(0),
-            #[cfg(all(feature = "editor", target_os = "macos"))]
+            #[cfg(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            ))]
             gui: std::cell::RefCell::new(None),
+            #[cfg(all(feature = "editor", target_os = "linux"))]
+            timer: std::cell::Cell::new(None),
         })
     }
 }
@@ -147,7 +158,13 @@ pub struct ClapShared {
     hooks: FnHooks,
     /// Editor edits waiting to be delivered to the host and processor.
     edits: EditQueue,
-    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        )),
+        allow(dead_code)
+    )]
     editor_message: fn(&serde_json::Value) -> Option<serde_json::Value>,
     /// Latency of the active processor.
     latency: AtomicU32,
@@ -165,11 +182,23 @@ impl ClapShared {
     pub fn parameters(&self) -> &ParameterCache {
         &self.parameters
     }
-    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        )),
+        allow(dead_code)
+    )]
     pub(crate) fn edit_queue(&self) -> &EditQueue {
         &self.edits
     }
-    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        )),
+        allow(dead_code)
+    )]
     pub(crate) fn handle_editor_message(
         &self,
         data: &serde_json::Value,
@@ -227,10 +256,22 @@ impl ClapShared {
 pub struct ClapMain<'a> {
     host: HostMainThreadHandle<'a>,
     shared: &'a ClapShared,
-    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        )),
+        allow(dead_code)
+    )]
     params: Option<HostParams>,
-    #[cfg(all(feature = "editor", target_os = "macos"))]
+    #[cfg(all(
+        feature = "editor",
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
+    ))]
     gui: std::cell::RefCell<Option<crate::clap_gui::GuiState<'a>>>,
+    /// The host timer that pumps the Linux editor, while one is registered.
+    #[cfg(all(feature = "editor", target_os = "linux"))]
+    timer: std::cell::Cell<Option<clack_extensions::timer::TimerId>>,
     /// Latency last reported to the host.
     reported_latency: AtomicU32,
 }
@@ -244,24 +285,49 @@ impl<'a> PluginMainThread<'a, ClapShared> for ClapMain<'a> {
 }
 
 impl<'a> ClapMain<'a> {
-    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        )),
+        allow(dead_code)
+    )]
     pub(crate) fn shared(&self) -> &'a ClapShared {
         self.shared
     }
-    #[cfg(all(feature = "editor", target_os = "macos"))]
+    #[cfg(all(
+        feature = "editor",
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
+    ))]
     pub(crate) fn host(&self) -> &HostMainThreadHandle<'a> {
         &self.host
     }
-    #[cfg(all(feature = "editor", target_os = "macos"))]
+    #[cfg(all(
+        feature = "editor",
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
+    ))]
     pub(crate) fn host_params(&self) -> Option<HostParams> {
         self.params
     }
-    #[cfg(all(feature = "editor", target_os = "macos"))]
+    #[cfg(all(
+        feature = "editor",
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
+    ))]
     pub(crate) fn gui(&self) -> &std::cell::RefCell<Option<crate::clap_gui::GuiState<'a>>> {
         &self.gui
     }
+    #[cfg(all(feature = "editor", target_os = "linux"))]
+    pub(crate) fn timer(&self) -> &std::cell::Cell<Option<clack_extensions::timer::TimerId>> {
+        &self.timer
+    }
     /// Ask the host to deliver queued editor edits.
-    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            feature = "editor",
+            any(target_os = "macos", target_os = "windows", target_os = "linux")
+        )),
+        allow(dead_code)
+    )]
     pub(crate) fn request_flush(host: &HostMainThreadHandle<'_>, params: Option<HostParams>) {
         match params {
             Some(params) => params.request_flush(host),

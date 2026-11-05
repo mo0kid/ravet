@@ -4,7 +4,7 @@
 //! the product. Parameter IDs 1 and 2 match the processor's schema.
 use ravet_foundation::AudioLayout;
 use ravet_gain::{GainProcessor, MAXIMUM_GAIN};
-use ravet_plugin::{Category, Editor, Parameter, PluginExport, Product, StateFormat};
+use ravet_plugin::{Category, Editor, EditorAsset, Parameter, PluginExport, Product, StateFormat};
 
 const PARAMETERS: &[Parameter] = &[
     Parameter::linear("gain", "Gain", 0.0, MAXIMUM_GAIN, 1.0)
@@ -37,6 +37,11 @@ impl PluginExport for GainPlugin {
         height: 320,
         resizable: true,
     })
+    // The page links this stylesheet by relative URL; see `EditorAsset`.
+    .with_editor_assets(&[EditorAsset::new(
+        "asset.css",
+        include_bytes!("../editor/asset.css"),
+    )])
     .with_url("https://djwaudio.co/ravet/");
     fn create() -> GainProcessor {
         GainProcessor::default()

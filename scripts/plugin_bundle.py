@@ -262,6 +262,9 @@ def bundle(args):
     runner = Runner(project)
     if args.offline:
         runner.environment["CARGO_NET_OFFLINE"] = "true"
+    # Windows products with a web editor build ravet-webview against WebView2.
+    if "webview2" in paths and (args.target or sys.platform == "win32"):
+        runner.environment["RAVET_WEBVIEW2_SDK"] = str(paths["webview2"])
     target, library, archive, links = build_product(args, runner)
     product = product_metadata(target, library, runner, args.target)
     profile = "release" if args.release else "debug"

@@ -18,6 +18,23 @@ void* ravet_web_create_html(const char* html, double width, double height, void*
                             RavetWebMessage message, RavetWebSnapshotBuffer snapshot);
 void* ravet_web_create(const char* htmlPath, double width, double height, void* context,
                        RavetWebMessage message, RavetWebSnapshot snapshot);
+// Embedded editor assets: `path` is relative ("img/knob.png": ASCII letters,
+// digits and "._-/", no "..", empty or leading/trailing/double "/"; at most
+// 512 bytes), `mime` its Content-Type. The view copies path and mime;
+// `data` must stay valid and unchanged until ravet_web_destroy (it is
+// normally static data in the binary). At most 4096 assets of up to 64 MiB
+// each, 256 MiB in total; "index.html" is reserved for the page.
+typedef struct RavetWebAsset { const char* path; const char* mime; const void* data; size_t size; } RavetWebAsset;
+// Like ravet_web_create_html, but loads `html` as "index.html" from a local
+// asset origin that also serves `assets` (GET only, 404 for unknown paths, no
+// file system or network access): "ravet://editor/" on macOS,
+// "ravet-<id>://editor/" on Linux (one scheme per loaded binary, since
+// WebKitGTK schemes are process-wide) and "https://editor.ravet.invalid/" on
+// Windows, intercepted before any network request. Pages refer to assets by
+// relative URL. Returns null for invalid assets; html up to 1 MiB.
+void* ravet_web_create_assets(const char* html, const RavetWebAsset* assets, size_t count,
+                              double width, double height, void* context,
+                              RavetWebMessage message, RavetWebSnapshotBuffer snapshot);
 // Opaque backing colour, initially white. Finite RGB components clamp to [0,1].
 // Returns false for a null view or nonfinite component; leaves colour unchanged.
 bool ravet_web_set_background(void* view, double red, double green, double blue);

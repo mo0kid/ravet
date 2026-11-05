@@ -30,11 +30,13 @@
 //!   `process`, `reset` and `timing` return 2 (and `process` silences its
 //!   outputs) until the next successful `prepare`, which recreates the
 //!   processor; parameter, state and editor calls keep working.
-//! - **Editor.** On macOS, `editor_open` attaches the product's web editor to a
-//!   Cocoa `NSView` (`RAVET_PLUGIN_VIEW_COCOA`) with the same editor host as the
-//!   CLAP export. Other view kinds, and every view kind on other platforms,
-//!   return 1 in this release. The web view polls the cache itself (every
-//!   50 ms), so `editor_idle` currently does nothing.
+//! - **Editor.** `editor_open` attaches the product's web editor, with the
+//!   same editor host as the CLAP export, to the platform's view kind: a Cocoa
+//!   `NSView` (`RAVET_PLUGIN_VIEW_COCOA`) on macOS, an `HWND`
+//!   (`RAVET_PLUGIN_VIEW_WIN32`) on Windows and an X11 Window
+//!   (`RAVET_PLUGIN_VIEW_X11`) on Linux. Other view kinds return 1. The web
+//!   view polls the cache itself (every 50 ms); `editor_idle` dispatches
+//!   pending GTK work on Linux and does nothing elsewhere.
 //!
 //! The processor's zero-frame synchronization blocks discard any events the
 //! processor generates in them.
@@ -101,6 +103,15 @@ pub mod view_kind {
     pub const WIN32: u32 = 2;
     pub const X11: u32 = 3;
 }
+
+/// The view kind `editor_open` accepts on this platform.
+pub const PLATFORM_VIEW_KIND: u32 = if cfg!(target_os = "macos") {
+    view_kind::COCOA
+} else if cfg!(target_os = "windows") {
+    view_kind::WIN32
+} else {
+    view_kind::X11
+};
 
 /// `RavetPluginLayoutV1`.
 #[repr(C)]
@@ -445,18 +456,27 @@ struct Instance<P: PluginExport> {
     /// processing is stopped, as the header requires.
     audio: UnsafeCell<AudioSide<P::Processor>>,
     /// Main-thread editor.
-    #[cfg(all(feature = "editor", target_os = "macos"))]
+    #[cfg(all(
+        feature = "editor",
+        any(target_os = "macos", target_os = "windows", target_os = "linux")
+    ))]
     editor: UnsafeCell<Option<crate::editor_host::EditorHost<'static>>>,
 }
 
 /// The editor side of an instance: editor values become dirty parameters.
-#[cfg(all(feature = "editor", target_os = "macos"))]
+#[cfg(all(
+    feature = "editor",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 struct NativeTarget {
     shared: Arc<Shared>,
     editor_message: fn(&serde_json::Value) -> Option<serde_json::Value>,
 }
 
-#[cfg(all(feature = "editor", target_os = "macos"))]
+#[cfg(all(
+    feature = "editor",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 impl crate::editor_host::EditorTarget for NativeTarget {
     fn product(&self) -> &ResolvedProduct<'static> {
         self.shared.product()
@@ -729,7 +749,10 @@ impl<H: NativeExport> Table<H> {
                     processor: Some(processor),
                     prepared: None,
                 }),
-                #[cfg(all(feature = "editor", target_os = "macos"))]
+                #[cfg(all(
+                    feature = "editor",
+                    any(target_os = "macos", target_os = "windows", target_os = "linux")
+                ))]
                 editor: UnsafeCell::new(None),
             };
             Box::into_raw(Box::new(instance)).cast()
@@ -744,7 +767,10 @@ impl<H: NativeExport> Table<H> {
         let _ = catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: created by `create` and destroyed once, on MAIN.
             let owned = unsafe { Box::from_raw(instance.cast::<Instance<Plugin<H>>>()) };
-            #[cfg(all(feature = "editor", target_os = "macos"))]
+            #[cfg(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            ))]
             drop(owned.editor.into_inner());
             let mut audio = owned.audio.into_inner();
             audio.prepared = None;
@@ -1314,7 +1340,10 @@ impl<H: NativeExport> Table<H> {
         height: u32,
     ) -> i32 {
         Self::guard(instance, 1, 2, |owner| {
-            #[cfg(all(feature = "editor", target_os = "macos"))]
+            #[cfg(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            ))]
             {
                 use crate::editor_host::{EditorHost, adjust_size};
                 // SAFETY: editor functions run on MAIN only.
@@ -1325,7 +1354,7 @@ impl<H: NativeExport> Table<H> {
                 let Some(editor) = owner.shared.product().product().editor() else {
                     return 1;
                 };
-                if view_kind != view_kind::COCOA || slot.is_some() {
+                if view_kind != PLATFORM_VIEW_KIND || slot.is_some() {
                     return 1;
                 }
                 let target = NativeTarget {
@@ -1339,14 +1368,17 @@ impl<H: NativeExport> Table<H> {
                 if host.size() != (width, height) && !host.set_size(width, height) {
                     return 1;
                 }
-                // SAFETY: the header requires a live NSView on MAIN that stays
-                // alive until editor_close or destroy.
+                // SAFETY: the header requires a live view of the platform's
+                // kind on MAIN that stays alive until editor_close or destroy.
                 unsafe { host.attach(parent) };
                 host.set_visible(true);
                 *slot = Some(host);
                 0
             }
-            #[cfg(not(all(feature = "editor", target_os = "macos")))]
+            #[cfg(not(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            )))]
             {
                 let _ = (owner, view_kind, parent, width, height);
                 1
@@ -1356,7 +1388,10 @@ impl<H: NativeExport> Table<H> {
 
     unsafe extern "C" fn editor_resize(instance: *mut c_void, width: u32, height: u32) -> i32 {
         Self::guard(instance, 1, 2, |owner| {
-            #[cfg(all(feature = "editor", target_os = "macos"))]
+            #[cfg(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            ))]
             {
                 // SAFETY: editor functions run on MAIN only.
                 let slot = unsafe { &mut *owner.editor.get() };
@@ -1370,7 +1405,10 @@ impl<H: NativeExport> Table<H> {
                 }
                 i32::from(!host.set_size(width, height))
             }
-            #[cfg(not(all(feature = "editor", target_os = "macos")))]
+            #[cfg(not(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            )))]
             {
                 let _ = (owner, width, height);
                 1
@@ -1380,20 +1418,42 @@ impl<H: NativeExport> Table<H> {
 
     unsafe extern "C" fn editor_close(instance: *mut c_void) {
         Self::guard(instance, (), (), |owner| {
-            #[cfg(all(feature = "editor", target_os = "macos"))]
+            #[cfg(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            ))]
             {
                 // SAFETY: editor functions run on MAIN only.
                 let editor = unsafe { &mut *owner.editor.get() }.take();
                 drop(editor);
             }
-            #[cfg(not(all(feature = "editor", target_os = "macos")))]
+            #[cfg(not(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            )))]
             let _ = owner;
         })
     }
 
     unsafe extern "C" fn editor_idle(instance: *mut c_void) {
-        // The macOS web view polls the cache itself.
-        Self::guard(instance, (), (), |_| {})
+        // The web view polls the cache itself; Linux needs its GTK work pumped.
+        Self::guard(instance, (), (), |owner| {
+            #[cfg(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            ))]
+            {
+                // SAFETY: editor functions run on MAIN only.
+                if let Some(host) = unsafe { &*owner.editor.get() } {
+                    host.idle();
+                }
+            }
+            #[cfg(not(all(
+                feature = "editor",
+                any(target_os = "macos", target_os = "windows", target_os = "linux")
+            )))]
+            let _ = owner;
+        })
     }
 }
 

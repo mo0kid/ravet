@@ -1,4 +1,5 @@
 #include "RavetWebView.h"
+#include "RavetWebAssets.h"
 #include <gtk/gtk.h>
 #include <gtk/gtkx.h>
 #include <gdk/gdkx.h>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -30,6 +32,10 @@ struct State {
     gulong messageHandler=0;
     bool closed=false,evaluating=false;
     std::string root,delivered;
+    // ravet_web_create_assets: the page and assets served at assetOrigin().
+    bool assets=false;
+    std::string page;
+    ravet_web_assets::Table table;
 };
 using Owner=std::shared_ptr<State>;
 bool initializeGtk() {
@@ -106,6 +112,55 @@ bool foreignGdkLoaded() {
         return 0;
     },nullptr)!=0;
 }
+// WebKitGTK URI schemes are registered on the process-wide default context, so
+// every loaded binary (two RAVET products in one host) gets its own scheme,
+// named after an address in this module. Requests find their view through
+// object data on the web view.
+const std::string& assetScheme() {
+    static const std::string scheme=[] { char text[40]; snprintf(text,sizeof text,"ravet-%zx",size_t(reinterpret_cast<uintptr_t>(&uiThread))); return std::string(text); }();
+    return scheme;
+}
+std::string assetOrigin() { return assetScheme()+"://editor/"; }
+constexpr const char* stateKey="ravet-web-state";
+void serveAsset(WebKitURISchemeRequest* request,gpointer) {
+    auto* web=webkit_uri_scheme_request_get_web_view(request);
+    auto* s=web?static_cast<State*>(g_object_get_data(G_OBJECT(web),stateKey)):nullptr;
+    const char* uri=webkit_uri_scheme_request_get_uri(request);
+    std::string path=ravet_web_assets::pathOf(uri?uri:"",assetOrigin());
+    if(path.empty()) path="index.html";
+    const char* method=webkit_uri_scheme_request_get_http_method(request);
+    const void* data=nullptr; size_t size=0; const char* mime=nullptr;
+    if(s&&!s->closed&&s->assets&&(!method||!strcmp(method,"GET"))) {
+        if(path=="index.html") { data=s->page.data(); size=s->page.size(); mime="text/html"; }
+        else if(auto found=s->table.find(path);found!=s->table.end()) { data=found->second.data; size=found->second.size; mime=found->second.mime.c_str(); }
+    }
+    // Copy: WebKit may read the stream after the view, or the module, is gone.
+    GBytes* bytes=mime?g_bytes_new(data,size):g_bytes_new_static("",0);
+    GInputStream* stream=g_memory_input_stream_new_from_bytes(bytes);
+    auto* response=webkit_uri_scheme_response_new(stream,mime?gint64(size):0);
+    webkit_uri_scheme_response_set_status(response,mime?200:404,mime?nullptr:"Not Found");
+    webkit_uri_scheme_response_set_content_type(response,mime?mime:"text/plain");
+    webkit_uri_scheme_request_finish_with_response(request,response);
+    g_object_unref(response); g_object_unref(stream); g_bytes_unref(bytes);
+}
+void registerAssetScheme() {
+    static bool registered=false; if(registered) return; registered=true;
+    auto* context=webkit_web_context_get_default();
+    webkit_web_context_register_uri_scheme(context,assetScheme().c_str(),serveAsset,nullptr,nullptr);
+    auto* security=webkit_web_context_get_security_manager(context);
+    webkit_security_manager_register_uri_scheme_as_secure(security,assetScheme().c_str());
+    webkit_security_manager_register_uri_scheme_as_cors_enabled(security,assetScheme().c_str());
+}
+// GLib and WebKit keep callbacks into this module (signal destroy notifies,
+// script completions, scheme handlers) that can run after the last view is
+// destroyed. A host that unloads the plug-in library then (REAPER does for
+// CLAP) would jump into unmapped code, so the module stays loaded once it has
+// created a view.
+void pinModule() {
+    static bool pinned=false; if(pinned) return;
+    Dl_info info{};
+    if(dladdr(reinterpret_cast<void*>(&ravet_web_pump),&info)&&info.dli_fname) pinned=dlopen(info.dli_fname,RTLD_NOW|RTLD_NOLOAD|RTLD_NODELETE)!=nullptr;
+}
 Owner create(double width,double height,void* context,RavetWebMessage message,RavetWebSnapshot snapshot,RavetWebSnapshotBuffer buffer) {
     if(!ravet_web_is_main_thread()||!std::isfinite(width)||!std::isfinite(height)||width<=0||height<=0||width>32767||height>32767) return {};
     if(foreignGdkLoaded()) return {};
@@ -116,6 +171,7 @@ Owner create(double width,double height,void* context,RavetWebMessage message,Ra
     else if(!GDK_IS_X11_DISPLAY(gdk_display_get_default())) return {};
     if(!initializeGtk()||!GDK_IS_X11_DISPLAY(gdk_display_get_default())) return {};
     uiThread=std::this_thread::get_id();
+    pinModule();
     auto s=std::make_shared<State>(); s->context=context; s->message=message; s->snapshot=snapshot; s->bufferSnapshot=buffer;
     s->box=gtk_box_new(GTK_ORIENTATION_VERTICAL,0); g_object_ref_sink(s->box);
     gtk_widget_set_size_request(s->box,int(width),int(height));
@@ -151,7 +207,7 @@ Owner create(double width,double height,void* context,RavetWebMessage message,Ra
         auto* request=webkit_navigation_policy_decision_get_request(WEBKIT_NAVIGATION_POLICY_DECISION(decision));
         const char* uri=webkit_uri_request_get_uri(request);
         char* path=g_filename_from_uri(uri,nullptr,nullptr);
-        bool local=false;
+        bool local=s.assets&&!strncmp(uri,assetOrigin().c_str(),assetOrigin().size());
         if(path&&!s.root.empty()) { std::error_code error; auto resolved=std::filesystem::canonical(path,error).string(); local=!error&&resolved.rfind(s.root+"/",0)==0; }
         g_free(path);
         if(type==WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION||(!local&&strcmp(uri,"about:blank"))) { webkit_policy_decision_ignore(decision); return TRUE; }
@@ -184,6 +240,15 @@ extern "C" void* ravet_web_create_html(const char* html,double w,double h,void* 
     auto s=create(w,h,context,message,nullptr,snapshot); if(!s) return nullptr;
     webkit_web_view_load_html(s->web,html,nullptr); return new Owner(s);
 }
+extern "C" void* ravet_web_create_assets(const char* html,const RavetWebAsset* assets,size_t count,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshotBuffer snapshot) {
+    if(!html||strnlen(html,1048577)>1048576) return nullptr;
+    ravet_web_assets::Table table; if(!ravet_web_assets::build(assets,count,table)) return nullptr;
+    auto s=create(w,h,context,message,nullptr,snapshot); if(!s) return nullptr;
+    registerAssetScheme();
+    s->assets=true; s->page=html; s->table=std::move(table);
+    g_object_set_data(G_OBJECT(s->web),stateKey,s.get());
+    webkit_web_view_load_uri(s->web,(assetOrigin()+"index.html").c_str()); return new Owner(s);
+}
 extern "C" bool ravet_web_set_background(void* view,double r,double g,double b) {
     if(!view||!std::isfinite(r)||!std::isfinite(g)||!std::isfinite(b)) return false;
     GdkRGBA color{std::clamp(r,0.0,1.0),std::clamp(g,0.0,1.0),std::clamp(b,0.0,1.0),1};
@@ -208,6 +273,7 @@ extern "C" void ravet_web_destroy(void* view) {
     g_source_remove(s->timer); s->timer=0;
     g_signal_handler_disconnect(s->manager,s->messageHandler);
     g_signal_handlers_disconnect_by_data(s->web,s.get());
+    g_object_set_data(G_OBJECT(s->web),stateKey,nullptr);
     webkit_user_content_manager_unregister_script_message_handler(s->manager,"ravet");
     webkit_web_view_stop_loading(s->web); ravet_web_detach(view); gtk_widget_destroy(s->box); g_object_unref(s->box); g_object_unref(s->manager);
     delete static_cast<Owner*>(view);
