@@ -289,8 +289,11 @@ reaches any REAPER process started from that environment.
 VST3 and AUv2 runs use the same driver: `--format vst3 --bundle <path>.vst3`
 (the startup VST scan then runs, including the system VST3 folders), and
 `--format au` for an AU component already installed in a system Components
-folder, since REAPER scans AUs only there. VST3 has run on Linux and Windows;
-AU has not been run.
+folder, since REAPER scans AUs only there. VST3 has run on Linux and Windows.
+The AU Delay has run on macOS arm64 and under Rosetta 2
+([run](WORK_STATUS.md#release-010-reaper-au-timing)). Do not use a
+`sandbox-exec` wrapper for AU runs, because REAPER then sees none of the AU's
+parameters.
 
 ```sh
 # Linux VST3
@@ -451,6 +454,11 @@ Run `--format au --arch x86_64 --bundle <new.component> --reaper <wrapper>`.
 The default AU discovery prefix now matches REAPER 7.82's `AU: RAVET Delay`.
 Discovery and 63 host edit/recall checks passed, but all three strict render
 cases failed timing: fixed/recalled echoes were 2,048 frames late, synced echoes
-3,072 late. That run is **not** an AU render pass. All runs left the guarded
+3,072 late. That run is **not** an AU render pass. The cause was REAPER's
+transport sample positions carrying Float64 residue, which the adapter rejected
+block by block ([decision 0293](decisions/0293-au-transport-sample-residue.md)).
+After the fix, a universal bundle installed in the user Components folder
+passed all three strict renders under `arch -x86_64` and on arm64
+([run](WORK_STATUS.md#release-010-reaper-au-timing)). All runs left the guarded
 normal REAPER resource files unchanged. This is **Rosetta 2 on Apple silicon**,
 not native Intel hardware, live-device, editor, or real-time qualification.

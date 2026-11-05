@@ -219,14 +219,16 @@ unknown collected snapshots. Corrupting signature dependencies, reserved fields
 or unused coordinates rejects through that same ABI; no new native API is added.
 The direct transport fixture covers independently available/error/absent callback
 tuples, initialized missing returns, legacy/State2 precedence, native availability,
-safe SDK omission, integer/fractional/nonfinite boundaries, signature/Boolean/
+safe SDK omission, integer/fractional/nonfinite boundaries, canonicalization
+of Float64 residue such as REAPER's `3584.0000000000005` (decision 0293), signature/Boolean/
 loop faults and 4,000 accepted plus rejected collections/projections with zero
 counted ordinary C++ new/delete actions, also under optimized fast-math. Actual
 packaged-component tests set typed host callbacks and check rejection silence,
 queued timed MIDI/Level recovery, initialized returns and callback counts in both
 mono and stereo. These are local macOS arm64 synthetic checks, with no DAW,
 cross-callback host coherence, all-host/backend allocation or deadline claim.
-See [decision 0188](decisions/0188-auv2-block-start-transport.md).
+See [decision 0188](decisions/0188-auv2-block-start-transport.md) and
+[decision 0293](decisions/0293-au-transport-sample-residue.md).
 
 
 ## Bounded native MIDI output
