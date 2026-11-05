@@ -8332,3 +8332,20 @@ at the exact sample positions instead:
 Typed values worked in Logic. The owner reports that closing and reopening the
 plug-in window, and saving, closing and reopening the project, kept the editor
 working and the settings intact. This is a manual single-host check.
+
+### Integration: Windows and Linux REAPER evidence merged (2026-11-05)
+
+Merged `evidence/reaper-win-linux`: the REAPER delay harness now passes for VST3
+on Linux and for CLAP, VST3 and LV2 on Windows 11 (three runs each; see the
+entry above), so every format × platform cell in the 0.1.0 plan has a recorded
+delay run except AAX on Windows, which the owner accepted as provisional.
+
+Re-run on macOS 27 arm64 with the merged harness (REAPER 7.82): CLAP passed
+three consecutive runs (`target/reaper-delay/mac-clap-r1`, `-r2` and one run
+from a boot-disk work directory); the first run after the merge wrote no host
+log before its 120 s timeout, apparently an intermittent slow start (window
+titles in a later run showed only the evaluation About window, the project and
+the render, with no blocking dialog). VST3 in REAPER on macOS still stalls
+before the script runs on this machine, as recorded earlier, because REAPER
+scans the system VST3 folders there; macOS VST3 evidence comes from Ableton Live
+12 instead.
