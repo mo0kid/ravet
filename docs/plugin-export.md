@@ -5,8 +5,9 @@
 description, saved-state envelope, editor protocol, automation and bypass
 policies, a generic CLAP export and the generic C table for the other formats
 exist so far, in `ravet-plugin` (umbrella features `plugin` and `plugin-clap`;
-`plugin-native` / crate feature `native` for the table). The VST3, AU, AAX and LV2 adapters over
-that table, the editor transport and the bundle tool follow.
+`plugin-native` / crate feature `native` for the table). A generic LV2 adapter
+over that table exists as a prototype ([LV2 export](lv2.md#generic-lv2-export)).
+The VST3, AU and AAX adapters, the editor transport and the bundle tool follow.
 
 ## Product description
 
@@ -194,8 +195,9 @@ the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
   cache itself, so `editor_idle` currently does nothing.
 
 Limits for now: main bus only; product extra state is not saved; no Windows or
-Linux editor; the adapters themselves are separate work, so no host has loaded
-the table yet. Evidence is offline: unit tests drive every function through the
+Linux editor. Through the generic LV2 adapter, lilv (`lv2apply` and a lilv test
+host) has loaded the delay and gain tables on macOS; no DAW has loaded the table
+yet. The table's own evidence is offline: unit tests drive every function through the
 table (including a C99 compile of the header that checks every record offset
 against the Rust definitions), and `examples/delay-plugin/tests/native.rs` uses
 the delay's exported table end to end.
