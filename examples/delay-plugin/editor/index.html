@@ -21,11 +21,17 @@
   .knob svg { width: 64px; height: 64px; }
   .knob .name { font-size: 11px; color: var(--muted); text-transform: uppercase;
                 letter-spacing: .08em; }
-  .knob output { font-variant-numeric: tabular-nums; color: var(--accent); min-height: 1.2em;
-                 cursor: text; border-radius: 4px; padding: 0 4px; }
+  /* The value and its edit box share one fixed box, so swapping them never
+     changes the panel's size. */
+  .knob output, .knob input { box-sizing: border-box; display: block; height: 20px;
+                              margin: 0; padding: 0 4px; border: 1px solid transparent;
+                              border-radius: 4px; font: inherit; line-height: 18px;
+                              font-variant-numeric: tabular-nums; }
+  .knob output { color: var(--accent); cursor: text; }
   .knob output:hover { background: var(--line); }
-  .knob input { width: 72px; font: inherit; text-align: center; color: var(--text);
-                background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; }
+  .knob input { width: 72px; text-align: center; color: var(--text); background: var(--bg);
+                border-color: var(--accent); outline: none; -webkit-appearance: none;
+                appearance: none; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   button { font: inherit; color: var(--text); background: var(--panel);
            border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
