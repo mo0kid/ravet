@@ -1,11 +1,20 @@
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args_os()
-        .nth(1)
+    let mut args = std::env::args_os().skip(1).peekable();
+    let delay = args.next_if(|arg| arg == "--delay").is_some();
+    let path = args
+        .next()
         .map(PathBuf::from)
-        .ok_or("usage: ravet-clap-smoke <trusted RAVET Gain CLAP bundle>")?;
+        .ok_or("usage: ravet-clap-smoke [--delay] <trusted RAVET Gain or Delay CLAP bundle>")?;
     let entry = loading::load_trusted_ravet_bundle(&path)?;
+    if delay {
+        let blocks = ravet_clap_smoke::delay::exercise_delay(&entry)?;
+        println!(
+            "RAVET CLAP Smoke Host: delay passed {blocks} blocks, parameters, host-tempo sync, inactive flush and state recall."
+        );
+        return Ok(());
+    }
     let blocks = ravet_clap_smoke::exercise(&entry)?;
     println!(
         "RAVET CLAP Smoke Host: passed {blocks} blocks, mono/stereo, automation, parameter text, inactive/active flush, reset, active state recall, and six activation cycles."

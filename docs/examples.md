@@ -117,6 +117,54 @@ See [getting started](getting-started.md) and [native editor](native-editor.md)
 for its editor and recorded host limits. Plug-in I/O is configured by its host;
 the standalone settings popup is not added to host-owned embedded editors.
 
+## Tempo-synced delay plug-in
+
+[`examples/delay-plugin`](../examples/delay-plugin/src/lib.rs) is a complete
+effect exported through the [generic plug-in layer](plugin-export.md), with a
+web editor. Its [processor](../examples/delay-plugin/src/dsp.rs) is an ordinary
+RAVET `Processor` that knows nothing about plug-in formats; the crate root only
+describes the product. It is separate from the teaching delay above, which keeps
+its smaller limits and has no tempo sync.
+
+```sh
+python3 scripts/bundle-clap.py --plugin delay
+cargo run -p ravet-clap-smoke --locked -- --delay "target/clap/release/RAVET Delay.clap"
+```
+
+The bundle command builds an ad hoc signed `RAVET Delay.clap` on macOS and does
+not install it. The smoke host loads it, checks its parameters, renders an
+impulse with a host tempo of 120 BPM on a separate audio thread, checks that the
+synced eighth-note repeat lands at 250 ms, and checks saved-state recall.
+
+| Control | ID | Range | Default |
+|---|---|---|---|
+| Time | 1 | 1..2,000 ms, logarithmic | 375 ms |
+| Feedback | 2 | 0..95 % | 45 % |
+| Mix | 3 | 0..100 % | 35 % |
+| Bypass (host bypass) | 4 | off/on | off |
+| Ping-pong | 5 | off/on | off |
+| Sync | 6 | off/on | on |
+| Division | 7 | 12 steps, 1/1 to 1/32 including dotted and triplet | 1/8 dotted |
+| Tone | 8 | 500..20,000 Hz, logarithmic | 6 kHz |
+
+With sync on, the time follows the selected division at the host tempo read at
+the start of each block. The last tempo is kept while the host reports none;
+before any tempo arrives, the millisecond time applies. Synced times are clamped
+to 2 seconds. Time changes glide over 50 ms, giving a tape-style pitch bend;
+other controls ramp over 5 ms. The tone control is a one-pole low-pass in the
+feedback path only, so the first repeat is unfiltered and later ones darken.
+Bypass crossfades to the dry input over 5 ms while the delay keeps running.
+Mono uses both delay lines and outputs their average. The tail is infinite while
+feedback is above zero, otherwise two seconds.
+
+The processor accepts any block size and event count and sample rates up to
+768 kHz; preparation allocates two 2-second delay lines and processing allocates
+nothing. Tempo changes within a block are not followed. Hosts show the division
+as its index (0–11), not its label; the editor shows the labels. The editor
+shows no meters yet: the export layer has no audio-to-editor data path.
+Evidence is offline and from development hosts on macOS arm64 only; no DAW run
+has been recorded.
+
 ## MPE performance
 
 The MPE tab plays the subtractive synth. Its on-screen keyboard configures a

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RAVET Delay</title>
+<style>
+  :root { color-scheme: dark; font: 13px -apple-system, system-ui, sans-serif;
+          --bg: #14191f; --panel: #1d242c; --line: #2c3540; --text: #e8edf2;
+          --muted: #8a96a3; --accent: #f2b544; }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; background: var(--bg); color: var(--text);
+         display: grid; place-items: center; overflow: hidden; user-select: none; }
+  main { width: min(520px, 94vw); display: grid; gap: 14px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .02em; }
+  #status { font-size: 11px; color: var(--muted); }
+  .knobs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .knob { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 10px 8px 8px; display: grid; justify-items: center; gap: 4px;
+          touch-action: none; cursor: ns-resize; }
+  .knob svg { width: 64px; height: 64px; }
+  .knob .name { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                letter-spacing: .08em; }
+  .knob output { font-variant-numeric: tabular-nums; color: var(--accent); min-height: 1.2em; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; color: var(--text); background: var(--panel);
+           border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
+           cursor: pointer; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .divisions { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .divisions button { padding: 5px 0; font-size: 12px; }
+  .divisions[aria-disabled="true"] { opacity: .35; }
+  .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">RAVET Delay</h1>
+    <span id="status">Connecting…</span>
+  </header>
+  <div class="knobs">
+    <div class="knob" data-key="time"><span class="name">Time</span><svg viewBox="0 0 64 64"></svg><output></output></div>
+    <div class="knob" data-key="feedback"><span class="name">Feedback</span><svg viewBox="0 0 64 64"></svg><output></output></div>
+    <div class="knob" data-key="tone"><span class="name">Tone</span><svg viewBox="0 0 64 64"></svg><output></output></div>
+    <div class="knob" data-key="mix"><span class="name">Mix</span><svg viewBox="0 0 64 64"></svg><output></output></div>
+  </div>
+  <div class="divisions" id="divisions" role="radiogroup" aria-label="Division"></div>
+  <div class="row">
+    <button id="sync" aria-pressed="false">Sync to host tempo</button>
+    <button id="ping_pong" aria-pressed="false">Ping-pong</button>
+    <span class="spacer"></span>
+    <button id="bypass" aria-pressed="false">Bypass</button>
+  </div>
+</main>
+<script>
+  const plugin = window.ravetPlugin;
+  const DIVISIONS = ["1/1", "1/2", "1/4.", "1/4", "1/8.", "1/4T", "1/8", "1/16.", "1/8T", "1/16", "1/16T", "1/32"];
+  const START = 0.75 * Math.PI, SWEEP = 1.5 * Math.PI;
+  let values = {};
+  const dragging = new Set();
+
+  const arc = (from, to) => {
+    const p = (a) => [32 + 26 * Math.cos(a), 32 + 26 * Math.sin(a)];
+    const [x1, y1] = p(from), [x2, y2] = p(to);
+    return `M${x1.toFixed(2)} ${y1.toFixed(2)}A26 26 0 ${to - from > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  };
+  const format = {
+    time: (v) => values.sync >= 0.5 ? `${DIVISIONS[values.division]} · sync` : `${Math.round(v)} ms`,
+    feedback: (v) => `${Math.round(v)} %`,
+    tone: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${Math.round(v)} Hz`,
+    mix: (v) => `${Math.round(v)} %`,
+  };
+
+  function drawKnob(element) {
+    const key = element.dataset.key;
+    const n = plugin.normalized(key) ?? 0;
+    const svg = element.querySelector("svg");
+    const dim = key === "time" && values.sync >= 0.5;
+    svg.innerHTML =
+      `<path d="${arc(START, START + SWEEP)}" stroke="#2c3540" stroke-width="6" fill="none" stroke-linecap="round"/>` +
+      (n > 0.001 ? `<path d="${arc(START, START + SWEEP * n)}" stroke="${dim ? "#8a96a3" : "#f2b544"}" stroke-width="6" fill="none" stroke-linecap="round"/>` : "");
+    element.querySelector("output").textContent = format[key](values[key]);
+  }
+
+  function render() {
+    document.querySelectorAll(".knob").forEach(drawKnob);
+    for (const key of ["sync", "ping_pong", "bypass"]) {
+      document.getElementById(key).setAttribute("aria-pressed", values[key] >= 0.5);
+    }
+    const group = document.getElementById("divisions");
+    group.setAttribute("aria-disabled", !(values.sync >= 0.5));
+    group.querySelectorAll("button").forEach((b, i) =>
+      b.setAttribute("aria-pressed", i === values.division));
+  }
+
+  // Knobs: drag vertically; Shift for fine control; double-click resets.
+  document.querySelectorAll(".knob").forEach((element) => {
+    const key = element.dataset.key;
+    let startY = 0, startN = 0;
+    element.addEventListener("pointerdown", (e) => {
+      element.setPointerCapture(e.pointerId);
+      startY = e.clientY;
+      startN = plugin.normalized(key) ?? 0;
+      dragging.add(key);
+      plugin.begin(key);
+    });
+    element.addEventListener("pointermove", (e) => {
+      if (!dragging.has(key)) return;
+      const scale = e.shiftKey ? 1000 : 200;
+      const n = Math.min(1, Math.max(0, startN + (startY - e.clientY) / scale));
+      plugin.updateNormalized(key, n);
+    });
+    const release = () => { if (dragging.delete(key)) plugin.end(key); };
+    element.addEventListener("pointerup", release);
+    element.addEventListener("pointercancel", release);
+    element.addEventListener("dblclick", () => {
+      const p = plugin.info?.parameters.find((p) => p.key === key);
+      if (p) plugin.set(key, p.default);
+    });
+  });
+
+  const group = document.getElementById("divisions");
+  DIVISIONS.forEach((label, index) => {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.setAttribute("role", "radio");
+    button.addEventListener("click", () => plugin.set("division", index));
+    group.appendChild(button);
+  });
+  for (const key of ["sync", "ping_pong", "bypass"]) {
+    document.getElementById(key).addEventListener("click", () =>
+      plugin.set(key, values[key] >= 0.5 ? 0 : 1));
+  }
+  window.addEventListener("blur", () => { for (const key of dragging) plugin.end(key); dragging.clear(); });
+
+  plugin.on("info", (info) => {
+    document.getElementById("title").textContent = info.product.name;
+    document.getElementById("status").textContent = `v${info.product.version}`;
+  });
+  plugin.on("values", (message) => { values = message.values; render(); });
+</script>
+</body>
+</html>

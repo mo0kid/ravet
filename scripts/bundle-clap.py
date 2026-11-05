@@ -11,12 +11,14 @@ import tomllib
 
 
 # Reference plug-ins: bundle name, Cargo package and bundle identifier. "generic"
-# is the gain reference exported through the generic plug-in layer (ravet-plugin).
+# (the gain reference) and "delay" are exported through the generic plug-in layer
+# (ravet-plugin).
 PLUGINS = {
     "gain": ("RAVET Gain", "ravet-gain-clap", "org.ravet.gain"),
     "sine": ("RAVET Sine", "ravet-sine-clap", "org.ravet.sine"),
     "sidechain": ("RAVET Sidechain", "ravet-sidechain-clap", "org.ravet.sidechain"),
     "generic": ("RAVET Gain Generic", "ravet-gain-plugin", "org.ravet.gain-generic"),
+    "delay": ("RAVET Delay", "ravet-delay-plugin", "org.ravet.delay"),
 }
 
 

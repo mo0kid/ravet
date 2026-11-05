@@ -3111,6 +3111,16 @@ tests = ["examples/gain-plugin/src/lib.rs", "crates/ravet-plugin/tests/export.rs
 docs = ["docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md"]
 
 [[feature]]
+id = "delay-plugin-example"
+title = "Tempo-synced delay plug-in example"
+status = "prototype"
+summary = "examples/delay-plugin exports a portable stereo delay through export_plugin! as a CLAP effect with a web editor: eight explicit-ID parameters (time, feedback, mix, host bypass, ping-pong, sync, a 12-step note division and a feedback-path tone low-pass), block-start host-tempo sync with last-tempo hold and millisecond fallback, 50 ms time glide, 5 ms ramps and bypass crossfade, mono/stereo layouts and a feedback-dependent tail. bundle-clap.py --plugin delay bundles it and ravet-clap-smoke --delay checks it through the CLAP ABI."
+limits = "CLAP only, f32, macOS editor only (inherits generic-clap-export limits). Sample rates up to 768 kHz; two 2-second delay lines allocated at prepare. Tempo read once per block, no mid-block tempo changes; synced times clamp to 2 s. Hosts display the division as its index 0..11. No editor meters (no audio-to-editor data path). Evidence: offline tests, the development smoke host and clap-validator 0.3.2 (33 passed, 0 failed, 11 skipped) on macOS arm64; no DAW, Windows or Linux run."
+sources = ["examples/delay-plugin/src/dsp.rs", "examples/delay-plugin/src/lib.rs", "examples/delay-plugin/editor/index.html", "examples/delay-plugin/Cargo.toml", "scripts/bundle-clap.py", "tools/clap-smoke/src/delay.rs", "tools/clap-smoke/src/main.rs"]
+tests = ["examples/delay-plugin/tests/delay.rs", "tools/clap-smoke/src/delay.rs"]
+docs = ["docs/examples.md", "docs/plugin-export.md", "README.md"]
+
+[[feature]]
 id = "release-support"
 title = "Production distribution and compatibility"
 status = "planned"
