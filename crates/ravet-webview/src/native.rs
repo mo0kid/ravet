@@ -63,9 +63,9 @@ struct NativeAsset {
 ///
 /// The page loads from a local asset origin (`ravet://editor/` on macOS,
 /// `ravet-<id>://editor/` on Linux, `https://editor.ravet.invalid/` on
-/// Windows) and refers to assets by relative URL, for example
-/// `<img src="img/knob.png">`. Requests are answered from memory, with no file
-/// system or network access.
+/// Windows) and refers to assets by relative URL, for example an image whose
+/// source is the relative path `img/knob.png`. Requests are answered from
+/// memory, with no file system or network access.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Asset<'a> {
     /// Relative path: ASCII letters, digits and `._-/`, at most 512 bytes, no

@@ -324,6 +324,10 @@ fn constructor_and_config_reject_before_factory_or_kernel_prepare() {
     assert!(d.shared_controls().trace.lock().unwrap().is_empty());
 }
 #[test]
+// Windows cannot realign a stack frame to the 8 MiB alignment this fixture uses
+// to exceed the storage budget, so the test process crashes there; the budget
+// check itself is platform independent and covered on macOS and Linux.
+#[cfg_attr(windows, ignore = "8 MiB-aligned stack fixture is unsupported on Windows")]
 fn declared_storage_budget_refuses_before_factory_or_reservation() {
     #[repr(align(8388608))]
     struct Huge {
