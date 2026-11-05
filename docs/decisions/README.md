@@ -517,8 +517,8 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0285](0285-linux-windows-plugin-builds.md) | Linux builds and Windows cross-builds of plug-in exports | Prototype; Linux x86_64 and Windows 11 x64 validator evidence for the Delay, no DAW claim |
 | [0286](0286-editor-keyboard-focus.md) | Keyboard focus for web-editor text fields in hosts that keep key status | Implemented in Cocoa/WebKit; AppKit fixture evidence, Pro Tools run pending |
 | [0287](0287-export-robustness-and-notices.md) | Export robustness, opt-in editor and bundle notices | Implemented for the plug-in export surface; offline and validator evidence on macOS arm64 |
-| [0288](0288-unified-product-bundling-and-foundry.md) | Unified product bundling and generic Foundry projects | Implemented; macOS five-format, Linux and Windows cross-build evidence; no production signing claim |
+| [0288](0288-unified-product-bundling-and-foundry.md) | Unified product bundling and generic Foundry projects | Implemented; macOS explicit/universal slices and Rosetta checks, Linux and Windows cross-build evidence; no production signing claim |
 | [0289](0289-versioned-tree-records.md) | Versioned observable-tree records and the 0.1.0 state inventory | Implemented; offline macOS arm64 tests |
-| [0290](0290-stereo-block-dsp-kernels.md) | Stereo block FIR and oversampling kernels | Implemented; tested and measured on one Apple M4 Pro, x86_64 under Rosetta 2 only |
+| [0290](0290-stereo-block-dsp-kernels.md) | Stereo block FIR and oversampling kernels | Implemented; FIR and matched external oversampler cost evidence on one Apple M4 Pro, x86_64 under Rosetta 2 only |
 | [0291](0291-instrument-midi-and-c-denormal-scope.md) | Generic instrument MIDI/timing evidence and synchronous C denormal scope | Implemented in prototype exports; scoped validator and Linux REAPER evidence |
 | [0292](0292-webview-robustness-and-system-notices.md) | Web view robustness and system-component notices | Implemented for ravet-webview, the native web views and the standalone window; macOS runtime, Linux CTest, Windows compile-only evidence |

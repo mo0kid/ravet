@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import plistlib
+import platform as host_platform
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,8 @@ def parser():
     result.add_argument("--manifest-path", type=Path, default=Path("Cargo.toml"))
     result.add_argument("--formats", type=formats, default=["clap"])
     result.add_argument("--target", choices=["windows"], help="cross-build x86_64 Windows using cargo-xwin")
+    result.add_argument("--arch", choices=["arm64", "x86_64", "universal"],
+                        help="macOS slices (default: host architecture); universal builds both Rust targets")
     result.add_argument("--release", action="store_true")
     result.add_argument("--validate", action="store_true", help="validate final signed bundles; fail if a validator is missing")
     result.add_argument("--offline", action="store_true")
@@ -65,6 +68,8 @@ def parser():
 
 
 def preflight(args, paths, platform=sys.platform):
+    if args.arch and (platform != "darwin" or args.target):
+        raise ValueError("--arch requires macOS without --target windows")
     if args.target and platform == "win32":
         raise ValueError("--target windows cross-compiles from macOS/Linux; omit it on Windows")
     if "au" in args.formats and (platform != "darwin" or args.target):
@@ -94,6 +99,23 @@ def preflight(args, paths, platform=sys.platform):
                 raise ValueError(f"{name} SDK at {sdk} is missing {file}")
 
 
+def macos_arch(args):
+    if sys.platform != "darwin" or args.target:
+        return None
+    arch = args.arch or host_platform.machine()
+    if arch not in ("arm64", "x86_64", "universal"):
+        raise ValueError(f"unsupported macOS host architecture: {arch}")
+    return arch
+
+
+def arch_slices(arch):
+    return ("arm64", "x86_64") if arch == "universal" else (arch,)
+
+
+def cmake_arch(arch):
+    return ["-DCMAKE_OSX_ARCHITECTURES=" + ";".join(arch_slices(arch))] if arch else []
+
+
 def build_product(args, runner):
     metadata = json.loads(runner.run(["cargo", "metadata", "--manifest-path", args.manifest_path,
                                       "--no-deps", "--format-version", "1"], capture=True))
@@ -114,21 +136,40 @@ def build_product(args, runner):
     command += ["--", "--print", "native-static-libs"]
     if args.target:
         windows_cross.static_crt(runner.environment)
-    notes = runner.run(command, capture_errors=True)
+    arch = args.arch
+    notes = ""
+    if arch:
+        for slice in arch_slices(arch):
+            triple = "aarch64-apple-darwin" if slice == "arm64" else "x86_64-apple-darwin"
+            # Target selection must precede rustc's `--` separator.
+            notes = runner.run(command[:2] + ["--target", triple] + command[2:], capture_errors=True)
+    else:
+        notes = runner.run(command, capture_errors=True)
     profile = "release" if args.release else "debug"
     platform = "win32" if args.target else sys.platform
     directory = windows_cross.output_directory(target, profile) if args.target else target / profile
     stem = libraries[0]["name"].replace("-", "_")
+    if arch:
+        triple = "aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin"
+        directory = target / triple / profile
     library = directory / lv2_generic.library_name(stem, platform)
     archive = directory / (stem + ".lib" if platform == "win32" else "lib" + stem + ".a")
+    if arch == "universal":
+        directory = target / "universal-apple-darwin" / profile
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in [library.name] + ([archive.name] if "aax" in args.formats else []):
+            runner.run(["lipo", "-create", target / "aarch64-apple-darwin" / profile / name,
+                        target / "x86_64-apple-darwin" / profile / name, "-output", directory / name])
+        library, archive = directory / library.name, directory / archive.name
+        runner.run(["codesign", "--force", "--sign", "-", library])
     return target, library, archive, aax_plugin.native_libraries(notes or "")
 
 
-def product_metadata(target, library, runner, cross):
+def product_metadata(target, library, runner, cross, arch=None):
     build = target / "plugin-metadata" / ("windows" if cross else "native")
     toolchain = windows_cross.prepare(runner, target, platform=sys.platform) if cross else []
     runner.run(["cmake", "-S", ROOT / "tools/plugin-metadata", "-B", build,
-                "-DCMAKE_BUILD_TYPE=Release", *toolchain])
+                "-DCMAKE_BUILD_TYPE=Release", *toolchain, *cmake_arch(arch)])
     runner.run(["cmake", "--build", build, "--config", "Release", "--parallel", "2"])
     executable_name = "ravet-product-metadata.exe" if cross or sys.platform == "win32" else "ravet-product-metadata"
     executable = next((p for p in sorted(build.rglob(executable_name)) if p.is_file()), None)
@@ -172,7 +213,12 @@ def sign(artifact, format, runner, command=None, *, platform=sys.platform):
         runner.run(["codesign", "--force", "--sign", "-", artifact]) if format != "lv2" else None
 
 
-def validate(format, artifact, runner, *, build=None, cross=None, clap_validator=None):
+def validate(format, artifact, runner, *, build=None, cross=None, clap_validator=None, arch=None):
+    if arch and format != "au":
+        for slice in arch_slices(arch):
+            validate(format, artifact, ArchitectureRunner(runner, slice), build=build,
+                     cross=cross, clap_validator=clap_validator)
+        return
     prefix = []
     if cross:
         wine = shutil.which("wine")
@@ -195,6 +241,9 @@ def validate(format, artifact, runner, *, build=None, cross=None, clap_validator
             raise ValueError("Steinberg validator was not built")
         runner.run([*prefix, validator, artifact])
     elif format == "lv2":
+        if sys.platform == "darwin" and not cross:
+            runner.run([build / "ravet_lv2_contracts", artifact, "ravet_lv2.dylib",
+                        "ravet_lv2_ui.dylib" if (artifact / "ravet_lv2_ui.dylib").exists() else "-"])
         validator = shutil.which("lv2_validate")
         if not validator:
             raise ValueError("LV2 validation requires lv2_validate on PATH")
@@ -207,31 +256,60 @@ def validate(format, artifact, runner, *, build=None, cross=None, clap_validator
             raise ValueError("AAX synthetic bundle checker was not built")
         runner.run([*prefix, candidates[0], artifact])
     elif format == "au":
-        runner.run([build / "ravet_au_plugin_contracts", artifact, "real"])
-        # auval requires installation. Never replace an existing component.
-        installed = Path.home() / "Library/Audio/Plug-Ins/Components" / ("ravet-validation-" + artifact.name)
-        installed.parent.mkdir(parents=True, exist_ok=True)
-        installed.mkdir()  # Exclusive reservation, including protection against symlinks.
-        try:
-            shutil.copytree(artifact, installed, dirs_exist_ok=True)
-            with (artifact / "Contents/Info.plist").open("rb") as source:
-                identity = plistlib.load(source)["AudioComponents"][0]
-            command = ["auval", "-v", identity["type"], identity["subtype"], identity["manufacturer"]]
-            # AudioComponentRegistrar discovers a new installation asynchronously.
-            # Retry discovery only; a validation failure must remain a failure.
-            for attempt in range(6):
+        for slice in arch_slices(arch) if arch else (None,):
+            selected_runner = ArchitectureRunner(runner, slice) if slice else runner
+            selected_runner.run([build / "ravet_au_plugin_contracts", artifact, "real"])
+        with (artifact / "Contents/Info.plist").open("rb") as source:
+            identity = plistlib.load(source)["AudioComponents"][0]
+        for slice in arch_slices(arch) if arch else (host_platform.machine(),):
+            selected_runner = ArchitectureRunner(runner, slice)
+            arguments = ["-v", identity["type"], identity["subtype"], identity["manufacturer"]]
+            if slice == "x86_64":
+                # The system registrar can omit Intel-only components on Apple
+                # silicon, or select an installed product with the same identity.
+                # Register the exact component in a private validator process.
+                validator = build / "ravet-auvaltool"
+                shutil.copyfile("/usr/bin/auvaltool", validator)
+                validator.chmod(0o755)
+                runner.run(["codesign", "--force", "--sign", "-", validator])
+                # Set DYLD after the protected arch/env binaries have launched.
+                selected_runner.run(["/usr/bin/env", f"RAVET_AUVAL_BUNDLE={artifact}",
+                    f"DYLD_INSERT_LIBRARIES={build / 'libravet_auval_registration.dylib'}", validator,
+                    *arguments])
+            else:
+                # Apple's arm64e auvaltool cannot load a third-party arm64
+                # constructor. Retain the system registrar path for that slice.
+                installed = Path.home() / "Library/Audio/Plug-Ins/Components" / ("ravet-validation-" + artifact.name)
+                installed.parent.mkdir(parents=True, exist_ok=True)
+                installed.mkdir()  # Exclusive reservation, including symlinks.
                 try:
-                    result = runner.run(command, capture=True)
-                    print(result or "", end="")
-                    break
-                except subprocess.CalledProcessError as error:
-                    output = str(error.output or "") + str(error.stderr or "")
-                    if "didn't find the component" not in output or attempt == 5:
-                        raise
-                    time.sleep(2)
+                    shutil.copytree(artifact, installed, dirs_exist_ok=True)
+                    # AudioComponentRegistrar discovers a new installation asynchronously.
+                    # Retry discovery only; a validation failure must remain a failure.
+                    for attempt in range(6):
+                        try:
+                            result = selected_runner.run(["auval", *arguments], capture=True)
+                            print(result or "", end="")
+                            break
+                        except subprocess.CalledProcessError as error:
+                            output = str(error.output or "") + str(error.stderr or "")
+                            if "didn't find the component" not in output or attempt == 5:
+                                raise
+                            time.sleep(2)
+                finally:
+                    shutil.rmtree(installed)
 
-        finally:
-            shutil.rmtree(installed)
+
+class ArchitectureRunner:
+    """Run validator executables in the selected macOS slice, including universal tools."""
+
+    def __init__(self, runner, arch):
+        self.runner, self.arch = runner, arch
+
+    def run(self, arguments, **kwargs):
+        # lv2_validate is a script using architecture-independent Turtle tools.
+        prefix = [] if Path(arguments[0]).name == "lv2_validate" else ["arch", "-" + self.arch]
+        return self.runner.run([*prefix, *arguments], **kwargs)
 
 
 def notices_directory(artifact, format, platform):
@@ -249,12 +327,18 @@ def notices_directory(artifact, format, platform):
     return artifact / "Contents" / "Resources" / "notices"
 
 
-def write_notices(artifact, format, platform, package, manifest_path, runner, cross, *, writer=None):
+def write_notices(artifact, format, platform, package, manifest_path, runner, cross, *, writer=None, arch=None):
     """Ship RAVET's licence and the product's third-party notices with a bundle."""
     directory = notices_directory(artifact, format, platform)
-    if (directory / "THIRD-PARTY-NOTICES.txt").exists():
+    if not arch and (directory / "THIRD-PARTY-NOTICES.txt").exists():
         return directory
-    (writer or third_party_notices.write)(ROOT, package, directory, windows_cross.TRIPLE if cross else None,
+    notice_target = windows_cross.TRIPLE if cross else None
+    if arch:
+        notice_target = tuple("aarch64-apple-darwin" if slice == "arm64" else "x86_64-apple-darwin"
+                              for slice in arch_slices(arch))
+        if len(notice_target) == 1:
+            notice_target = notice_target[0]
+    (writer or third_party_notices.write)(ROOT, package, directory, notice_target,
            manifest_path=manifest_path, run=runner.run)
     return directory
 
@@ -273,14 +357,18 @@ def bundle(args):
         raise ValueError("--target windows requires Wine for product metadata")
     if args.check:
         return []
+    requested_arch = args.arch
+    args.arch = macos_arch(args)
     runner = Runner(project)
     if args.offline:
         runner.environment["CARGO_NET_OFFLINE"] = "true"
     target, library, archive, links = build_product(args, runner)
-    product = product_metadata(target, library, runner, args.target)
+    adapter_target = target / "plugin-build" / ("macos-" + args.arch) if args.arch else target
+    product = product_metadata(adapter_target, library, runner, args.target, args.arch)
+    cmake_options = cmake_arch(args.arch)
     profile = "release" if args.release else "debug"
     platform = "win32" if args.target else sys.platform
-    output = (args.output_dir or target / "plugins" / ("windows" if args.target else "") / profile).resolve()
+    output = (args.output_dir or target / "plugins" / ("windows" if args.target else "macos-" + args.arch if requested_arch else "") / profile).resolve()
     output.mkdir(parents=True, exist_ok=True)
     # Filenames use the validated Cargo package, never arbitrary product display names.
     stem = args.package.replace("-", "_")
@@ -293,32 +381,36 @@ def bundle(args):
         elif format == "vst3":
             sources = generic_vst3_bundle.build_generic(ROOT, paths["vst3"], stem, profile,
                 package=args.package, runner=runner, cross=args.target, product_library=library,
-                target_directory=target, validate=args.validate, sign=False, run_validation=False, bundle_name=args.package)
+                target_directory=adapter_target, cmake_options=cmake_options, validate=args.validate, sign=False, run_validation=False, bundle_name=args.package)
             copy_artifact(sources[0], artifact)
-            build = target / "vst3/generic" / stem / (f"windows-{profile}" if args.target else profile)
+            build = adapter_target / "vst3/generic" / stem / (f"windows-{profile}" if args.target else profile)
         elif format == "aax":
             selected = aax_plugin.product(None, package=args.package, name=args.package, identifier=product["plugin_id"] + ".aax")
             built = aax_plugin.build(ROOT, paths["aax"], selected, runner=runner, cross=args.target,
-                product_library=archive, link_libraries=links, target_directory=target,
+                product_library=archive, link_libraries=links, target_directory=adapter_target, cmake_options=cmake_options,
                 profile=profile, validate=args.validate, version=product["version"])
             copy_artifact(built.artifact, artifact)
             build = built.build
         elif format == "lv2":
             context = lv2_generic.prepare_generic(ROOT, paths["lv2"], crate=args.package, runner=runner, cross=args.target)
-            _, build = lv2_generic.build_generic(context, product_library=library, target_directory=target,
+            lv2_options = [*cmake_options]
+            if args.arch and (args.arch == "universal" or args.arch != host_platform.machine()):
+                # A host pkg-config library need not contain the requested slices.
+                lv2_options.append("-DRAVET_LV2_LILV=OFF")
+            _, build = lv2_generic.build_generic(context, product_library=library, target_directory=adapter_target, cmake_options=lv2_options,
                                                  profile=profile, validate=args.validate)
-            source = lv2_generic.package_generic(context, target, build, sign=False)
+            source = lv2_generic.package_generic(context, adapter_target, build, sign=False)
             copy_artifact(source, artifact)
         else:
-            build = target / "au-native" / stem / profile
+            build = adapter_target / "au-native" / stem / profile
             options = SimpleNamespace(audio_unit_sdk=paths["audio_unit"], mock=None, product_library=library,
                                       manifest_path=args.manifest_path, plugin=stem, build_dir=build,
-                                      validate=args.validate)
+                                      validate=args.validate, cmake_options=cmake_options)
             copy_artifact(au_native_bundle.build(ROOT, options, runner=runner, sign=False, profile=profile), artifact)
-        write_notices(artifact, format, platform, args.package, args.manifest_path, runner, args.target)
+        write_notices(artifact, format, platform, args.package, args.manifest_path, runner, args.target, arch=args.arch)
         sign(artifact, format, runner, args.sign_command, platform=platform)
         if args.validate:
-            validate(format, artifact, runner, build=build, cross=args.target, clap_validator=args.clap_validator)
+            validate(format, artifact, runner, build=build, cross=args.target, clap_validator=args.clap_validator, arch=args.arch)
         artifacts.append(artifact)
     return artifacts
 

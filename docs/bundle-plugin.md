@@ -19,7 +19,7 @@ python3 scripts/bundle-plugin.py --package my-product \
 ```
 
 The command builds only the named package. Debug is the default; `--release`
-selects release. One `cargo rustc --locked --jobs 2` invocation emits a cdylib and,
+selects release. One `cargo rustc --locked --jobs 2` invocation per Rust target emits a cdylib and,
 when AAX is selected, a staticlib in the same compilation. A small executable
 loads the trusted product table for its name, version and identity; running a
 build therefore executes trusted consumer code. The adapters receive these
@@ -28,7 +28,9 @@ No SDK is downloaded or redistributed. There is no global plug-in installation
 except the explicitly requested temporary AU validation below.
 
 Outputs share `<cargo-target>/plugins/<debug|release>/`, or
-`<cargo-target>/plugins/windows/<debug|release>/` for a cross-build. Cargo's
+`<cargo-target>/plugins/windows/<debug|release>/` for a cross-build. An explicit
+macOS `--arch` selects `<cargo-target>/plugins/macos-<arch>/<debug|release>/`;
+omitting it preserves the native output path above. Cargo's
 `CARGO_TARGET_DIR` is respected. Filenames use the Cargo package name, with
 `.clap`, `.vst3`, `.component`, `.aaxplugin` and `.lv2` suffixes; display names and
 format identities come from the product. `--output-dir /absolute/directory`
@@ -39,6 +41,16 @@ A failed command exits nonzero and may leave earlier formats from that run.
 Other options:
 
 - `--formats clap,vst3,au,aax,lv2`: ordered, distinct selections; default `clap`.
+- `--arch arm64|x86_64|universal`: macOS only, incompatible with `--target windows`.
+  Defaults to the running host architecture (including an x86_64 Python under
+  Rosetta). Rust builds use `aarch64-apple-darwin` and/or `x86_64-apple-darwin`;
+  install missing standard-library targets with `rustup target add`. Universal
+  combines both cdylibs and, for AAX, staticlibs with `lipo`. CMake receives
+  `CMAKE_OSX_ARCHITECTURES=arm64;x86_64` for universal adapters, external SDK
+  libraries and helper tools. Build caches are separate under
+  `<cargo-target>/plugin-build/macos-<arch>/`. The optional pkg-config lilv host
+  check is disabled for universal and non-host slices, because host libraries
+  may lack the other slice; LV2 adapter contracts and Turtle validation remain.
 - `--offline`: Cargo uses only cached dependencies. Keep the product lockfile.
 - `--check`: check platform, format and SDK selection without building or resolving
   Cargo dependencies. Foundry uses this before generating a missing lockfile.
@@ -133,13 +145,27 @@ bundles. A missing required validator or failed check is an error:
 | AAX | RAVET synthetic-host bundle check; no Avid/PACE validator |
 | LV2 | CTest contracts/product smoke/lilv when available, then `lv2_validate` from PATH |
 
-AU validation temporarily copies the component into
+On macOS, validation explicitly runs the requested architecture; universal runs
+both arm64 and x86_64 validators. `clap-validator` must contain those slices.
+`lv2_validate` checks architecture-independent Turtle on the build host; the
+final LV2 module contracts execute separately in each requested slice.
+
+For x86_64 AU validation, the tool ad hoc signs a **private build-directory copy**
+of Apple's `/usr/bin/auvaltool`, then loads RAVET's registration helper into that
+process. The helper registers the exact final signed component's factory and
+original identity with `AudioComponentRegister`. This avoids installed-product
+identity collisions and Apple silicon's omission of Intel-only components from
+system registration. No component is installed and no Apple binary is shipped.
+Only trusted product libraries should be validated, as with metadata loading.
+
+The arm64 AU path retains system `auval -v`: Apple's arm64e validator cannot
+load an arm64 registration constructor. It temporarily copies the component to
 `~/Library/Audio/Plug-Ins/Components/ravet-validation-<package>.component`, refuses
-to overwrite an existing path and removes its copy in a `finally` cleanup.
-An existing host installation with the same product identity can affect auval's
-registration lookup; validate in a clean user environment. Build without
-`--validate` to avoid installation. No devices or DAWs are opened by the tool.
-A process killed without cleanup may require removing its temporary component.
+to overwrite an existing path and removes its copy in `finally`. An installed
+product with the same identity can affect **arm64** registrar lookup; use a clean
+user environment to qualify that lookup. Exact-bundle native contracts run in
+both slices regardless. Killing an arm64 validation process without cleanup may
+require removing its temporary component. No devices or DAWs are opened.
 
 Cross-build validation uses Wine for CLAP/VST3/AAX contracts; supply a Windows
 `clap-validator.exe` with `--clap-validator`, PATH or `target/tools`. LV2 validates
@@ -165,3 +191,15 @@ hidden MIDI controller assignments, note IDs/output offsets, exact audio/tail
 and latency notification. See the [instrument guide](synth-plugin.md). AU
 validation retries only temporary registrar discovery failures, then removes
 its exclusive temporary component installation on either success or failure.
+
+## Recorded macOS architecture run
+
+On 5 November 2026, the Delay built in all five formats as thin x86_64 and
+universal bundles on one Apple M4 Pro/macOS 27.0.1. Every shipped image contained
+the selected slices. x86_64 validator execution and REAPER 7.82 checks used
+**Rosetta 2 on Apple silicon**, not native Intel hardware. CLAP/VST3/LV2 REAPER
+renders passed; AU discovery/edits/recall passed but its strict render timing
+failed. AAX has synthetic checker evidence only for this slice. See the
+[receipt](WORK_STATUS.md#release-010-macos-architectures),
+[support matrix](support-matrix.md#macos-x86_64-under-rosetta-2) and
+[harness instructions](host-validation.md#macos-rosetta-2).

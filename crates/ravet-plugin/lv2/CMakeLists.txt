@@ -133,13 +133,14 @@ add_test(NAME ravet_lv2_mock_contracts
 
 # Optional independent check through lilv (pkg-config lilv-0), when installed.
 # Skipped when cross-compiling: pkg-config would find the build machine's lilv.
-if(NOT CMAKE_CROSSCOMPILING)
+option(RAVET_LV2_LILV "Build the optional pkg-config lilv host checks" ON)
+if(RAVET_LV2_LILV AND NOT CMAKE_CROSSCOMPILING)
     find_package(PkgConfig QUIET)
 endif()
-if(PkgConfig_FOUND)
+if(RAVET_LV2_LILV AND PkgConfig_FOUND)
     pkg_check_modules(LILV QUIET IMPORTED_TARGET lilv-0)
 endif()
-if(LILV_FOUND)
+if(RAVET_LV2_LILV AND LILV_FOUND)
     add_executable(ravet_lv2_lilv_host tests/lilv_host.cpp)
     target_link_libraries(ravet_lv2_lilv_host PRIVATE PkgConfig::LILV)
     add_test(NAME ravet_lv2_mock_lilv
@@ -165,7 +166,7 @@ if(RAVET_PLUGIN_LIBRARY)
     add_test(NAME ${RAVET_LV2_BUNDLE_NAME}_smoke
              COMMAND ravet_lv2_contracts "${CMAKE_BINARY_DIR}/bundles/${RAVET_LV2_BUNDLE_NAME}.lv2"
                      "ravet_lv2${ravet_lv2_suffix}" "${product_ui}")
-    if(LILV_FOUND)
+    if(RAVET_LV2_LILV AND LILV_FOUND)
         add_test(NAME ${RAVET_LV2_BUNDLE_NAME}_lilv
                  COMMAND ravet_lv2_lilv_host "${CMAKE_BINARY_DIR}/bundles/${RAVET_LV2_BUNDLE_NAME}.lv2")
     endif()

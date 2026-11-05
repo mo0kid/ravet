@@ -3,7 +3,8 @@
 ``write(root, package, directory, target=None)`` writes into ``directory``:
 
 - ``THIRD-PARTY-NOTICES.txt``: every third-party crate linked into ``package``
-  for ``target`` (a Rust target triple; the host by default), as resolved from
+  for ``target`` (a Rust target triple, or a tuple/list whose dependency graphs
+  are combined; the host by default), as resolved from
   the lock file, with its version, declared licence, repository and the full
   text of every licence and notice file in its archive. Build-only
   dependencies are excluded, and so are RAVET's own crates;
@@ -144,6 +145,8 @@ def _default_run(root):
 
 def linked_packages(run, package, target=None, manifest_path=None):
     """(name, version) of every normal dependency of ``package`` for ``target``."""
+    if isinstance(target, (tuple, list)):
+        return sorted({entry for triple in target for entry in linked_packages(run, package, triple, manifest_path)})
     command = ["cargo", "tree", "--locked", "-p", package, "-e", "normal",
                "--prefix", "none", "--format", "{p}"]
     if target:
@@ -191,7 +194,8 @@ def render(root, package, target=None, *, manifest_path=None, run=None):
             body = [missing_licence_body(record)]
         sections.append("\n".join(header) + "\n\n" + "\n".join(body))
     rule = "\n" + "=" * 78 + "\n\n"
-    text = (f"Third-party notices for {package}" + (f" ({target})" if target else "") + "\n\n"
+    target_label = " + ".join(target) if isinstance(target, (tuple, list)) else target
+    text = (f"Third-party notices for {package}" + (f" ({target_label})" if target else "") + "\n\n"
             "This product includes the following third-party software, linked into its\n"
             "library. Each component remains under its own licence, reproduced below.\n"
             "RAVET itself is covered by RAVET-LICENSE.txt, or by your commercial agreement.\n"

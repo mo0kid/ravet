@@ -11,7 +11,7 @@ import windows_cross
 
 def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
                   manifest_path=None, package=None, runner=None, platform=None, cross=None,
-                  product_library=None, target_directory=None, validate=True, sign=True, run_validation=True, bundle_name=None):
+                  product_library=None, target_directory=None, validate=True, sign=True, run_validation=True, bundle_name=None, cmake_options=()):
     """Build only the selected product; package locally and run SDK validation.
 
     cross="windows" cross-compiles for x86_64 Windows (see windows_cross); the
@@ -66,7 +66,7 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_VST3_SDK={sdk}",
                 f"-DRAVET_VST3_NAME={name}", f"-DRAVET_VST3_MOCK={'ON' if mock else 'OFF'}",
                 f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}",
-                f"-DRAVET_VST3_INSTRUMENT_TESTS={'ON' if instrument else 'OFF'}", *toolchain])
+                f"-DRAVET_VST3_INSTRUMENT_TESTS={'ON' if instrument else 'OFF'}", *toolchain, *cmake_options])
     targets = [name] + (["validator"] if validate else []) + (["moduleinfotool"] if cross else []) + \
         (["ravet_generic_vst3_contracts"] if mock else []) + (["ravet_vst3_instrument_contracts"] if instrument else [])
     runner.run(["cmake", "--build", build, "--config", config, "--target", *targets, "--parallel", "2"])

@@ -251,3 +251,8 @@ step.
   time, so they stay required.
 - `serde_json` is part of the editor protocol and of the
   `PluginExport::editor_message` signature, so it stays required in 0.1.0.
+
+The unified macOS bundler resolves notices for the explicit Rust target selected
+by `--arch`. Universal builds include the union of normal dependencies from
+`aarch64-apple-darwin` and `x86_64-apple-darwin`, replacing any host-only notice
+written by an adapter before final signing. See [bundle architecture selection](bundle-plugin.md).
