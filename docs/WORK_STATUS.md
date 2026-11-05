@@ -8767,3 +8767,20 @@ environment variables (macOS 27 arm64): clap-validator 33 passed, 0 failed,
 `auval` succeed; AAX bundle check 1/1; LV2 4/4 with `lv2_validate` 0 errors.
 All five bundles carry `THIRD-PARTY-NOTICES.txt`, and the four signed macOS
 bundles pass `codesign --verify --strict`.
+
+### Integration: state policy and stereo DSP merged; combined check (2026-11-05)
+
+Merged `policy/state-and-dsp`; its decision records became 0289 (versioned
+observable-tree records) and 0290 (stereo block FIR and oversampling), because
+0286–0288 were taken. Conflicts were documentation only.
+
+Combined `release/0.1.0` check on macOS 27 arm64: 586 tests pass, 0 fail, for
+`ravet-state`, `ravet-preset`, `ravet-foundation`, `ravet-signal`,
+`ravet-plugin`, `ravet-delay-plugin`, `ravet-gain-plugin` and `ravet-native`
+with all features; Clippy with warnings denied (all targets, all features) and
+`cargo fmt --check` pass; `cargo check --workspace` passes; 122 script tests
+pass; the documentation checker passes. `bundle-plugin.py --package
+ravet-delay-plugin --formats clap,vst3,au,aax,lv2 --release --validate`:
+clap-validator 33 passed, 0 failed, 11 skipped; Steinberg validator 47 passed,
+0 failed; `auval` succeeds; AAX bundle check 1/1; LV2 4/4 and `lv2_validate`
+0 errors.
