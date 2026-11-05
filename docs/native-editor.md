@@ -120,6 +120,24 @@ change and end delivery while another owned window is key. Host-specific
 window routing still needs actual DAW validation. This probe briefly shows two
 owned windows and requires an interactive Cocoa desktop session.
 
+### Keyboard focus
+
+Some hosts keep key status for their own shortcuts and do not make a plug-in
+window key when it is clicked; Pro Tools does this. On macOS the web view
+therefore watches which element has focus. When a text field (text-like
+`<input>`, `<textarea>` or `contenteditable`) gains focus, it makes its window
+key and itself first responder; when the field loses focus or is removed, it
+gives key status back to the window that had it, if it took it. If the window
+cannot become key, typing without the Command key is forwarded to the web view
+while the field has focus; Command-key shortcuts stay with the host, and a
+click in another window or switching applications blurs the field. Buttons,
+knobs and other controls never take key status. Where the window is already
+key, as in Logic and Live, nothing changes. Pages need no code for this. The
+`ravet-web-keyboard-focus` probe checks the three cases with real AppKit
+windows; it is not a DAW run. A host that consumes key events before AppKit
+event monitors run cannot be helped this way. See
+[decision 0286](decisions/0286-editor-keyboard-focus.md).
+
 ## Run the probes
 
 Build the default bundle, then exercise the editor with a real Cocoa main loop:
