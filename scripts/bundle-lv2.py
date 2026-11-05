@@ -19,11 +19,13 @@ def main():
     parser.add_argument("--sdk", type=pathlib.Path, required=True)
     parser.add_argument("--plugin", choices=(*PROFILES, *PRODUCTS), default="gain")
     parser.add_argument("--crate", help="product crate exporting ravet_plugin_v1 (overrides --plugin)")
+    parser.add_argument("--target", choices=["windows"],
+                        help="generic products: cross-compile for x86_64 Windows (cargo-xwin, clang-cl, Wine)")
     args = parser.parse_args()
     root = pathlib.Path(__file__).resolve().parents[1]
     if args.crate or args.plugin in PRODUCTS:
         try:
-            context = prepare_generic(root, args.sdk, args.plugin, args.crate)
+            context = prepare_generic(root, args.sdk, args.plugin, args.crate, cross=args.target)
         except ValueError as error:
             parser.error(str(error))
         target, build = build_generic(context)
@@ -31,6 +33,8 @@ def main():
         validate_generic(context, artifact)
         print(artifact)
         return
+    if args.target:
+        parser.error("--target windows applies to generic products only")
     try:
         context = prepare_context(root, args.sdk, args.plugin)
     except ValueError as error:

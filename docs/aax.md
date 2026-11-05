@@ -43,6 +43,22 @@ The Windows bundle is `<Name>.aaxplugin/Contents/x64/<Name>.aaxplugin`.
 Without `RAVET_PLUGIN_LIBRARY` the adapter links its C++ mock table
 (`mock/RavetPluginMock.cpp`), which stands in for any product.
 
+The Windows bundle can also be cross-compiled from Linux (see
+[Windows cross-builds](plugin-export.md#windows-cross-builds)):
+
+```sh
+python3 scripts/bundle-aax.py --plugin delay --aax-sdk /path/to/AAX_SDK --target windows
+# Bundle: target/aax-plugin/windows-delay/RAVET Delay.aaxplugin
+# Check:  target/aax-plugin/windows-delay/ravet_aax_check.exe
+```
+
+It uses `cargo xwin rustc` for the static library, links the C runtime
+statically (`RAVET_AAX_STATIC_CRT=ON`) and runs the CTest checks under Wine when
+it is installed. Copy the bundle and `ravet_aax_check.exe` to Windows and run
+`ravet_aax_check.exe "RAVET Delay.aaxplugin"` there; `--plugin mock` also builds
+`ravet_aax_adapter_tests.exe`. The native Windows path above has not been run;
+the cross-build has.
+
 ### What comes from the table
 
 | AAX | Table |
@@ -129,12 +145,15 @@ record the validator version and results with the build.
   nor generated.
 - No tail is reported: the AAX SDK 2.8 native interface has no tail property.
 - Editors keep the product's size (no host-driven resizing). In this release
-  the table hosts editors on macOS only, so a Windows build opens no editor.
+  the table hosts editors on macOS only, so a Windows build opens no editor. A
+  product with an editor size still registers its GUI on Windows, so a host
+  that opens it shows an empty view.
 - No AudioSuite, sidechain or auxiliary outputs, meters or page tables.
 - The AAX category is coarse: the table has no finer AAX category (EQ, Delay…).
-- Evidence is local: macOS arm64 builds and the checks above. No Windows build
-  has been run, Avid's validator is not available locally, and no Pro Tools run
-  has been made.
+- Evidence is local: macOS arm64 builds and the checks above, and a Windows x64
+  cross-build whose bundle check and adapter tests pass natively on Windows 11
+  (see [work status](WORK_STATUS.md)). Avid's validator is not available
+  locally, the builds are not PACE-signed, and no Pro Tools run has been made.
 
 The rest of this page describes the 0.0.1 references.
 
