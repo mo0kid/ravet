@@ -1,6 +1,8 @@
+use crate::accessibility::AccessibilityAction;
+#[cfg(target_os = "macos")]
 use crate::accessibility::{
-    AccessibilityAction, AccessibilityActionKind, AccessibilityError, AccessibilityKind,
-    AccessibilityRevision, AccessibilitySnapshot,
+    AccessibilityActionKind, AccessibilityError, AccessibilityKind, AccessibilityRevision,
+    AccessibilitySnapshot,
 };
 use std::{
     cell::RefCell,
@@ -26,6 +28,8 @@ unsafe extern "C" {
     fn ravet_web_set_size(view: *mut c_void, width: f64, height: f64) -> bool;
     fn ravet_web_set_visible(view: *mut c_void, visible: bool);
     fn ravet_web_destroy(view: *mut c_void);
+    fn ravet_web_pump();
+    #[cfg(target_os = "macos")]
     fn ravet_web_accessibility_set(
         view: *mut c_void,
         label: *const c_char,
@@ -36,6 +40,14 @@ unsafe extern "C" {
         action: Option<extern "C" fn(*mut c_void, u64, u64, u32) -> bool>,
         revision: *mut u64,
     ) -> u32;
+}
+/// Dispatch pending GTK work for embedded Linux editors. Plug-in hosts call this
+/// from their UI run loop (for example a 10 ms timer) while an editor is open.
+/// It handles at most 32 ready GLib iterations and is a no-op on macOS/Windows.
+pub fn pump() {
+    // SAFETY: the native pump owns no borrowed buffers; it is a UI-thread no-op
+    // off Linux and dispatches only already-registered GLib sources on Linux.
+    unsafe { ravet_web_pump() }
 }
 /// Query the Cocoa UI thread without creating a view. All native editor ownership
 /// operations belong to that thread; this predicate does not initialize AppKit.
@@ -119,6 +131,7 @@ extern "C" fn snapshot(raw: *mut c_void, destination: *mut c_char, capacity: usi
     }))
     .unwrap_or(0)
 }
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct NativeAccessibilityNode {
     id: u64,
@@ -136,6 +149,7 @@ struct NativeAccessibilityNode {
     enabled: bool,
     hidden: bool,
 }
+#[cfg(target_os = "macos")]
 extern "C" fn accessibility_action(
     raw: *mut c_void,
     node_id: u64,
@@ -225,6 +239,7 @@ impl<'a> WebView<'a> {
     /// from previous revisions keep copied metadata but cannot route actions.
     /// Native action/notification reentry reports Busy. Accepted native intent and
     /// presentation acknowledgement are separate; update after callback unwind.
+    #[cfg(target_os = "macos")]
     pub fn set_accessibility(
         &self,
         snapshot: Option<&AccessibilitySnapshot>,
@@ -325,10 +340,11 @@ impl<'a> WebView<'a> {
         // SAFETY: self owns a live view on the main thread.
         unsafe { ravet_web_set_background(self.view.as_ptr(), red, green, blue) }
     }
-    /// Attach to a host-owned Cocoa view. The host retains ownership.
+    /// Attach to a host-owned native parent. The host retains ownership.
     ///
     /// # Safety
-    /// `parent` must point to a live NSView on the Cocoa main thread. It must
+    /// `parent` must be a live NSView (macOS), HWND (Windows) or X11 Window ID
+    /// cast to a pointer (Linux), used on the UI thread. It must
     /// remain valid until detach or WebView destruction; it must not independently
     /// destroy the embedded child or its callback context.
     pub unsafe fn attach(&self, parent: NonNull<c_void>) {
@@ -342,12 +358,18 @@ impl<'a> WebView<'a> {
             ravet_web_detach(self.view.as_ptr());
         }
     }
-    /// Resize the owned view in logical Cocoa pixels. Rejects nonfinite,
+    /// Resize the owned view: logical points on macOS and Linux, physical pixels
+    /// (the parent HWND's client units) on Windows. Rejects nonfinite,
     /// nonpositive or greater-than-16384 dimensions without changing its size.
     /// The embedded page receives the new viewport through native autoresizing.
     pub fn set_size(&self, width: f64, height: f64) -> bool {
         // SAFETY: self owns the view and stays on the Cocoa main thread.
         unsafe { ravet_web_set_size(self.view.as_ptr(), width, height) }
+    }
+    /// Native view handle for the standalone window owner on Windows/Linux.
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn raw(&self) -> *mut c_void {
+        self.view.as_ptr()
     }
     pub fn set_visible(&self, visible: bool) {
         // SAFETY: visibility changes do not transfer native ownership.
@@ -368,14 +390,18 @@ impl Drop for WebView<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
     use std::cell::Cell;
+    #[cfg(target_os = "macos")]
     struct Empty;
+    #[cfg(target_os = "macos")]
     impl Callbacks for Empty {
         fn message(&mut self, _: &str) {}
         fn snapshot(&mut self) -> Option<String> {
             None
         }
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn native_action_retains_context_through_callback_self_destruction() {
         type Owner = Rc<RefCell<Option<Rc<Context<'static>>>>>;
@@ -425,6 +451,7 @@ mod tests {
             })
         );
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn native_action_refuses_bad_kind_nested_borrow_and_catches_panic() {
         struct Nested {
@@ -520,6 +547,8 @@ mod tests {
         );
         assert_eq!(destination, [7; 64]);
     }
+    // Windows/Linux adopt the first creating thread as their UI thread.
+    #[cfg(target_os = "macos")]
     #[test]
     fn worker_thread_cannot_create_a_native_editor() {
         assert!(matches!(

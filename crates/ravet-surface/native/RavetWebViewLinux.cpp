@@ -161,6 +161,16 @@ Owner create(double width,double height,void* context,RavetWebMessage message,Ra
     return s;
 }
 }
+namespace {
+// Hosts may destroy the X11 parent before detaching the editor (REAPER does when
+// it closes a floating FX window); the plug's windows then die with it and the
+// unmap/destroy requests below fail with BadWindow, which GDK treats as fatal.
+struct XErrorTrap {
+    GdkDisplay* display=gdk_display_get_default();
+    XErrorTrap() { if(display&&GDK_IS_X11_DISPLAY(display)) gdk_x11_display_error_trap_push(display); else display=nullptr; }
+    ~XErrorTrap() { if(display) gdk_x11_display_error_trap_pop_ignored(display); }
+};
+}
 extern "C" bool ravet_web_is_main_thread() { return uiThread==std::thread::id()||std::this_thread::get_id()==uiThread; }
 extern "C" void ravet_web_pump() { for(int i=0;i<32&&g_main_context_pending(nullptr);++i) g_main_context_iteration(nullptr,FALSE); }
 extern "C" void* ravet_web_create(const char* path,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot) {
@@ -180,25 +190,48 @@ extern "C" bool ravet_web_set_background(void* view,double r,double g,double b) 
     auto& s=**static_cast<Owner*>(view); webkit_web_view_set_background_color(s.web,&color); return true;
 }
 extern "C" void ravet_web_detach(void* view) {
-    if(!view) return; auto& s=**static_cast<Owner*>(view);
+    if(!view) return; auto& s=**static_cast<Owner*>(view); XErrorTrap trap;
     if(s.plug) { gtk_container_remove(GTK_CONTAINER(s.plug),s.box); gtk_widget_destroy(s.plug); s.plug=nullptr; }
 }
 extern "C" void ravet_web_attach(void* view,void* parent) {
-    if(!view||!parent) return; ravet_web_detach(view); auto& s=**static_cast<Owner*>(view);
+    if(!view||!parent) return; ravet_web_detach(view); auto& s=**static_cast<Owner*>(view); XErrorTrap trap;
     s.plug=gtk_plug_new(reinterpret_cast<uintptr_t>(parent)); gtk_container_add(GTK_CONTAINER(s.plug),s.box); gtk_widget_show_all(s.plug);
     // XEmbed leaves mapping the client to the embedder. Parents that are plain
     // X11 windows (LV2 UIs, CLAP/VST3 hosts without XEmbed) never map it.
     if(auto* window=gtk_widget_get_window(s.plug)) gdk_window_show(window);
 }
 extern "C" void ravet_web_set_visible(void* view,bool visible) {
-    if(view) { auto& s=**static_cast<Owner*>(view); if(s.plug) { if(visible) { gtk_widget_show_all(s.plug); if(auto* window=gtk_widget_get_window(s.plug)) gdk_window_show(window); } else gtk_widget_hide(s.plug); } }
+    if(view) { auto& s=**static_cast<Owner*>(view); XErrorTrap trap; if(s.plug) { if(visible) { gtk_widget_show_all(s.plug); if(auto* window=gtk_widget_get_window(s.plug)) gdk_window_show(window); } else gtk_widget_hide(s.plug); } }
 }
 extern "C" void ravet_web_destroy(void* view) {
-    if(!view) return; auto s=*static_cast<Owner*>(view); s->closed=true; s->context=nullptr; s->message=nullptr; s->snapshot=nullptr; s->bufferSnapshot=nullptr;
+    if(!view) return; auto s=*static_cast<Owner*>(view); XErrorTrap trap; s->closed=true; s->context=nullptr; s->message=nullptr; s->snapshot=nullptr; s->bufferSnapshot=nullptr;
     g_source_remove(s->timer); s->timer=0;
     g_signal_handler_disconnect(s->manager,s->messageHandler);
     g_signal_handlers_disconnect_by_data(s->web,s.get());
     webkit_user_content_manager_unregister_script_message_handler(s->manager,"ravet");
     webkit_web_view_stop_loading(s->web); ravet_web_detach(view); gtk_widget_destroy(s->box); g_object_unref(s->box); g_object_unref(s->manager);
     delete static_cast<Owner*>(view);
+}
+extern "C" bool ravet_web_set_size(void* view,double w,double h) {
+    if(!view||!std::isfinite(w)||!std::isfinite(h)||w<=0||h<=0||w>16384||h>16384) return false;
+    auto& s=**static_cast<Owner*>(view); if(s.closed) return false;
+    int width=int(std::lround(w)),height=int(std::lround(h));
+    gtk_widget_set_size_request(s.box,width,height);
+    if(s.plug) gtk_window_resize(GTK_WINDOW(s.plug),width,height);
+    return true;
+}
+extern "C" bool ravet_web_eval(void* view,const char* script,void* context,RavetWebEvalDone done) {
+    if(!view||!script||strnlen(script,1048577)>1048576) return false;
+    auto owner=*static_cast<Owner*>(view); if(owner->closed) return false;
+    struct Pending { std::weak_ptr<State> state; void* context; RavetWebEvalDone done; };
+    webkit_web_view_evaluate_javascript(owner->web,script,-1,nullptr,nullptr,nullptr,
+        [](GObject* web,GAsyncResult* result,gpointer data) {
+            std::unique_ptr<Pending> pending(static_cast<Pending*>(data));
+            GError* error=nullptr;
+            auto* value=webkit_web_view_evaluate_javascript_finish(WEBKIT_WEB_VIEW(web),result,&error);
+            bool truthy=!error&&value&&jsc_value_to_boolean(value);
+            if(value) g_object_unref(value); if(error) g_error_free(error);
+            auto s=pending->state.lock(); if(s&&!s->closed&&pending->done) pending->done(pending->context,truthy);
+        },new Pending{owner,context,done});
+    return true;
 }

@@ -14,8 +14,15 @@ fn main() {
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetAccessibility.inc");
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetObjcNames.h");
     println!("cargo:rerun-if-changed=native/StandaloneWindow.mm");
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
-        return;
+    println!("cargo:rerun-if-changed=native/StandaloneWindowWindows.cpp");
+    println!("cargo:rerun-if-changed=native/StandaloneWindowLinux.cpp");
+    println!("cargo:rerun-if-changed=../ravet-surface/native/RavetWebViewWindows.cpp");
+    println!("cargo:rerun-if-changed=../ravet-surface/native/RavetWebViewLinux.cpp");
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("macos") => {}
+        Ok("windows") => return windows(),
+        Ok("linux") => return linux(),
+        _ => return,
     }
     let arch = match env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
         "aarch64" => "arm64",
@@ -105,4 +112,81 @@ fn main() {
     println!("cargo:rustc-link-lib=framework=Cocoa");
     println!("cargo:rustc-link-lib=framework=WebKit");
     println!("cargo:rustc-link-lib=c++");
+}
+
+/// Win32/WebView2 backend. `RAVET_WEBVIEW2_SDK` names an extracted
+/// Microsoft.Web.WebView2 NuGet package; consumers ship its x64
+/// `WebView2Loader.dll` beside the binary that links this crate.
+fn windows() {
+    println!("cargo:rerun-if-env-changed=RAVET_WEBVIEW2_SDK");
+    let sdk = PathBuf::from(
+        env::var_os("RAVET_WEBVIEW2_SDK")
+            .expect("set RAVET_WEBVIEW2_SDK to the extracted Microsoft.Web.WebView2 NuGet package"),
+    );
+    let include = sdk.join("build/native/include");
+    assert!(
+        include.join("WebView2.h").exists(),
+        "RAVET_WEBVIEW2_SDK has no build/native/include/WebView2.h"
+    );
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .std("c++17")
+        .include(include)
+        .define("NOMINMAX", None)
+        .define("UNICODE", None)
+        .define("_UNICODE", None)
+        .file("../ravet-surface/native/RavetWebViewWindows.cpp")
+        .file("native/StandaloneWindowWindows.cpp");
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+        build.include("../ravet-surface/native/mingw");
+    } else {
+        build.flag("/EHsc").flag("/utf-8");
+    }
+    build.compile("ravet_webview");
+    for library in ["ole32", "user32", "shell32", "shlwapi", "uuid", "gdi32"] {
+        println!("cargo:rustc-link-lib={library}");
+    }
+}
+
+/// GTK 3/WebKitGTK 4.1 backend, X11 only. Set
+/// `RAVET_WEB_LINUX_SOFTWARE_RENDERING=1` for WebKit's non-accelerated painting.
+fn linux() {
+    println!("cargo:rerun-if-env-changed=RAVET_WEB_LINUX_SOFTWARE_RENDERING");
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .std("c++17")
+        .flag_if_supported("-Wno-misleading-indentation")
+        .flag_if_supported("-Wno-deprecated-declarations");
+    // Probe without emitting link flags: the static library must precede the
+    // shared GTK/WebKit libraries on the linker command line.
+    let mut libraries = Vec::new();
+    for (package, version) in [("webkit2gtk-4.1", "2.40"), ("json-glib-1.0", "1.0")] {
+        let library = pkg_config::Config::new()
+            .atleast_version(version)
+            .cargo_metadata(false)
+            .probe(package)
+            .unwrap_or_else(|error| panic!("{package} development files are required: {error}"));
+        build.includes(&library.include_paths);
+        libraries.push(library);
+    }
+    let software = env::var("RAVET_WEB_LINUX_SOFTWARE_RENDERING").is_ok_and(|v| v == "1");
+    build
+        .define(
+            "RAVET_WEB_LINUX_SOFTWARE_RENDERING",
+            if software { "1" } else { "0" },
+        )
+        .file("../ravet-surface/native/RavetWebViewLinux.cpp")
+        .file("native/StandaloneWindowLinux.cpp")
+        .compile("ravet_webview");
+    for library in &libraries {
+        for path in &library.link_paths {
+            println!("cargo:rustc-link-search=native={}", path.display());
+        }
+        for name in &library.libs {
+            println!("cargo:rustc-link-lib={name}");
+        }
+    }
+    println!("cargo:rustc-link-lib=dl");
 }
