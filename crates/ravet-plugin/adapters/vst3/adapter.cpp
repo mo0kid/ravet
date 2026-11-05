@@ -1,4 +1,12 @@
 // Generic VST3 export over RavetPlugin.h. The SDK and product stay external.
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
 #include "RavetPlugin.h"
 #include "RavetVst3Audio.hpp"
 #include "RavetVst3Transport.hpp"
@@ -90,7 +98,7 @@ bool validTable(const RavetPluginEntryV1* e) {
     if (!e || e->version != 1 || e->byte_size < sizeof(*e) || !e->product) return false;
     const auto& p = *e->product;
     if (!p.name || !p.vendor || !p.version || !p.url || !p.layouts || !p.layout_count ||
-        p.layout_count > 128 || p.parameter_count > capacity || p.bypass_index < -1 ||
+        p.parameter_count > capacity || p.bypass_index < -1 ||
         p.bypass_index >= int32_t(p.parameter_count) || p.category > RAVET_PLUGIN_MIDI_EFFECT ||
         p.note_input > 1 || p.note_output > 1 || p.editor_width > 16384 || p.editor_height > 16384) return false;
     for (uint32_t i = 0; i < p.layout_count; ++i) {
@@ -175,9 +183,9 @@ public:
 #endif
         if (timer) { timer->stop(); timer = nullptr; }
     }
-    void onTimer(Timer*) override { callback(); }
+    void onTimer(Timer*) override { IPtr<MainTimer> keepAlive(this); callback(); }
 #if SMTG_OS_LINUX
-    void PLUGIN_API onTimer() override { callback(); }
+    void PLUGIN_API onTimer() override { IPtr<MainTimer> keepAlive(this); callback(); }
 #endif
     OBJ_METHODS(MainTimer, FObject)
     DEFINE_INTERFACES
@@ -240,6 +248,7 @@ public:
         if (result != kResultOk) return result;
         if (!instance.handle) return kOutOfMemory;
         const auto& p = *instance.api->product; layout = p.layouts[0];
+        reflected.fill(std::numeric_limits<double>::quiet_NaN());
         if (layout.inputs) addAudioInput(STR16("Input"), arrangement(layout.inputs));
         if (layout.outputs) addAudioOutput(STR16("Output"), arrangement(layout.outputs));
         if (p.note_input) addEventInput(STR16("MIDI In"), 16);
@@ -274,17 +283,16 @@ public:
     tresult PLUGIN_API setupProcessing(ProcessSetup& setup) override {
         if (active || setup.symbolicSampleSize != kSample32 || setup.maxSamplesPerBlock < 1 ||
             setup.maxSamplesPerBlock > 65536 || !std::isfinite(setup.sampleRate) || setup.sampleRate <= 0.) return kResultFalse;
+        // Product preparation is the authority for rates and resource limits.
+        // Reject here without replacing the last accepted VST3 setup. The host
+        // may reactivate that setup after a rejected negotiation (SDK validator).
+        if (!prepareProduct(setup)) return kResultFalse;
+        if (instance.api->deactivate(instance.handle)) return kResultFalse;
         return AudioEffect::setupProcessing(setup);
     }
     tresult PLUGIN_API setActive(TBool state) override {
         if (state && !active) {
-            RavetNativeProcessorConfigV1 config{}; config.version = 1;
-            config.maximum_frames = uint32_t(processSetup.maxSamplesPerBlock);
-            config.maximum_events = capacity; config.maximum_output_events = capacity;
-            config.bus_count = 1; config.sample_rate = processSetup.sampleRate;
-            config.buses[0] = {layout.inputs, layout.outputs};
-            if (!audio.configure(config, 32) || instance.api->prepare(instance.handle, &config)) return kResultFalse;
-            refreshTiming();
+            if (!prepareProduct(processSetup)) return kResultFalse;
         } else if (!state && active && instance.api->deactivate(instance.handle)) return kResultFalse;
         active = bool(state); return AudioEffect::setActive(state);
     }
@@ -349,10 +357,8 @@ public:
                         if (meta.flags & RAVET_PLUGIN_PARAMETER_READ_ONLY) continue;
                         e.kind = RAVET_NATIVE_PARAMETER_VALUE; e.parameter_id = id;
                         if (instance.api->denormalize(uint32_t(index), value, &e.value)) return fail();
-                        // Native global parameter values are exactly widened f32.
-                        e.value = double(float(e.value));
-                    } else if (instance.api->product->note_input && id >= midiStart() && id - midiStart() < 16 * midiControllers) {
-                        uint32_t lane = id - midiStart(), controller = lane % midiControllers, channel = lane / midiControllers;
+                    } else if (instance.api->product->note_input && id >= midiBegin && id - midiBegin < 16 * midiControllers) {
+                        uint32_t lane = id - midiBegin, controller = lane % midiControllers, channel = lane / midiControllers;
                         e.kind = RAVET_NATIVE_MIDI;
                         if (controller < 128) { e.detail = 3; e.words[0] = (0xb0 | channel) | (controller << 8) | (uint32_t(std::lround(value * 127.)) << 16); }
                         else if (controller == 128) { e.detail = 2; e.words[0] = (0xd0 | channel) | (uint32_t(std::lround(value * 127.)) << 8); }
@@ -376,7 +382,7 @@ public:
         }
         RavetNativeProcessorResultV1 result{};
         if (instance.api->process(instance.handle, buses.data(), 1, uint32_t(data.numSamples), input.data(), count,
-            data.processContext ? &transport : nullptr, output.data(), capacity, &result) || result.status > 1 || result.event_count > capacity) return fail();
+            data.processContext ? &transport : nullptr, output.data(), instance.api->product->note_output ? capacity : 0, &result) || result.status > 1 || result.event_count > capacity) return fail();
         const bool changed = instance.api->latency_changed(instance.handle) != 0;
         refreshTiming();
         if (changed) latencyPending.store(true, std::memory_order_release);
@@ -386,6 +392,17 @@ public:
         return kResultOk;
     }
 private:
+    bool prepareProduct(const ProcessSetup& setup) {
+        if (setup.symbolicSampleSize != kSample32 || setup.maxSamplesPerBlock < 1 || setup.maxSamplesPerBlock > 65536) return false;
+        RavetNativeProcessorConfigV1 config{}; config.version = 1;
+        config.maximum_frames = uint32_t(setup.maxSamplesPerBlock);
+        config.maximum_events = capacity; config.maximum_output_events = instance.api->product->note_output ? capacity : 0;
+        config.bus_count = 1; config.sample_rate = setup.sampleRate;
+        config.buses[0] = {layout.inputs, layout.outputs};
+        ravet::vst3::NativeAudioBusMap candidate;
+        if (!candidate.configure(config, 32) || instance.api->prepare(instance.handle, &config)) return false;
+        audio = candidate; refreshTiming(); return true;
+    }
     void refreshTiming() {
         RavetNativeProcessorTimingV1 timing{};
         if (!instance.api->timing(instance.handle, &timing)) {
@@ -428,6 +445,7 @@ private:
         return true;
     }
     void idle() {
+        IPtr<Component> keepAlive(this);
         if (!getPeer()) return;
         if (latencyPending.exchange(false, std::memory_order_acq_rel)) sendMessageID("RAVET.Latency");
         for (uint32_t i = 0; i < instance.api->product->parameter_count; ++i) {
@@ -436,6 +454,7 @@ private:
         }
     }
     Instance instance;
+    const ParamID midiBegin = midiStart(); // Constructed on MAIN, never lazily on AUDIO.
     RavetPluginLayoutV1 layout{};
     ravet::vst3::NativeAudioBusMap audio;
     bool active = false;
@@ -515,12 +534,14 @@ public:
     tresult PLUGIN_API checkSizeConstraint(ViewRect* size) override {
         auto l = life.lock();
         if (!l || !l->alive || !size) return kResultFalse;
-        if (!l->instance.api->product->editor_resizable) {
-            if (size->left > INT32_MAX - int32(l->instance.api->product->editor_width) ||
-                size->top > INT32_MAX - int32(l->instance.api->product->editor_height)) return kResultFalse;
-            size->right = size->left + int32(l->instance.api->product->editor_width);
-            size->bottom = size->top + int32(l->instance.api->product->editor_height);
-        }
+        const auto& p = *l->instance.api->product;
+        const int64_t width = p.editor_resizable ? std::clamp<int64_t>(int64_t(size->right) - size->left,
+            p.editor_width, std::min<uint32_t>(4 * p.editor_width, 16384)) : p.editor_width;
+        const int64_t height = p.editor_resizable ? std::clamp<int64_t>(int64_t(size->bottom) - size->top,
+            p.editor_height, std::min<uint32_t>(4 * p.editor_height, 16384)) : p.editor_height;
+        if (int64_t(size->left) + width > INT32_MAX || int64_t(size->top) + height > INT32_MAX) return kResultFalse;
+        size->right = int32_t(int64_t(size->left) + width);
+        size->bottom = int32_t(int64_t(size->top) + height);
         return validSize(size) ? kResultTrue : kResultFalse;
     }
 private:
@@ -530,7 +551,9 @@ private:
         if (width < 1 || height < 1 || width > 16384 || height > 16384) return false;
         auto l = life.lock(); if (!l) return false;
         auto& p = *l->instance.api->product;
-        return p.editor_resizable || (size->getWidth() == int32(p.editor_width) && size->getHeight() == int32(p.editor_height));
+        return p.editor_resizable ? width >= p.editor_width && width <= 4 * p.editor_width &&
+            height >= p.editor_height && height <= 4 * p.editor_height :
+            width == p.editor_width && height == p.editor_height;
     }
     static const char* platform() {
 #if SMTG_OS_MACOS
@@ -562,6 +585,7 @@ public:
     tresult PLUGIN_API initialize(FUnknown* context) override {
         auto result = EditController::initialize(context);
         if (result != kResultOk) return result;
+        if (!life->alive) { life = std::make_shared<EditorLife>(); pending.fill(false); pendingState.clear(); }
         auto& instance = life->instance;
         if (!instance.handle) return kOutOfMemory;
         const auto& p = *instance.api->product;
@@ -647,6 +671,7 @@ public:
     REFCOUNT_METHODS(EditController)
     // Public to the independent in-process fixture, never an exported SDK API.
     void idle() {
+        IPtr<Controller> keepAlive(this);
         if (!life->alive) return;
         if (getPeer()) sendMessageID("RAVET.Poll");
         auto& instance = life->instance;
@@ -655,6 +680,7 @@ public:
         auto count = instance.api->take_edits(instance.handle, edits.data(), uint32_t(edits.size()));
         if (count > edits.size()) return;
         for (uint32_t i = 0; i < count; ++i) {
+            if (!life->alive) return;
             const auto& edit = edits[i];
             if (edit.index >= instance.api->product->parameter_count) continue;
             RavetPluginParameterV1 meta{}; instance.api->parameter(edit.index, &meta);
@@ -663,11 +689,11 @@ public:
             else if (edit.kind == RAVET_PLUGIN_EDIT_VALUE) {
                 double value = 0.;
                 if (!instance.api->normalize(edit.index, edit.value, &value)) {
-                    setParamNormalized(meta.id, value); performEdit(meta.id, value);
+                    if (setParamNormalized(meta.id, value) == kResultOk && life->alive) performEdit(meta.id, value);
                 }
             }
         }
-        sendPending();
+        if (life->alive) sendPending();
     }
 private:
     void close() {

@@ -17,7 +17,9 @@ python3 scripts/bundle-vst3.py --mock --sdk /path/to/vst3sdk
 python3 scripts/bundle-vst3.py --plugin myeffect --package myeffect-plugin --manifest-path /path/to/consumer/Cargo.toml --sdk /path/to/vst3sdk
 ```
 
-The product must export `ravet_plugin_v1()` from one Cargo `cdylib` target.
+The product must enable `ravet-plugin`'s `native` feature and export
+`ravet_plugin_v1()` from one Cargo `cdylib` target. The Gain and Delay examples
+already enable it.
 The script builds only that package, copies its dynamic library beside the
 adapter module, adds notices, ad hoc signs nested images and the bundle on
 macOS, and runs the SDK validator. The independent mock also runs CTest.
@@ -58,25 +60,33 @@ SysEx and UMP have no mapping. Unsupported output records reject before host
 event delivery. Host refusal keeps its accepted output prefix and rendered DSP;
 the suffix is discarded without replay.
 
-Timing is read after prepare and after processing on its owning thread.
+Setup negotiates rates/resource limits by preparing then deactivating the product
+on the stopped main thread; activation prepares the accepted setup again. A
+rejected setup retains the last accepted VST3 setup. Timing is read after prepare
+and after processing on its owning thread.
 Latency/tail queries read cached atomics. A latency change is delivered on the
 main loop as `restartComponent(kLatencyChanged)`. Finite tails saturate below
 VST3's infinite sentinel. The editor opens the product through Cocoa, HWND or
-X11 `IPlugView`, resizes it, idles it at about 30 Hz and reports queued
+X11 `IPlugView`, constrains resizable views to one through four times the product's
+default size (at most 16,384 pixels per dimension), resizes and idles it at about
+30 Hz, and reports queued
 begin/value/end gestures through host edit callbacks. Views keep weak lifetime
 tokens and reject calls after controller termination. macOS/Windows use the SDK
 main-loop timer; Linux uses the host's `IRunLoop` from the factory/context or
 view frame. Linux editor idling and latency notifications require that host
 interface. There is no worker-thread fallback.
 
-Local evidence is limited to the macOS arm64 C++ mock: SDK validator **47 passed,
-0 failed** and the focused CTest **1 passed, 0 failed**. The fixture covers gain,
+Local macOS arm64 evidence: the C++ mock, real Delay and real Gain bundles each
+pass the SDK validator with **47 passed, 0 failed**. The mock focused CTest
+reports **1 passed, 0 failed**. The fixture covers gain,
 bypass, stepped/hidden/read-only metadata, a MIDI-ID collision, mono/stereo
 negotiation, timed DSP/automation, note/CC/bend/aftertouch delivery, unchanged
 state bytes and rejection, zero-frame flush, delayed latency restart, editor
 resize/gestures and retained-view teardown. Editor tests use the mock callbacks,
-not a real web view. Actual product table, DAW and Windows/Linux runtime evidence
-remain separate requirements. See [work status](WORK_STATUS.md).
+not a real web view. The real table is merged from `plugin/native-table`; actual product web editors,
+DAWs and Windows/Linux runtime evidence remain separate requirements. The current
+Rust table accepts Cocoa editors only, so Windows/Linux views reject attachment
+until their table backends land. See [work status](WORK_STATUS.md).
 
 ### Windows and Linux commands
 
