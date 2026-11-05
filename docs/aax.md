@@ -1,4 +1,144 @@
-# AAX references
+# AAX
+
+## Generic AAX adapter (0.1.0)
+
+**Status:** prototype. One adapter, `crates/ravet-plugin/aax`, turns any product
+exported with `ravet_plugin::export_plugin!` into an `.aaxplugin` without
+product-specific C++. It is written once against the plug-in table
+([`RavetPlugin.h`](../crates/ravet-plugin/include/RavetPlugin.h)) and reads
+counts, IDs and layouts at run time, as [decision 0281](decisions/0281-generic-export-layer.md)
+requires (RAVET's native profile, not the stock `aax_wrapper`). The AAX SDK is
+external and never vendored; the VST3 SDK is not needed.
+
+```sh
+# macOS (arm64 or x86_64, the host architecture)
+python3 scripts/bundle-aax.py --plugin delay --aax-sdk /path/to/AAX_SDK
+python3 scripts/bundle-aax.py --package my-product-crate --name "My Product" --aax-sdk /path/to/AAX_SDK
+python3 scripts/bundle-aax.py --plugin mock --aax-sdk /path/to/AAX_SDK   # adapter's own mock table
+```
+
+The script builds the product crate as a static library
+(`cargo rustc -p <crate> --lib --release --crate-type staticlib`, passing on
+rustc's `native-static-libs`), configures the adapter with CMake, builds it into
+`target/aax-plugin/<product>/<Name>.aaxplugin` and runs the checks below. On
+Windows the script runs the same way (`py scripts\bundle-aax.py --plugin delay
+--aax-sdk C:\path\to\AAX_SDK`). The steps by hand on Windows, with Visual
+Studio 2022 for x64 and CMake 3.22 or later, from a Developer Command Prompt:
+
+```bat
+cargo rustc -p ravet-delay-plugin --lib --release --locked --crate-type staticlib -- --print native-static-libs
+cmake -S crates\ravet-plugin\aax -B target\aax-plugin\delay -A x64 ^
+  -DRAVET_AAX_SDK=C:\path\to\AAX_SDK -DRAVET_AAX_NAME="RAVET Delay" ^
+  -DRAVET_PLUGIN_LIBRARY=%CD%\target\release\ravet_delay_plugin.lib ^
+  -DRAVET_PLUGIN_LINK_LIBRARIES="<the libraries from the native-static-libs note>"
+cmake --build target\aax-plugin\delay --config Release
+ctest --test-dir target\aax-plugin\delay -C Release --output-on-failure
+```
+
+On macOS use `-DCMAKE_BUILD_TYPE=Release` instead of `-A x64`, and
+`target/release/libravet_delay_plugin.a`. Windows builds use the DLL C runtime
+(`/MD`), as Rust static libraries do by default; `-DRAVET_AAX_STATIC_CRT=ON`
+selects `/MT` when the product is built with `-C target-feature=+crt-static`.
+The Windows bundle is `<Name>.aaxplugin/Contents/x64/<Name>.aaxplugin`.
+Without `RAVET_PLUGIN_LIBRARY` the adapter links its C++ mock table
+(`mock/RavetPluginMock.cpp`), which stands in for any product.
+
+### What comes from the table
+
+| AAX | Table |
+|---|---|
+| Package and effect name, manufacturer name, package version | `product->name`, `vendor`, `version` |
+| `ManufacturerID`, `ProductID` | `aax_manufacturer`, `aax_product` |
+| One effect per layout, `PlugInID_Native`, stems | `layouts[i]` (`aax_type_id`, inputs/outputs); effect ID `<plugin_id>.aax.<in>x<out>` |
+| Category | effect → `Effect`, instrument → `SWGenerators`, MIDI effect → `MIDIEffect` |
+| Parameters | every non-hidden parameter: ID `p` + host ID in uppercase hexadecimal, name, default, range, steps (discrete when stepped), automatable unless read-only; taper via `normalize`/`denormalize`, text via `value_to_text`/`text_to_value` |
+| Master bypass | the `bypass_index` parameter, registered under the SDK's `cDefaultMasterBypassID` (`"MasterBypassID"`); `CanBypass` is set only when there is one |
+| State | one chunk, `RvSt`, carrying the `save_state` envelope byte for byte; `SetChunk` calls `load_state`; chunk calls are requested on the main thread |
+| Latency | `timing()` after prepare → `SetSignalLatency`; later changes follow `latency_changed` |
+| MIDI | a local MIDI input node when `note_input`, a local MIDI output node when `note_output` |
+| Editor | an `AAX_CEffectGUI` when the product has an editor size |
+
+Behaviour:
+
+- **Prepare.** `EffectInit` reads the host's sample rate and stems, picks the
+  matching layout and calls `prepare` with 1,024 frames (the AAX native maximum)
+  and 1,024 input/output events. A stem pair the product did not declare is
+  refused. `Uninitialize` deactivates; the instance is destroyed with the model.
+- **Host parameter changes.** `UpdateParameterNormalizedValue` denormalizes and
+  calls `set_value`, so state saved afterwards includes the change; the
+  processor receives it at the start of the next block (one value per block).
+- **Editor edits.** On every data-model and GUI timer tick the adapter drains
+  `take_edits`: begin → `TouchParameter`, value → `SetParameterNormalizedValue`,
+  end → `ReleaseParameter`. Edits to hidden parameters are not reported.
+- **Read-only parameters** follow the table's cache on the timer.
+- **Processing.** The algorithm callback reads the host transport through
+  `RavetAaxTransport`, converts MIDI input with `RavetAaxShortMidiInput` (raw
+  short messages; when the strict preflight rejects a stream, for example one
+  containing SysEx, the complete short messages are kept and the rest skipped),
+  calls `process` and posts generated short MIDI messages to the output node.
+  Frame counts above 1,024 and failed blocks are silenced. Denormal flushing and
+  the product's automation and bypass policies stay inside the table.
+- **Latency.** `latency_changed` is read on the main thread; the audio thread
+  then calls `timing()` between blocks (the table forbids it during `process`),
+  and the next timer tick reports the value with `SetSignalLatency`.
+- **Editor.** `CreateViewContainer` calls `editor_open` with
+  `RAVET_PLUGIN_VIEW_COCOA` for an `NSView` or `RAVET_PLUGIN_VIEW_WIN32` for an
+  `HWND`; the GUI timer calls `editor_idle`; removing the view calls `editor_close`.
+
+### Signing
+
+Builds are **unsigned**. Avid requires shipping AAX plug-ins to be wrapped and
+signed with PACE tools under the vendor's own Avid agreement and NDA; that step
+belongs to the plug-in vendor and is outside RAVET. Unsigned builds load only in
+Pro Tools Developer (Avid's development build). On macOS arm64 the linker's ad
+hoc signature is the only signature. The bundle script writes a notice saying so
+into `Contents/Resources/notices`, and installs nothing into host folders.
+
+### Checks
+
+`ctest` in the build directory runs:
+
+- `ravet_aax_check <bundle> [--editor]`, which loads any built bundle, checks the
+  ACF exports and SDK version, registers its descriptors with a synthetic
+  collection and, for every effect, runs `Initialize` with a synthetic
+  controller and transport host, reads every parameter and its text round trip,
+  renders blocks (including MIDI through any MIDI nodes and an empty block),
+  saves, compares and reloads the state chunk, rejects a corrupted one and
+  uninitializes. On macOS `--editor` also opens each editor through its
+  `AAX_IEffectGUI` in a real off-screen `NSView`.
+- `ravet_aax_adapter_tests` (mock table only), which checks descriptors, field
+  layout, parameter registration and text, host changes reaching the cache,
+  bypass, oversized blocks, MIDI in/out and the SysEx fallback, the latency
+  handshake, editor gestures, state bytes and recall, read-only reflection,
+  `editor_open`/`editor_idle`/`editor_close`, stereo and layout refusal.
+
+Neither is Avid's validator (DSH/`aaxval`, distributed to AAX developers under
+NDA) and neither is a Pro Tools run. Where the validator is installed, run its
+standard test suite on the built bundle as its own documentation describes, and
+record the validator version and results with the build.
+
+### Limits
+
+- Main bus only; stems are mapped for 0, 1 and 2 channels. Layouts with other
+  channel counts are skipped, because the table carries no channel roles.
+- Automation is applied once per block; AAX packets and sample-accurate
+  automation are not used.
+- `set_value` is a main-thread call in the table. Pro Tools is expected to call
+  `UpdateParameterNormalizedValue` there; this has not been observed in a host.
+- Generated MIDI is posted as short messages only; SysEx is neither delivered
+  nor generated.
+- No tail is reported: the AAX SDK 2.8 native interface has no tail property.
+- Editors keep the product's size (no host-driven resizing). In this release
+  the table hosts editors on macOS only, so a Windows build opens no editor.
+- No AudioSuite, sidechain or auxiliary outputs, meters or page tables.
+- The AAX category is coarse: the table has no finer AAX category (EQ, Delay…).
+- Evidence is local: macOS arm64 builds and the checks above. No Windows build
+  has been run, Avid's validator is not available locally, and no Pro Tools run
+  has been made.
+
+The rest of this page describes the 0.0.1 references.
+
+## 0.0.1 references
 
 The default local AAX reference uses an authored public-SDK data model and
 algorithm around the public native Gain processor. It checks native preparation

@@ -73,7 +73,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Reference VST3 modules](vst3-reference-modules.md) | Keyed Sidechain and Event Probe test modules for hosted auxiliary buses and rich events |
 | [AUv3 and mobile](mobile.md) | Native Apple/Android adapters, public app fixtures and validation limits |
 | [AudioUnit v2 reference](audio-unit.md) | External SDK component build, normalized controls and in-process render/state checks |
-| [AAX reference](aax.md) | External SDK build, registered native parameter/control fixtures and explicit lifecycle/host/signing limits |
+| [AAX](aax.md) | Generic AAX adapter for any exported product (unsigned builds, macOS and Windows), plus the 0.0.1 native references, fixtures and limits |
 | [AAX internal precision](aax-precision.md) | Explicit native32/64 DSP behind host-f32 buffers |
 | [AAX timing](aax-timing.md) | Checked initial latency and prepared acknowledged replacement |
 | [AAX native editor](aax-native-editor.md) | Optional owned WebKit editor and checked host automation |
