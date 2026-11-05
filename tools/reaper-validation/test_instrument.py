@@ -52,3 +52,13 @@ class InstrumentChecks(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PrepareSignatureTests(unittest.TestCase):
+    def test_wrapper_accepts_every_delay_prepare_parameter(self):
+        """The instrument wrapper must track delay.prepare's parameters (e.g. mac_arch)."""
+        import inspect
+        import delay
+        wrapped = list(inspect.signature(delay.prepare).parameters)
+        wrapper = list(inspect.signature(instrument.prepare).parameters)
+        self.assertEqual(wrapper, wrapped)

@@ -9212,3 +9212,36 @@ machine-specific environment issue: the same harness passes on Linux and
 Windows, and macOS host evidence for each format comes from Ableton Live 12,
 Logic Pro, Pro Tools 26.4 and the earlier REAPER runs. macOS instrument
 MIDI evidence in a host is therefore still missing.
+
+### macOS REAPER unblocked; instrument evidence; AUv2-in-REAPER timing bug (2026-11-05)
+
+Merged `platform/macos-x86-64` (code conflicts: VST3 CMake options and AU
+validation kept both sides — the architecture-aware path plus the registrar
+retry). Integration bug found and fixed: the merged `delay.prepare` gained a
+`mac_arch` parameter that `instrument.py`'s wrapper did not accept, so every
+instrument run failed with a `TypeError`; the wrapper now forwards it and a new
+test checks that the wrapper's signature matches (19 harness tests pass).
+
+The macOS REAPER blockage recorded earlier was REAPER's audio-initialisation
+alert on the default device (UMC1820): with the disposable configuration set to
+the built-in output (`coreaudiooutdevnew`/`coreaudioindevnew=Mac mini
+Speakers`, 48 kHz, 512 frames), the delay CLAP harness passes again on arm64.
+VST3 runs use a `sandbox-exec` wrapper that hides the system VST3 folders from
+the private REAPER process (docs/host-validation.md). The normal REAPER
+directory stayed unchanged in every run.
+
+RAVET Evidence Synth on macOS 27 arm64, REAPER 7.82: CLAP, LV2 and VST3
+(VST3 through the wrapper) pass the instrument harness — exact onsets at 24,000
+and 48,000, CC 1 levels, reported latency 32 → 0 → 32 with PDC, finite tail
+and MIDI echo to a second instance.
+
+AUv2 delay in REAPER on arm64 (current build installed as
+`~/Library/Audio/Plug-Ins/Components/RAVET Delay.component`): all 63 host
+checks pass (discovery, 8 parameters, readback, recall), but renders fail.
+Fixed (sync off, 100 ms, mix 100): echoes at 30,848 and 102,848 (+6,848 rather
+than +4,800). Synced (1/8 at 150 BPM, mix 50): dry exactly at 24,000 and 96,000,
+echoes at 36,672 (+12,672) and 110,208 (+14,208) rather than +9,600. This
+matches the Rosetta observation, while Logic Pro bounces were sample-exact, so
+REAPER's AU hosting exposes a time/tempo delivery defect in the AUv2 adapter
+or a host interaction still to be found. Under the `sandbox-exec` wrapper REAPER
+saw none of the AU's parameters, so AU runs must not use it.
