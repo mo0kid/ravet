@@ -1,5 +1,6 @@
 //! Product and parameter descriptions shared by every export format.
 use crate::identity::{Identities, IdentityOverrides};
+use crate::policy::{AutomationPolicy, BypassPolicy};
 use ravet_foundation::{AudioLayout, ParameterId, ParameterRange, ParameterScale};
 
 /// Maximum parameters per product, matching the native table limit.
@@ -252,6 +253,8 @@ pub struct Product<'a> {
     state: StateFormat,
     identities: IdentityOverrides<'a>,
     editor: Option<Editor<'a>>,
+    automation: AutomationPolicy,
+    bypass: BypassPolicy,
 }
 
 /// A web editor: one HTML page and its size in logical pixels.
@@ -304,6 +307,8 @@ impl<'a> Product<'a> {
             state,
             identities: IdentityOverrides::NONE,
             editor: None,
+            automation: AutomationPolicy::SampleAccurate,
+            bypass: BypassPolicy::Processor,
         }
     }
     /// Supported main-bus layouts, preferred first. Hosts may choose any of them.
@@ -335,6 +340,19 @@ impl<'a> Product<'a> {
     /// Keep format identities from an earlier product instead of deriving them.
     pub const fn with_identities(mut self, identities: IdentityOverrides<'a>) -> Self {
         self.identities = identities;
+        self
+    }
+    /// How parameter changes reach the processor within a block; see
+    /// [`AutomationPolicy`]. The default is sample-accurate.
+    pub const fn with_automation(mut self, automation: AutomationPolicy) -> Self {
+        self.automation = automation;
+        self
+    }
+    /// How the host bypass parameter is applied; see [`BypassPolicy`]. The
+    /// default passes it to the processor. Other policies require a
+    /// [`Parameter::bypass`] parameter.
+    pub const fn with_bypass(mut self, bypass: BypassPolicy) -> Self {
+        self.bypass = bypass;
         self
     }
     pub fn name(&self) -> &'a str {
@@ -375,6 +393,12 @@ impl<'a> Product<'a> {
     }
     pub fn editor(&self) -> Option<Editor<'a>> {
         self.editor
+    }
+    pub fn automation(&self) -> AutomationPolicy {
+        self.automation
+    }
+    pub fn bypass_policy(&self) -> BypassPolicy {
+        self.bypass
     }
 
     /// Validate the description and resolve parameter IDs and format identities.
@@ -466,6 +490,18 @@ impl<'a> Product<'a> {
             }
             ids.push(id);
         }
+        match self.bypass {
+            BypassPolicy::Processor => {}
+            _ if bypass.is_none() => return Err(ProductError::BypassPolicyWithoutParameter),
+            BypassPolicy::Crossfade { milliseconds }
+                if !(milliseconds.is_finite()
+                    && milliseconds > 0.0
+                    && milliseconds <= crate::policy::MAXIMUM_CROSSFADE_MS) =>
+            {
+                return Err(ProductError::InvalidBypassPolicy);
+            }
+            _ => {}
+        }
         let identities = Identities::resolve(self)?;
         Ok(ResolvedProduct {
             product: *self,
@@ -539,6 +575,11 @@ pub enum ProductError {
     InvalidIdentity(&'static str),
     /// The editor page is empty or over 1 MiB, or its size is outside 64 to 4096.
     InvalidEditor,
+    /// A bypass policy other than [`BypassPolicy::Processor`] needs a
+    /// [`Parameter::bypass`] parameter.
+    BypassPolicyWithoutParameter,
+    /// A crossfade time is not finite or outside 0 (exclusive) to 1000 ms.
+    InvalidBypassPolicy,
 }
 impl core::fmt::Display for ProductError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
