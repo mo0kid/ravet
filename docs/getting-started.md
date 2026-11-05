@@ -110,8 +110,8 @@ checkout, replace the Git source with `path = "../ravet/crates/ravet"`. A
 `[patch]` redirect is not a substitute offline: Cargo still fetches the tag
 before applying it.
 
-The `v0.1.0` tag does not exist yet; see the [release plan](releases/0.1.0.md).
-Until it does, pin an exact `rev` of `main`. Released tags are never moved.
+`v0.1.0` is the first release tag. To use unreleased changes, pin an exact
+`rev` of `main` instead. Released tags are never moved.
 The repository is public, so Git dependencies need no credentials.
 
 ## Read and check the documentation

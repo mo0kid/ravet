@@ -15,7 +15,7 @@ SOURCE_NOTE = {
 
 
 # Release preparation: switch this line to "tag" when the release tag exists.
-DEFAULT_RAVET_SOURCE = "path"
+DEFAULT_RAVET_SOURCE = "tag"
 
 def framework_tag(root: Path) -> str:
     """Release tag matching the checkout's workspace version, e.g. v0.1.0."""

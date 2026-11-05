@@ -9791,3 +9791,20 @@ The owner's macOS standalone audio and MIDI run of the DW-303 application
 (USB vendor 0x1397) for output and a Studiologic SL STUDIO keyboard (USB vendor
 0x9516, product 0x2015) for MIDI input; both names are as macOS reports them
 in its USB device list on this Mac.
+
+### 0.1.0 release commit prepared (2026-11-05)
+
+On `release/0.1.0`: workspace version and internal dependency requirements
+0.1.0 (root `Cargo.toml`, `ravet-embedded`, `ravet-native-dsp`,
+`examples/embedded-gain`; `Cargo.lock` refreshed); Foundry's
+`DEFAULT_FRAMEWORK_SOURCE` and the starter CLI's `DEFAULT_RAVET_SOURCE`
+switched to the release tag; final release notes (highlights, recorded host
+scope, limits, upgrading), dated changelog, README version statement, getting
+started and Foundry guides updated. Checks: `cargo check --workspace`, Foundry
+tests (13 pass), 132 script tests and the documentation checker pass.
+
+Remaining release steps belong to the owner: merge to `main` and push, let the
+hosted macOS/Windows CI run (its first run), create the annotated `v0.1.0` tag
+on the release commit, then move DW-303's RAVET dependency to the tag. Until the
+tag exists, projects generated with the new tag default cannot fetch RAVET;
+choose `path` for them.

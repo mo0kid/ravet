@@ -2,10 +2,10 @@
 
 User-facing changes since the [0.0.1 source preview](docs/releases/0.0.1.md),
 grouped in the style of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-0.1.0 is not released. See the [draft release notes](docs/releases/0.1.0-notes.md)
-and [release criteria](docs/releases/0.1.0.md) for remaining work.
+See the [0.1.0 release notes](docs/releases/0.1.0-notes.md) and the
+[release criteria](docs/releases/0.1.0.md).
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-05
 
 ### Changed
 

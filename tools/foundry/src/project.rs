@@ -94,7 +94,7 @@ pub enum FrameworkSource {
 }
 
 /// Default for both the CLI and GUI; change this one line to `Tag` at release.
-pub const DEFAULT_FRAMEWORK_SOURCE: FrameworkSource = FrameworkSource::Path;
+pub const DEFAULT_FRAMEWORK_SOURCE: FrameworkSource = FrameworkSource::Tag;
 impl Default for FrameworkSource {
     fn default() -> Self {
         DEFAULT_FRAMEWORK_SOURCE
@@ -125,7 +125,7 @@ pub struct Project {
     pub kind: Kind,
     /// Absolute path to a local RAVET checkout, canonicalized during generation.
     pub framework_path: PathBuf,
-    /// Cargo dependency source for RAVET packages; defaults to `path`.
+    /// Cargo dependency source for RAVET packages; defaults to `tag` (from 0.1.0).
     #[serde(default)]
     pub framework_source: FrameworkSource,
     /// Optional product web editor; the generic editor is currently macOS-only.
