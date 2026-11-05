@@ -12,13 +12,12 @@ import argparse
 import json
 import os
 import pathlib
-import plistlib
-import shutil
 import subprocess
 import sys
 import third_party_notices
 import tomllib
 import windows_cross
+from clap_bundle import package_product
 
 
 # Reference plug-ins: bundle name, Cargo package and bundle identifier. "generic"
@@ -52,32 +51,18 @@ def bundle(profile: str, plugin: str = "gain", cross: str | None = None) -> path
     subprocess.run(command, cwd=root, check=True, env=environment)
     output = target / "clap" / ("windows" if cross else "") / profile
     output.mkdir(parents=True, exist_ok=True)
-    if cross:
-        artifact = output / f"{name}.clap"
-        shutil.copy2(windows_cross.output_directory(target, profile) / f"{library_stem}.dll", artifact)
-    elif sys.platform == "darwin":
-        artifact = output / f"{name}.clap"
-        contents = artifact / "Contents"
-        executable = contents / "MacOS" / library_stem
-        executable.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(target / profile / f"lib{library_stem}.dylib", executable)
-        version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-        with (contents / "Info.plist").open("wb") as destination:
-            plistlib.dump({
-                "CFBundleExecutable": executable.name,
-                "CFBundleIdentifier": identifier,
-                "CFBundleName": name,
-                "CFBundlePackageType": "BNDL",
-                "CFBundleVersion": version,
-                "CFBundleShortVersionString": version,
-            }, destination)
-        third_party_notices.write(root, crate, contents / "Resources" / "notices")
+    platform = "win32" if cross else sys.platform
+    filename = library_stem + ".dll" if platform == "win32" else "lib" + library_stem + (".dylib" if platform == "darwin" else ".so")
+    directory = windows_cross.output_directory(target, profile) if cross else target / profile
+    version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    artifact = package_product(directory / filename, output / f"{name}.clap", {
+        "name": name, "plugin_id": identifier, "version": version,
+    }, platform)
+    # Notices go inside a macOS bundle, and beside a single-file .clap elsewhere.
+    if platform == "darwin":
+        third_party_notices.write(root, crate, artifact / "Contents" / "Resources" / "notices")
         subprocess.run(["codesign", "--force", "--sign", "-", str(artifact)], check=True)
     else:
-        library = f"{library_stem}.dll" if sys.platform == "win32" else f"lib{library_stem}.so"
-        artifact = output / f"{name}.clap"
-        shutil.copy2(target / profile / library, artifact)
-    if cross or sys.platform != "darwin":
         third_party_notices.write(root, crate, output / f"{name} notices",
                                   windows_cross.TRIPLE if cross else None)
     return artifact

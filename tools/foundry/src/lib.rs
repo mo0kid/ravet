@@ -23,13 +23,12 @@ pub fn choose_directory(
 mod exports;
 #[allow(unsafe_code)]
 mod ffi;
-mod native_templates;
 mod project;
 mod templates;
 pub use controller::{Controller, Snapshot, doctor};
 pub use project::{
-    Format, FrameworkSource, Kind, PluginType, Project, Sdks, create, framework_root, load,
-    regenerate,
+    DEFAULT_FRAMEWORK_SOURCE, Format, FrameworkSource, Kind, PluginType, Project, Sdks, create,
+    framework_root, load, regenerate,
 };
 pub use templates::{FRAMEWORK_GIT, framework_tag};
 
@@ -38,9 +37,16 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 
 /// Self-contained Foundry document using RAVET controls and the shared theme.
 pub fn document() -> String {
-    ravet_surface::embed_web_controls(&include_str!("../web/index.html").replace(
-        "<!-- RAVET_LOGO -->",
-        include_str!("../../../media/ravet_LOGO.svg"),
-    ))
+    ravet_surface::embed_web_controls(
+        &include_str!("../web/index.html")
+            .replace(
+                "@DEFAULT_FRAMEWORK_SOURCE@",
+                &serde_json::to_string(&FrameworkSource::default()).expect("source serializes"),
+            )
+            .replace(
+                "<!-- RAVET_LOGO -->",
+                include_str!("../../../media/ravet_LOGO.svg"),
+            ),
+    )
     .expect("Foundry document has one controls marker")
 }

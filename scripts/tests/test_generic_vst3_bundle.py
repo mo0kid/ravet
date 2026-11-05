@@ -131,6 +131,13 @@ class GenericBundleTests(unittest.TestCase):
             self.run_bundle(mock=True, platform="linux", cross="windows")
         self.assertTrue(any(c[0] == "ctest" for c in self.runner.commands))
 
+    def test_final_bundle_name_matches_its_native_module(self):
+        artifacts = self.run_bundle(platform="linux", bundle_name="my-final-product", validate=False)
+        self.assertEqual(artifacts[0].name, "my-final-product.vst3")
+        configure = next(c for c in self.runner.commands if c[:2] == ["cmake", "-S"])
+        self.assertIn("-DRAVET_VST3_NAME=my-final-product", configure)
+        self.assertFalse(any(Path(c[0]).name == "validator" for c in self.runner.commands))
+
     def test_validator_failure_propagates(self):
         self.runner.fail_validator = True
         with self.assertRaises(subprocess.CalledProcessError):
