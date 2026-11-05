@@ -4695,11 +4695,11 @@ One unattended command per plug-in format creates a disposable REAPER resource d
 
 The runtime workflow configures workspace formatting/tests/lints/Rustdoc and a macOS built-CLAP ABI fixture. A separate GitHub-hosted macOS/Windows workflow builds/tests portable defaults and generic exports, bundles Delay CLAP and runs checksum-pinned clap-validator on every push to main, pull requests and manual dispatch without secrets or external format SDKs.
 
-**Limits:** Configuration only: hosted execution of the release jobs is pending. Portable release checks cover explicitly listed default-feature crates, optional data crypto and the native DSP processor guard, and all ravet-plugin features; they are not an all-features workspace check. Local YAML/download checks and macOS commands do not prove hosted Windows success, DAW/device/editor interaction, real-time deadlines or production signing. Existing broader hosted runtime jobs remain manual/PR; self-hosted Linux never runs PR code.
+**Limits:** Configuration only: hosted execution of the release jobs is pending. Portable release checks cover explicitly listed default-feature crates, optional data crypto and the native DSP processor guard, and all ravet-plugin features; they are not an all-features workspace check. Local YAML/download checks and macOS commands do not prove hosted Windows success, DAW/device/editor interaction, real-time deadlines or production signing. Existing broader hosted runtime jobs remain manual/PR; self-hosted Linux never runs PR code. Windows jobs fetch the checksum-pinned WebView2 SDK 1.0.3650.58 NuGet package for the editor build.
 
-**Source:** [`.github/workflows/runtime.yml`](../.github/workflows/runtime.yml), [`.github/workflows/portable-release.yml`](../.github/workflows/portable-release.yml), [`scripts/fetch-clap-validator.py`](../scripts/fetch-clap-validator.py).
+**Source:** [`.github/workflows/runtime.yml`](../.github/workflows/runtime.yml), [`.github/workflows/portable-release.yml`](../.github/workflows/portable-release.yml), [`scripts/fetch-clap-validator.py`](../scripts/fetch-clap-validator.py), [`scripts/fetch-webview2-sdk.py`](../scripts/fetch-webview2-sdk.py).
 
-**Tests:** [`scripts/tests/test_clap_validator_download.py`](../scripts/tests/test_clap_validator_download.py), [`tools/clap-smoke/src/lib.rs`](../tools/clap-smoke/src/lib.rs).
+**Tests:** [`scripts/tests/test_clap_validator_download.py`](../scripts/tests/test_clap_validator_download.py), [`tools/clap-smoke/src/lib.rs`](../tools/clap-smoke/src/lib.rs), [`scripts/tests/test_webview2_sdk_download.py`](../scripts/tests/test_webview2_sdk_download.py).
 
 **Documentation:** [`docs/runtime-validation.md`](../docs/runtime-validation.md), [`docs/maintenance.md`](../docs/maintenance.md), [`docs/WORK_STATUS.md`](../docs/WORK_STATUS.md).
 

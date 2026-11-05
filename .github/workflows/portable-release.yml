@@ -59,6 +59,13 @@ jobs:
         run: |
           cargo test --locked -p ravet-data --all-features
           cargo test --locked -p ravet-native-dsp --all-features
+      - name: Test WebView2 SDK download integrity checks
+        run: python scripts/tests/test_webview2_sdk_download.py -v
+      - name: Fetch checksum-pinned WebView2 SDK (Windows editors)
+        if: runner.os == 'Windows'
+        run: |
+          sdk="$(python scripts/fetch-webview2-sdk.py target/ci/webview2)"
+          echo "RAVET_WEBVIEW2_SDK=$sdk" >> "$GITHUB_ENV"
       - name: Build and test the generic export layer
         run: |
           cargo build --locked -p ravet-plugin --all-targets --all-features
