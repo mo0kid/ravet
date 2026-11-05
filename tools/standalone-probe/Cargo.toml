@@ -1,0 +1,22 @@
+[package]
+name = "ravet-standalone-probe"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Standalone audio/MIDI evidence helper: device and port listing, timed MIDI notes, loopback capture and WAV analysis"
+
+[dependencies]
+ravet-device.workspace = true
+ravet-midi-device.workspace = true
+rtrb = "=0.4.0"
+
+[lints.rust]
+unsafe_code = "deny"

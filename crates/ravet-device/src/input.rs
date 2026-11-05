@@ -20,24 +20,33 @@ pub struct InputDeviceInfo {
     pub name: String,
     pub configurations: Vec<cpal::SupportedStreamConfigRange>,
 }
+/// Enumerate the default host's input devices and supported configurations.
+///
+/// As with [`crate::output_devices`], a device whose ID, name or configurations
+/// cannot be read (for example a busy ALSA hardware PCM) is left out; only a
+/// host-level enumeration failure is an error.
 pub fn input_devices() -> Result<Vec<InputDeviceInfo>, cpal::Error> {
-    cpal::default_host()
+    Ok(cpal::default_host()
         .input_devices()?
-        .map(|device| {
-            Ok(InputDeviceInfo {
-                id: device.id()?.to_string(),
-                name: device.description()?.name().to_owned(),
-                configurations: device.supported_input_configs()?.collect(),
+        .filter_map(|device| {
+            Some(InputDeviceInfo {
+                id: device.id().ok()?.to_string(),
+                name: device.description().ok()?.name().to_owned(),
+                configurations: device.supported_input_configs().ok()?.collect(),
             })
         })
-        .collect()
+        .collect())
 }
 /// Select an exact input ID or default device, with no implicit fallback.
 pub fn input_device(id: Option<&str>) -> Result<Option<cpal::Device>, cpal::Error> {
     let host = cpal::default_host();
     if let Some(id) = id {
         for device in host.input_devices()? {
-            if device.id()?.to_string() == id {
+            // Skip devices whose ID cannot be read, as `input_devices` does.
+            if device
+                .id()
+                .is_ok_and(|device_id| device_id.to_string() == id)
+            {
                 return Ok(Some(device));
             }
         }

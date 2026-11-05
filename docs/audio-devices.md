@@ -15,7 +15,13 @@ validation remain separate work.
 `output_device(Some(id))` selects that ID with no default fallback; `None` selects
 the current default. Refresh enumeration after device changes. IDs belong to the
 backend and are not promised to be portable across machines or reinstallation.
-CPAL errors are returned rather than replacing devices silently.
+CPAL errors are returned rather than replacing devices silently. A device whose
+ID, name or configurations cannot be read is left out of `output_devices()` and
+`input_devices()` instead of failing the whole list (decision
+[0296](decisions/0296-skip-unqueryable-devices.md)). On Linux ALSA a hardware PCM
+held open by another application (for example a DAW using `hw:` directly)
+reports `DeviceBusy`; it is omitted while the PipeWire/PulseAudio `default` and
+`pipewire` PCMs stay listed. Only a host-level enumeration failure is an error.
 
 Pass an explicit CPAL `StreamConfig` to `open_output`, a maximum scratch frame
 count and an owned `Processor<f32> + Send + 'static`. There is no implicit sample
@@ -140,6 +146,25 @@ second and produces silence on every channel. A non-f32 default configuration
 returns an error. It fails if no callbacks/frames occur or any fault/error/panic
 is reported. This does not test audible output, input, round-trip latency or
 callback deadlines. [Work status](WORK_STATUS.md) records the exact tested setup.
+
+`ravet-standalone-probe` drives and observes a separate standalone application
+for named-device evidence, without modifying the application:
+
+```sh
+cargo run -p ravet-standalone-probe --locked -- list            # audio outputs, MIDI ports
+cargo run -p ravet-standalone-probe --locked -- notes <midi-out-id>
+cargo run -p ravet-standalone-probe --locked -- capture <audio-out-id|default> 6 out.wav
+cargo run -p ravet-standalone-probe --locked -- capture-notes <audio-out-id|default> <midi-out-id> out.wav
+cargo run -p ravet-standalone-probe --locked -- analyse out.wav  # RMS and pitch per 100 ms
+```
+
+`notes` sends A2 (note 45, 110 Hz) for 1 s, rests 0.7 s, then A3 (note 57,
+220 Hz) for 1 s. `capture` and `capture-notes` record an output device through a
+loopback input stream, which CPAL provides on WASAPI (Windows) only; on
+PipeWire, record the application's node with `pw-record --target` instead.
+`analyse` reads 32-bit float WAV files from either source. The capture callback
+pushes into a preallocated ring and reports CPAL stream notifications on
+stderr; it is a test helper, not a real-time product path.
 Offline tests check interleaving, partition/time continuity, fault silencing,
 malformed frames, preparation bounds, panic disable/silencing and 1,000
 allocation-free callbacks. Callback counts include disabled callbacks; frame

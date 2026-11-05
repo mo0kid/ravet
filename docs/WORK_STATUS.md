@@ -55,6 +55,119 @@ Checks:
   `configure`); those features add no code to these crates. Compile evidence
   only.
 
+<a id="release-010-standalone-win-linux"></a>
+
+## Standalone audio and MIDI on Windows and Linux — 5 November 2026
+
+Release-plan §5 item "Standalone audio and MIDI on each platform with a named
+device", on branch `evidence/standalone-win-linux` from `release/0.1.0`
+(`cf913d4`). macOS is covered by the owner's DW-303 report (below, "Standalone
+evidence from DW-303").
+
+**Application.** The DW-303 standalone application (`dw303-standalone`, binary
+`DW-303`) from the DW-303 repository at `e5f205d`, copied to scratch directories
+on each build machine, with its relative RAVET path dependencies pointing at this
+branch (`StandaloneWindow`, the standard Audio/MIDI popup, `ravet-device`,
+`ravet-midi-device`). The DW-303 sources were not changed. DW-303 starts audio at
+launch from its saved `audio.json` (the popup's Start message); each run wrote
+that file in a scratch configuration directory (`XDG_CONFIG_HOME` on Linux,
+`APPDATA` on Windows), so the user's own DW-303 state and preferences were not
+read or written. The popup itself was not operated in these runs.
+
+**Framework fix found by the run.** On Linux, with Ardour holding the onboard
+`hw:PCH` analog PCM, `ravet-device-probe --list` failed with `DeviceBusy`. DW-303
+exited at launch with `Error { kind: DeviceBusy }` before opening a window. The
+device lists now leave out devices that cannot be queried (decision
+[0296](decisions/0296-skip-unqueryable-devices.md)); every run below uses that
+fix. New tool `tools/standalone-probe` (`ravet-standalone-probe`) lists devices
+and MIDI ports, sends a fixed note pattern, captures through WASAPI loopback and
+analyses 32-bit float WAV files ([device guide](audio-devices.md#probe-and-evidence)).
+
+### Linux: audio and MIDI verified
+
+- Machine: omarchy, Arch Linux (Omarchy) x86_64, kernel 7.2.11-arch1-1,
+  Hyprland 0.56.2 with XWayland (`DISPLAY=:0`, `GDK_BACKEND=x11`, no
+  `WAYLAND_DISPLAY`), PipeWire 1.6.9 with WirePlumber, webkit2gtk-4.1 2.54.1.
+  Built natively: `cargo build --release -p dw303-standalone --bin DW-303`.
+- Audio device: CPAL ALSA host PCM **`PipeWire Sound Server`** (ID
+  `alsa:pipewire`). PipeWire routed the stream (node `alsa_playback.DW-303`) to
+  its default sink, **`Dummy Output`** (`auto_null`). This is a timer-driven
+  null sink, not a hardware output. The onboard ALCS1200A analog PCM was held by
+  Ardour throughout and was not touched. Settings: 48 kHz, output pair 1/2,
+  backend default buffer.
+- MIDI input: ALSA sequencer port **`Midi Through Port-0`** (`14:0`, the kernel
+  `snd-seq-dummy` client, already loaded; no module was loaded). While the app
+  ran, `aconnect -l` showed client `RAVET input` connected from `14:0`.
+- Procedure (`run-linux.sh`, kept with the scratch artifacts): launch DW-303; wait
+  for its PipeWire node; record that node with `pw-record --target <serial>
+  --rate 48000 --channels 2 --format f32`; after 1 s send note-on 45 (A2,
+  110 Hz) with `aseqsend -p 14:0 "90 2D 64"` (alsa-utils 1.2.16), note-off
+  after 1 s, rest 0.7 s, note 57 (A3, 220 Hz) for 1 s, then 1 s more.
+  RUN stays off at launch, so the voice sounds only from MIDI notes.
+- Result, four runs (13:39–13:40 UTC), identical within 0.3 dB
+  (`ravet-standalone-probe analyse`): digital silence (−inf dBFS) for the first
+  1.0 s; at the first note −25 dBFS decaying to −40 dBFS, pitch 109.1–110.1 Hz;
+  below −93 dBFS within 100 ms of note-off; at the second note −24 dBFS, pitch
+  218.2–220.2 Hz; below −100 dBFS after its note-off. Peak 0.29–0.31; left and
+  right identical (DW-303 duplicates its mono voice). Audio flowed through the
+  named device, and each MIDI note produced the expected pitch at the expected
+  time.
+- Not established: the window's rendered content. Hyprland reported a mapped
+  XWayland window `DW-303`, tiled at 581×317. WebKitGTK printed `Failed to create
+  GBM buffer` twice. A screenshot at the reported coordinates showed only the
+  wallpaper, so it was discarded. Shutdown was by SIGTERM: Hyprland 0.56's Lua
+  dispatch did not move focus to the window, and the script will not close an
+  unverified focused window. Clean quit and state saving were therefore not
+  exercised on Linux. Hardware output, latency and callback deadlines were
+  not measured.
+
+### Windows: audio verified; MIDI input not exercised
+
+- Machine: Windows 11 Enterprise Evaluation 10.0.26100 (build
+  26100.ge_release.240331-1435), QEMU/KVM VM on omarchy, 1280×800, logged-on user
+  `shine`. Cross-built on omarchy with cargo-xwin 0.23.1, WebView2 SDK from
+  `~/sdk-review/webview2`, and `-C target-feature=+crt-static`. The first build
+  without it exited with 0xC0000135 because the VM has no `VCRUNTIME140.dll`.
+  Each run started in the logged-on session through a temporary scheduled task
+  (`/it`); the task was deleted afterwards.
+- Audio device: **`Speakers (High Definition Audio Device)`** (WASAPI ID
+  `{0.0.0.00000000}.{8b54a409-33f4-47b8-854c-7288d2320f3d}`), the VM's emulated
+  HDA codec (`VEN_1AF4&DEV_0022`). QEMU sends it to omarchy's PipeWire `Dummy
+  Output`, so nothing was physically audible. It was the only output listed and
+  the default; nothing was changed. Settings: 48 kHz, output pair 1/2, default
+  buffer.
+- Run 1 (13:55 UTC): DW-303 opened its window; a QEMU monitor screendump shows the
+  panel, the `Audio / MIDI...` menu and the status line `Audio running at 48000
+  Hz`. WM_CLOSE (`CloseMainWindow`) quit it with exit code 0, and it saved
+  `state.bin` (3,200 bytes) to the scratch `APPDATA`.
+- Run 2 (13:56 UTC): five seconds after launch the script clicked RUN/STOP at
+  screen (113, 555) with synthetic `mouse_event` input. `ravet-standalone-probe
+  capture` then recorded the device through WASAPI loopback for 6 s: 288,000
+  frames in 600 callbacks; the capture stream reported one CPAL xrun
+  notification. Analysis: pitched notes between about 65 and 130 Hz at −26 to
+  −33 dBFS, with short gaps (−77 to −83 dBFS) at 0.5, 2.5 and 4.5 s. The
+  per-window pattern repeats exactly every 2.0 s: DW-303's internal demo
+  pattern, played through the named device. A second click stopped it; WM_CLOSE
+  quit with exit code 0. There was no capture before the click, so this run has
+  no silent baseline. DW-303 exposes no stream statistics, so the app's own
+  callbacks and xruns were not counted.
+- MIDI input: not exercised. WinMM, midir's Windows backend, lists no MIDI
+  inputs, only the output `Microsoft GS Wavetable Synth`, from both SSH and the
+  logged-on session. Windows MIDI Services (`midisrv`) runs and has the "MIDI
+  2.0 Loop Devices" transport, but the only endpoints present are the diagnostic
+  `Service Test Loopback A`/`B`. These are MIDI 2.0 endpoints that WinMM does not
+  list. A loopback endpoint visible to WinMM needs the Windows MIDI Services tools
+  or a virtual MIDI driver; neither was installed, by instruction.
+
+Cleanup: no DW-303, recorder or probe process left on either machine, no
+scheduled task left, and no default device changed. The scratch folders
+`~/ravet-standalone-evidence` (omarchy) and `C:\RavetStandaloneEvidence` (VM)
+keep the binaries, scripts, captures and logs.
+
+Checks on macOS 27 arm64: `cargo test -p ravet-device` passes; Clippy with
+warnings denied passes for `ravet-device` and `ravet-standalone-probe` (all
+targets); `cargo fmt --check` passes.
+
 <a id="release-010-webview-review"></a>
 
 ## Web view, standalone window and notice review — 5 November 2026

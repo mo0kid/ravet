@@ -1817,7 +1817,7 @@ id = "midi-device-packets"
 title = "Explicit MIDI devices and bounded complete packets"
 status = "prototype"
 summary = "Native midir connections enumerate/select exact ports, receive short/SysEx packets through prepared SPSC storage and send validated packets to explicit destinations."
-limits = "1024-byte complete packets, power-of-two 1..1024 slots; newest full input drops. Connection-local microsecond timestamps require explicit audio mapping. No fragmented SysEx, UMP, automatic reconnect/hotplug, physical-device or non-macOS runtime/deadline claim."
+limits = "1024-byte complete packets, power-of-two 1..1024 slots; newest full input drops. Connection-local microsecond timestamps require explicit audio mapping. Linux ALSA sequencer input (Midi Through Port-0) exercised through the DW-303 standalone app on 5 November 2026; Windows WinMM listed no input on the test VM. No fragmented SysEx, UMP, automatic reconnect/hotplug, physical-device, Windows input or deadline claim."
 sources = ["crates/ravet-midi-device/Cargo.toml", "crates/ravet-midi-device/src/lib.rs"]
 tests = ["crates/ravet-midi-device/tests/packets.rs", "crates/ravet-midi-device/src/lib.rs", "crates/ravet-midi-device/examples/loopback.rs"]
 docs = ["docs/midi.md", "docs/decisions/0032-midi-device-packets.md"]
@@ -1849,10 +1849,20 @@ id = "standalone-output-devices"
 title = "Standalone output audio devices"
 status = "prototype"
 summary = "Explicit CPAL enumeration/ID selection and configured f32 output streams adapt owned prepared processors through bounded planar scratch; a CLI runs silent callback validation."
-limits = "Output-only, 1..64 channels and at most 65,536 scratch frames; no inputs, auxiliary buses, MIDI/events, implicit resampling/conversion, hotplug subscriptions or automatic recovery. macOS UMC1820 20-channel 96 kHz silent callbacks exercised; audible output, latency, deadlines and other targets remain unvalidated. Callback-path invariant failures silence the sub-block and count a processor fault instead of panicking; the device crates deny undocumented unsafe blocks (decision 0295)."
+limits = "Output-only, 1..64 channels and at most 65,536 scratch frames; no inputs, auxiliary buses, MIDI/events, implicit resampling/conversion, hotplug subscriptions or automatic recovery. Devices whose ID, name or configurations cannot be read (for example a busy ALSA hardware PCM) are silently left out of the list (decision 0296). macOS UMC1820 20-channel 96 kHz silent callbacks exercised. Through the DW-303 standalone app, output captured on Arch Linux via ALSA `pipewire` into PipeWire's Dummy Output null sink and on a Windows 11 VM via WASAPI `Speakers (High Definition Audio Device)`; no hardware output on Linux, latency or deadline measured. Callback-path invariant failures silence the sub-block and count a processor fault instead of panicking; the device crates deny undocumented unsafe blocks (decision 0295)."
 sources = ["crates/ravet-device/Cargo.toml", "crates/ravet-device/src/lib.rs", "tools/device-probe/Cargo.toml", "tools/device-probe/src/main.rs"]
-tests = ["crates/ravet-device/tests/output.rs", "tools/device-probe/src/main.rs"]
-docs = ["docs/audio-devices.md", "docs/decisions/0018-output-devices.md", "docs/decisions/0295-device-crate-robustness.md"]
+tests = ["crates/ravet-device/tests/output.rs", "tools/device-probe/src/main.rs", "tools/standalone-probe/src/main.rs"]
+docs = ["docs/audio-devices.md", "docs/decisions/0018-output-devices.md", "docs/decisions/0296-skip-unqueryable-devices.md", "docs/decisions/0295-device-crate-robustness.md"]
+
+[[feature]]
+id = "standalone-evidence-probe"
+title = "Standalone audio/MIDI evidence probe"
+status = "prototype"
+summary = "A CLI lists audio outputs and MIDI ports, sends a fixed A2/A3 note pattern to a MIDI output, records an output device through CPAL loopback capture and reports per-100 ms RMS and pitch for 32-bit float WAV files."
+limits = "Test helper, not a product path; it observes a separate standalone application from outside. Loopback capture of an output device needs CPAL's WASAPI host (Windows); other platforms need an external recorder such as pw-record. f32 devices only; at most 60 s capture into a preallocated ring, with stream notifications printed to stderr. Fixed note pattern (notes 45 and 57, velocity 100, wall-clock timing). The pitch estimate is a 50 Hz to 1 kHz autocorrelation peak, not a tuner. Used on Arch Linux (analysis) and a Windows 11 VM (listing, capture, analysis) on 5 November 2026."
+sources = ["tools/standalone-probe/Cargo.toml", "tools/standalone-probe/src/main.rs"]
+tests = ["tools/standalone-probe/src/main.rs"]
+docs = ["docs/audio-devices.md"]
 
 [[feature]]
 id = "device-stream-notification-statistics"
@@ -1879,7 +1889,7 @@ id = "input-duplex-devices"
 title = "Input capture and FIFO duplex effects"
 status = "prototype"
 summary = "Explicit CPAL f32 input streams publish whole-frame prefixes to a prepared ring; duplex rendering zero-fills underflow, partitions variable callbacks and feeds portable effects."
-limits = "1..64 channels per direction, power-of-two ring 1..65536 frames, scratch up to 65536. Matching nominal rates, independently clocked/sequential streams; no drift compensation or sample-exact alignment. No automatic recovery, hotplug or MIDI/events; hidden-producer automatic recording integration is exercised synthetically, without physical recording validation. The plain input callback has no unwind containment and contains no panic path; an internal duplex invariant failure reads as input underflow or faults the block with silence (decision 0295)."
+limits = "Unqueryable input devices are silently left out of the list (decision 0296). 1..64 channels per direction, power-of-two ring 1..65536 frames, scratch up to 65536. Matching nominal rates, independently clocked/sequential streams; no drift compensation or sample-exact alignment. No automatic recovery, hotplug or MIDI/events; hidden-producer automatic recording integration is exercised synthetically, without physical recording validation. The plain input callback has no unwind containment and contains no panic path; an internal duplex invariant failure reads as input underflow or faults the block with silence (decision 0295)."
 sources = ["crates/ravet-device/src/input.rs", "crates/ravet-device/src/lib.rs", "tools/device-probe/src/main.rs"]
 tests = ["crates/ravet-device/tests/recording_worker.rs", "crates/ravet-device/tests/input.rs", "crates/ravet-device/tests/output.rs", "crates/ravet-device/src/lib.rs", "tools/device-probe/src/main.rs"]
 docs = ["docs/audio-devices.md", "docs/decisions/0028-input-duplex-devices.md", "docs/decisions/0295-device-crate-robustness.md"]
