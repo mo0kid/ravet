@@ -61,15 +61,18 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
         libname = libraries[0]["name"].replace("-", "_")
         filename = libname + ".dll" if platform == "win32" else "lib" + libname + (".dylib" if platform == "darwin" else ".so")
         product_library = (windows_cross.output_directory(target, profile) if cross else target / profile) / filename
+    instrument = validate and package == "ravet-synth-plugin" and not mock
     runner.run(["cmake", "-S", root / "crates/ravet-plugin/adapters/vst3", "-B", build,
                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_VST3_SDK={sdk}",
                 f"-DRAVET_VST3_NAME={name}", f"-DRAVET_VST3_MOCK={'ON' if mock else 'OFF'}",
-                f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}", *toolchain])
+                f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}",
+                f"-DRAVET_VST3_INSTRUMENT_TESTS={'ON' if instrument else 'OFF'}", *toolchain])
     targets = [name] + (["validator"] if validate else []) + (["moduleinfotool"] if cross else []) + \
-        (["ravet_generic_vst3_contracts"] if mock else [])
+        (["ravet_generic_vst3_contracts"] if mock else []) + (["ravet_vst3_instrument_contracts"] if instrument else [])
     runner.run(["cmake", "--build", build, "--config", config, "--target", *targets, "--parallel", "2"])
-    if mock and (not cross or windows_cross.emulator_available(toolchain)):
-        runner.run(["ctest", "--test-dir", build, "-C", config, "--output-on-failure", "-R", "^ravet_generic_vst3_contracts$"])
+    if (mock or instrument) and (not cross or windows_cross.emulator_available(toolchain)):
+        test = "ravet_generic_vst3_contracts" if mock else "ravet_vst3_instrument_contracts"
+        runner.run(["ctest", "--test-dir", build, "-C", config, "--output-on-failure", "-R", "^" + test + "$"])
     artifacts = sorted(p for p in build.rglob(name + ".vst3") if p.is_dir())
     if not artifacts:
         raise RuntimeError("generic VST3 build produced no bundle")

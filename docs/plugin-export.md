@@ -70,7 +70,7 @@ Any existing `Processor<f32>` can be exported unchanged. The crate must not
 `python3 scripts/bundle-clap.py --plugin generic` bundles it. The
 [tempo-synced delay](examples.md#tempo-synced-delay-plug-in) in
 `examples/delay-plugin` is a fuller example with explicit parameter IDs, host
-tempo, a tail and a web editor; `--plugin delay` bundles it.
+tempo, a tail and a web editor; `--plugin delay` bundles it. The [deterministic instrument](synth-plugin.md) adds notes, MIDI echo, CC response and switchable nonzero latency through the same generic layer.
 
 The processor receives parameter changes as `ParameterValue` events with the
 product's host IDs and physical values, already clamped and snapped to range.
@@ -124,11 +124,37 @@ denormals flushed in every format; products need no guard of their own. A
 platform where the mode cannot be set fails activation (CLAP) or creation (the
 native table) instead of processing without the guard.
 
+The native product library additionally exports
+`ravet_plugin_with_denormal_mode_v1(mode, callback, context)` from
+`RavetPlugin.h`. Mode 0 preserves the current mode; mode 1 enters
+`ScopedDenormalMode::FlushBoth`. It calls the C callback synchronously on the
+calling thread and restores the exact prior control **and sticky status** on
+return. Nested calls restore lexically. Returns 0 on success, 1 for an invalid
+mode/null callback, or 2 for an unsupported actual environment without invoking
+the callback. No allocation, token or arbitrary register setter is involved.
+
+```c
+static void process_native(void *context) { /* bounded DSP using context */ }
+int32_t status = ravet_plugin_with_denormal_mode_v1(1, process_native, context);
+```
+
+The caller keeps the context valid and the callback must return normally on
+this thread: no unwind, longjmp or retained scope. The symbol lives in the
+exported product library; adapters need no separate call because their table
+processing already has the guard. VST3 `Component::process`, AU render chunks,
+AAX algorithm callbacks and LV2 `run` chunks dispatch through that same native
+`process` pointer. CLAP process/active flush dispatch through the wrapped
+bridge. Host event translation outside product DSP does not change the host's
+floating-point policy. Native table tests observe flushing inside DSP, and the
+instrument's C callback test checks nested scope entry and exact restoration.
+See [the instrument](synth-plugin.md) and
+[decision 0291](decisions/0291-instrument-midi-and-c-denormal-scope.md).
+
 ### CLAP export
 
 The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 
-- The descriptor, audio ports, note input and parameters come from the product.
+- The descriptor, audio ports, MIDI input/output ports and parameters come from the product.
   Parameters with integer steps, and the bypass toggle, are marked stepped.
 - Parameter text uses `ravet_plugin::text`, shared with the native table. The
   bypass parameter and unitless 0/1 toggles read `On`/`Off`; hosts may type
@@ -141,7 +167,13 @@ The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 - State uses the versioned envelope and the product's hooks. Loading state
   sends every value to the processor and resets it before the next block.
 - Latency is reported at activation; a later change requests a host restart.
-  Tail follows `Processor::tail`.
+  Tail follows `Processor::tail`. Activation applies cached controls before reporting latency; active parameter flushes also detect a latency change.
+- Declared MIDI output prepares at most 1,024 generated events and delivers
+  validated short MIDI/portable notes through port 0. Both advertised ports use
+  the MIDI dialect. Unrepresentable output rejects the generated stream;
+  host queue rejection discards the remaining suffix. Successful audio remains
+  valid, and no event is replayed on a later block. Cached-state synchronization
+  discards generated zero-frame events, as in the native table.
 - Every processing call runs inside the product's
   [policies](#automation-and-bypass-policies) and the
   [denormal guard](#denormal-guard).
@@ -158,7 +190,7 @@ Limits for now:
 
 - Only the first declared layout is used (no audio-port configurations).
 - Processing is f32.
-- Note output and product extra state are not exported.
+- Product extra state is not exported.
 - The editor runs on macOS only; Windows and Linux editors follow. Linux and
   Windows bundles build and validate without one; see
   [Linux and Windows builds](#linux-and-windows-builds).

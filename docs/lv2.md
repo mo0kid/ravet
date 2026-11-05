@@ -9,8 +9,7 @@ stay until the export layer replaces them.
 ## Generic LV2 export
 
 **Status:** Prototype for 0.1.0. Design: [decision 0281](decisions/0281-generic-export-layer.md);
-LV2 choices: [decision 0283](decisions/0283-generic-lv2-adapter.md). Evidence is
-local macOS arm64 only (see [limits](#limits-of-the-generic-export)).
+LV2 choices: [decision 0283](decisions/0283-generic-lv2-adapter.md). The [support matrix](support-matrix.md) separates macOS, Linux and Windows evidence (see also [limits](#limits-of-the-generic-export)).
 
 One LV2 module (`ravet_lv2`), one UI module (`ravet_lv2_ui`) and a Turtle
 generator (`ravet_lv2_turtle`) are written once against the product table
@@ -568,3 +567,13 @@ Rust native archives, passes all twelve actual-native profiles and packages and
 validates NoteRouting through the maintained pipeline with actual Cargo and strict
 ad-hoc signature verification. Public workspace acceptance remains separate; no
 LV2 DAW, SysEx, UMP/MIDI2, auxiliary host routing or editor is inferred.
+
+## Generic instrument evidence — 5 November 2026
+
+The [Evidence Synth](synth-plugin.md) passes actual LV2 Atom MIDI
+bytes/offsets, CC-scaled exact audio, finite audio tail and latency-port change
+checks on macOS arm64. Its no-editor product has no UI declaration. Linux
+REAPER 7.82 exact renders cover MIDI routing/CC/PDC. LV2 exports no tail port;
+the finite tail is checked in audio. The dated receipt separates host checks
+from lilv, Turtle validation and synthetic adapter tests.
+See the [receipt](WORK_STATUS.md#release-010-instrument-evidence).

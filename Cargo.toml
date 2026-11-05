@@ -30,6 +30,7 @@ members = [
     "examples/gain-clap",
     "examples/gain-plugin",
     "examples/delay-plugin",
+    "examples/synth-plugin",
     "examples/sine-clap",
     "examples/sidechain-clap",
     "examples/vst3-reference-native",

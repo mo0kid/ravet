@@ -71,6 +71,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Native semantics](native-semantics.md) | Explicit custom-control semantic snapshots and guarded AppKit intent delivery |
 | [Native editor](native-editor.md) | macOS WebKit prototype, ownership, and main-loop probe |
 | [Sidechain CLAP reference](sidechain-clap.md) | Native f32/f64 stereo main buses and mono auxiliary detector validation |
+| [Generic instrument evidence](synth-plugin.md) | Deterministic clicks, MIDI echo/CC, switchable latency and exact-sample host checks |
 | [MIDI sine CLAP reference](sine-clap.md) | Native instrument bundle, timed MIDI and atomic level recall |
 | [Native client acquisition](native-client-acquisition.md) | Exact core origin and balanced CONTROL ownership |
 | [Native table identity](native-table-identity.md) | Canonical runtime processor and companion table acquisition |

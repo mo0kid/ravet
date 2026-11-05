@@ -373,3 +373,19 @@ outside `[REAPER]`).
 Executed results are recorded in [work status](WORK_STATUS.md). A pass covers
 the tested REAPER version, OS, format and offline render path only: no live
 playback, device, deadline, editor or automation claim.
+
+## Generic instrument MIDI, CC and PDC
+
+`tools/reaper-validation/instrument.py` reuses the disposable Delay runner for
+RAVET Evidence Synth. It feeds a generated MIDI item, checks host latency
+readback (32→0→32), renders known clicks with and without CC response, and
+routes MIDI to a second instrument with the first instance's audio disconnected.
+The checker validates every sample, including exact onsets and finite audio
+tail. See [fixture commands and limits](synth-plugin.md#reaper-fixture) and the
+[5 November 2026 receipt](WORK_STATUS.md#release-010-instrument-evidence).
+Linux REAPER 7.82 CLAP/VST3/LV2 runs pass. macOS startup attempts did not reach
+the script; those failures supply no instrument host evidence. VST3 on macOS
+was skipped as requested because of its known third-party startup scan stall.
+Format tests independently check MIDI output bytes/offsets; REAPER's audio
+render alone cannot exclude host MIDI-through. No physical MIDI device,
+editor or live callback deadline is qualified by this fixture.
