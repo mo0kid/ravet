@@ -18,10 +18,12 @@ def popen_in_work(command, *args, **kwargs):
 
 _original_prepare = delay.prepare
 
-def prepare(work, fmt, bundle, fx_name, quit_after, extra_ini, env_path=False, windows_work=None):
+def prepare(work, fmt, bundle, fx_name, quit_after, extra_ini, env_path=False, windows_work=None,
+            mac_arch=None):
     if windows_work is not None:
         raise SystemExit('instrument harness supports native macOS/Linux runs, not --windows-root')
-    ini, script, env = _original_prepare(work, fmt, bundle, fx_name, quit_after, extra_ini, env_path)
+    ini, script, env = _original_prepare(work, fmt, bundle, fx_name, quit_after, extra_ini, env_path,
+                                         None, mac_arch)
     config = {'root': script.parent.as_posix(), 'resource': ini.parent.as_posix(),
               'format': fmt, 'rate': 48000, 'length': 2, 'quit': quit_after}
     script.write_text('RAVET_SYNTH = ' + delay.lua_value(config) + '\n' +
