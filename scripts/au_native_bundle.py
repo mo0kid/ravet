@@ -79,11 +79,12 @@ def build(root, args, *, runner=None, sign=True, profile="release"):
         library = None
     build_dir = (args.build_dir or root / "target/au-native" / ("mock-" + args.mock if args.mock else args.plugin)).resolve()
     source = root / "adapters/auv2"
-    common = ["cmake", "-S", source, "-B", build_dir, f"-DCMAKE_BUILD_TYPE={config}"]
+    common = ["cmake", "-S", source, "-B", build_dir, f"-DCMAKE_BUILD_TYPE={config}",
+              *getattr(args, "cmake_options", ())]
     run(*common, "-DRAVET_PRODUCT_LIBRARY=")
     targets = ["ravet_au_metadata", "ravet_au_plugin_contracts"]
     if args.validate:
-        targets.append("ravet_au_delay_contracts")
+        targets += ["ravet_au_delay_contracts", "ravet_auval_registration"]
     if args.mock:
         target = {"effect": "ravet_au_mock", "instrument": "ravet_au_mock_instrument", "midi": "ravet_au_mock_midi"}[args.mock]
         targets.append(target)

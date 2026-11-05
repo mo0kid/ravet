@@ -373,3 +373,68 @@ outside `[REAPER]`).
 Executed results are recorded in [work status](WORK_STATUS.md). A pass covers
 the tested REAPER version, OS, format and offline render path only: no live
 playback, device, deadline, editor or automation claim.
+
+## macOS Rosetta 2
+
+`delay.py --arch x86_64` launches the selected REAPER executable with
+`arch -x86_64` and writes the x86_64 CLAP/VST scan keys even when Python is
+arm64. `--arch arm64` is also available. Both require macOS. The normal-resource
+snapshot comparison and ReaScript foreign-resource abort remain enabled.
+REAPER.app must contain the requested slice (`lipo -archs` its executable).
+
+Build a universal product first, then run CLAP or LV2, for example:
+
+```sh
+python3 scripts/bundle-plugin.py --package ravet-delay-plugin \
+  --formats clap,lv2 --arch universal --release
+python3 tools/reaper-validation/delay.py --format clap --arch x86_64 \
+  --bundle target/plugins/macos-universal/release/ravet-delay-plugin.clap \
+  --reaper /Applications/REAPER.app \
+  --ini 'coreaudiooutdevnew=Mac mini Speakers' \
+  --ini 'coreaudioindevnew=Mac mini Speakers' \
+  --ini coreaudiosrate=48000 --ini coreaudiosrateuse=1 \
+  --ini coreaudiobs=512 --ini coreaudiobsuse=1
+```
+
+The named built-in device resolved an audio-initialization modal in this
+recorded environment. Choose an available device for another machine; these
+settings belong only to the disposable configuration. The harness removes the
+master's hardware sends before rendering, so this is offline host evidence.
+
+A Rosetta VST3 run initially stalled scanning system plug-ins. The successful
+run used an executable shell wrapper passed as `--reaper`, restricting those
+search paths for the private REAPER process with the built-in `sandbox-exec`:
+
+```sh
+#!/bin/sh
+exec /usr/bin/sandbox-exec -p "(version 1)(allow default)(deny file-read* (subpath \"/Library/Audio/Plug-Ins/VST3\") (subpath \"$HOME/Library/Audio/Plug-Ins/VST3\"))" \
+  /absolute/path/to/target/reaper-delay/app/REAPER.app/Contents/MacOS/REAPER "$@"
+```
+
+Point the wrapper at the **private copy** created by the earlier `.app` run;
+use `--format vst3 --arch x86_64 --bundle <new-bundle>` and the same device
+settings. Its private VST3 cache must name the selected bundle. This restriction
+changes no installed plug-ins or system settings. Only CLAP/VST3/LV2 passed
+all strict renders in the [5 November receipt](WORK_STATUS.md#release-010-macos-architectures).
+
+An additional AU run used an executable shell wrapper with RAVET's process-local
+registration helper, avoiding changes to the installed same-identity component:
+
+```sh
+#!/bin/sh
+exec /usr/bin/env \
+  RAVET_AUVAL_BUNDLE=/absolute/path/to/new.component \
+  DYLD_INSERT_LIBRARIES=/absolute/path/to/build/libravet_auval_registration.dylib \
+  /absolute/path/to/target/reaper-delay/app/REAPER.app/Contents/MacOS/REAPER "$@"
+```
+
+The helper is built by the AU builder with `--validate`; its location is under
+`target/plugin-build/macos-<arch>/au-native/<crate_stem>/<profile>/`.
+Run `--format au --arch x86_64 --bundle <new.component> --reaper <wrapper>`.
+`--bundle` is recorded for AU; the wrapper actually registers its exact factory.
+The default AU discovery prefix now matches REAPER 7.82's `AU: RAVET Delay`.
+Discovery and 63 host edit/recall checks passed, but all three strict render
+cases failed timing: fixed/recalled echoes were 2,048 frames late, synced echoes
+3,072 late. That run is **not** an AU render pass. All runs left the guarded
+normal REAPER resource files unchanged. This is **Rosetta 2 on Apple silicon**,
+not native Intel hardware, live-device, editor, or real-time qualification.

@@ -3,7 +3,8 @@
 **Evidence as of: 5 November 2026.** This hand-maintained page summarizes
 recorded runs of the generic export layer's **RAVET Delay** example on
 `release/0.1.0` through `628af5d`, plus the local validator rerun in the docs/CI
-work package. It is not a certification of every product,
+work package, and the macOS architecture work based on `eb4d2f5` below.
+It is not a certification of every product,
 host version, device or deadline. Format adapters remain prototypes. Earlier
 0.0.1 reference checks remain in [work status](WORK_STATUS.md) and
 [host validation](host-validation.md); they do not qualify the new adapters.
@@ -41,6 +42,33 @@ because the dragged/reset values differ from exact targets; the fixed default
 also has a small one-sample split from normalized parameter precision. The
 release plan's previous blanket “sample-exactly” wording must not be read as a
 strict checker pass for these manual runs.
+
+## macOS x86_64 under Rosetta 2
+
+**5 November 2026:** Apple M4 Pro, macOS 27.0.1 (26A434), REAPER 7.82/OSX64
+launched with `arch -x86_64`. Thin x86_64 and universal Delay bundles built in
+all five formats; every shipped image's slices were checked. These are
+**translated x86_64 runs on Apple silicon**, not native Intel hardware evidence.
+The [architecture receipt](WORK_STATUS.md#release-010-macos-architectures)
+records exact builds, wrappers, logs, SDKs and limitations.
+
+| Format | x86_64 validator / adapter result | REAPER 7.82/OSX64 result |
+|---|---|---|
+| CLAP | Pinned clap-validator 0.4.1 (`152b982`): 33 passed, 0 failed/warnings, 11 skipped | Universal bundle: 63 host checks and all three strict 48 kHz renders passed |
+| VST3 | SDK 3.8.1 validator: 47 passed, 0 failed | Universal bundle: 63 host checks and all three renders passed; per-process sandbox excluded system VST3 directories after an initial startup-scan timeout |
+| AUv2 | Exact signed bundle's contracts and private process-local `auvaltool` 1.10.0 passed, preserving original identity | Thin x86_64 component registered process-locally: discovery and 63 host checks passed; **strict renders failed**, fixed/recalled echoes 2,048 frames late and synced echoes 3,072 late |
+| AAX | AAX SDK 2.8.0; RAVET bundle checker passes mono/stereo, parameters and state | Not applicable to REAPER; **Pro Tools x86_64 and Avid validator not run** |
+| LV2 | Actual-module smoke 46 checks, 0 failures; CTest 2/2; `lv2_validate` 0 errors | Universal bundle: 63 host checks and all three strict renders passed |
+
+All successful host runs preserved the normal REAPER resource directory.
+The disposable configs selected Mac mini Speakers at 48 kHz/512 frames to
+avoid an audio-init modal; hardware sends were removed. No live-device claim
+follows. Optional lilv was disabled for universal/non-host builds because the
+installed Homebrew library is arm64-only; **x86_64 lilv and lv2lint not run**.
+Universal validators also ran their arm64 slices. arm64 AU uses system
+registration, which can select an installed same-identity product; its exact
+artifact is independently covered by in-process contracts. The x86_64 AU
+validator uses explicit process-local registration of the new component.
 
 ## Validators and adapter checks (separate from hosts)
 
@@ -92,9 +120,9 @@ and a static CRT. Native MSVC builds are not established by them. Hosted CI is
 - Delay accepts sample rates up to 768 kHz, allocates two two-second delay
   lines at prepare, reads tempo once per block, clamps synced time to two
   seconds and has no editor meters.
-- macOS x86_64 runs, standalone audio/MIDI on all three platforms with named
-  devices, production signing for arbitrary vendors and real-time deadlines
-  remain unestablished. AAX vendor signing is separate from adapter checks.
+- Native Intel macOS hardware, standalone audio/MIDI on all three platforms
+  with named devices, production signing for arbitrary vendors and real-time
+  deadlines remain unestablished. The Rosetta AU render failure above is open. AAX vendor signing is separate from adapter checks.
   AAX applies automation once per block and reports no tail through SDK 2.8.
   VST2 is excluded.
 

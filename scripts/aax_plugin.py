@@ -93,7 +93,7 @@ def static_library(target, crate, platform):
 
 def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None,
           product_library=None, link_libraries="", target_directory=None,
-          profile="release", validate=True, version=None):
+          profile="release", validate=True, version=None, cmake_options=()):
     platform = platform or sys.platform
     if cross not in (None, "windows"):
         raise ValueError("--target accepts only windows")
@@ -130,7 +130,7 @@ def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None
         configure += toolchain
     else:
         configure += ["-A", "x64"] if platform == "win32" else [f"-DCMAKE_BUILD_TYPE={config}"]
-    runner.run(configure)
+    runner.run([*configure, *cmake_options])
     runner.run(["cmake", "--build", build_dir, "--config", config, "--parallel", str(jobs)])
     if validate and (not cross or windows_cross.emulator_available(toolchain)):
         runner.run(["ctest", "--test-dir", build_dir, "-C", config, "--output-on-failure"])
