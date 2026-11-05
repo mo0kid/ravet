@@ -2,7 +2,7 @@
 // bundle. A minimal in-process LV2 host loads the bundle's actual adapter and
 // UI modules.
 //
-//   ravet_lv2_contracts <bundle directory> <adapter file> <ui file> [--mock]
+//   ravet_lv2_contracts <bundle directory> <adapter file> <ui file or -> [--mock]
 //
 // --mock runs the full contracts against the mock product (it reads the mock's
 // probe). Without it, a product-independent smoke test runs: descriptor URI,
@@ -299,6 +299,43 @@ int main(int argc, char **argv) {
         CHECK(store.values.size() == 1);
         CHECK(stateIface->restore(plugin, StateStore::retrieve, &store, 0, nullptr) == LV2_STATE_SUCCESS);
         run(frames);
+        // UI: open the product's editor in a native parent, idle, resize, close.
+        // Only macOS (Cocoa) hosts an editor in this release; elsewhere the UI
+        // refuses to instantiate, which is what this checks there.
+        const bool shipsUi = std::string(argv[3]) != "-";
+        CHECK(shipsUi == (manifest.find("ui:binary") != std::string::npos));
+        void *uiModule = shipsUi ? open(bundle + argv[3]) : nullptr;
+        auto uiDescriptorFn = uiModule ? reinterpret_cast<const LV2UI_Descriptor *(*)(uint32_t)>(symbol(uiModule, "lv2ui_descriptor")) : nullptr;
+        const LV2UI_Descriptor *ui = uiDescriptorFn ? uiDescriptorFn(0) : nullptr;
+        CHECK(!shipsUi || (ui != nullptr) == (entry->product->editor_width != 0));
+        if (ui) {
+            struct Recorder { int writes = 0; } recorder;
+            auto write = [](LV2UI_Controller c, uint32_t, uint32_t, uint32_t, const void *) { ++static_cast<Recorder *>(c)->writes; };
+            void *parentView = nativeParent();
+            LV2_Feature parentFeature{LV2_UI__parent, parentView};
+            const LV2_Feature *uiFeatures[] = {&parentFeature, nullptr};
+            LV2UI_Widget widget = nullptr;
+            LV2UI_Handle handle = ui->instantiate(ui, descriptor->URI, bundle.c_str(), write, &recorder, &widget, uiFeatures);
+#if defined(__APPLE__)
+            CHECK(handle != nullptr && widget != nullptr);
+            std::printf("UI widget %p in parent %p\n", widget, parentView);
+#else
+            CHECK(handle == nullptr);  // X11/Win32 editors are not hosted by this table release
+#endif
+            if (handle) {
+                for (uint32_t i = 0; i < ports.size(); ++i)
+                    if (ports[i].kind == PortKind::Parameter || ports[i].kind == PortKind::Enabled)
+                        ui->port_event(handle, i, sizeof(float), 0, &controls[i]);
+                const auto *idle = static_cast<const LV2UI_Idle_Interface *>(ui->extension_data(LV2_UI__idleInterface));
+                CHECK(idle != nullptr);
+                for (int i = 0; idle && i < 10; ++i) CHECK(idle->idle(handle) == 0);
+                CHECK(recorder.writes == 0);  // no editor interaction, so nothing written
+                const auto *uiResize = static_cast<const LV2UI_Resize *>(ui->extension_data(LV2_UI__resize));
+                if (uiResize && entry->product->editor_resizable)
+                    CHECK(uiResize->ui_resize(handle, int(entry->product->editor_width * 2), int(entry->product->editor_height * 2)) == 0);
+                ui->cleanup(handle);
+            }
+        }
         descriptor->deactivate(plugin);
         descriptor->cleanup(plugin);
         std::printf("ravet_lv2_contracts (smoke): %d checks, %d failures\n", checks, failures);

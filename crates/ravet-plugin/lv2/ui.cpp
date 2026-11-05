@@ -19,6 +19,8 @@
 #include "lv2/ui/ui.h"
 
 #include <array>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -214,7 +216,10 @@ Library &library() {
     std::call_once(once, [] {
         const std::string directory = moduleDirectory(reinterpret_cast<const void *>(&extensionData));
         instance.entry = loadProduct(directory + productFile, instance.error);
-        if (!instance.entry) return;
+        if (!instance.entry) {
+            std::fprintf(stderr, "RAVET LV2 UI: %s\n", instance.error.c_str());
+            return;
+        }
         instance.uri = instance.entry->product->lv2_uri;
         static std::string ui = uiUri(instance.uri);
         instance.descriptor = {ui.c_str(), instantiate, cleanup, portEvent, extensionData};
