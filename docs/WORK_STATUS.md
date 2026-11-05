@@ -6,6 +6,44 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+## Generic LV2 adapter over the plug-in table — 5 November 2026
+
+Added the generic LV2 export ([decision 0283](decisions/0283-generic-lv2-adapter.md),
+[guide](lv2.md#generic-lv2-export)): one DSP module, one UI module and a Turtle
+generator in `crates/ravet-plugin/lv2`, written once against `RavetPlugin.h`,
+plus a C++ mock table and contract tests. `scripts/bundle-lv2.py` gains
+`--plugin delay|generic|mock` and `--crate`; the 0.0.1 reference profiles are
+unchanged. Built against the table from `plugin/native-table` (21088c5).
+
+Validation on macOS 27 arm64, AppleClang, CMake, external LV2 1.18.10 source
+headers, Homebrew lilv 0.28.0, sord 0.16.22 and lv2 1.18.10:
+
+- `bundle-lv2.py --plugin mock`, `--plugin generic` and `--plugin delay` each
+  exit 0. CTest passes `ravet_lv2_mock_contracts` (100 checks, 0 failures),
+  `ravet_lv2_mock_lilv` (12 checks), `ravet_delay_smoke` (46 checks, including
+  the real delay editor opened in an `NSView` through the CocoaUI module, idled
+  and resized), `ravet_delay_lilv` (8), `ravet_generic_smoke` (40) and
+  `ravet_generic_lilv` (8). With `RAVET_LV2_UI=OFF` the delay bundle ships no UI
+  and the same suites pass.
+- `lv2_validate` (sord_validate against the LV2 1.18.10 specifications) on each
+  packaged bundle: 0 errors (mock 2,013, gain 1,974, delay 2,064 restrictions
+  checked). `codesign --verify --strict` passes on all nine binaries.
+- `lv2ls` lists `urn:org.ravet.mock`, `urn:org.ravet.gain-generic` and
+  `urn:org.ravet.delay`; `lv2info` shows the latency port, optional features,
+  `state:interface` and the CocoaUI.
+- `lv2apply` (no host features, one frame per run) on a 1 s stereo 48 kHz
+  sine with peak 16,000: mock `gain -6` peak 8,019; gain `gain 0.5` peak 8,000,
+  with `enabled 0` 16,000. Delay on an impulse of 20,000 with `sync 0, time 100,
+  mix 100, feedback 0`: echo of 19,999 at frame 4,800 exactly; with `enabled 0`
+  no echo.
+- `python3 -m unittest` of `scripts/tests/test_lv2_generic.py` (5 tests) and
+  `test_lv2_bundle.py` (6 tests) pass.
+
+Not established: any DAW (no LV2 DAW was run), Linux or Windows builds or runs,
+the X11 and Win32 UI paths with a real parent (tested with the mock and fake
+parents only), physical MIDI, or real-time deadlines. Linux commands are in the
+guide.
+
 ## Public repository preparation — 21 October 2026
 
 The hosted-history purge had not taken effect after more than a week, so the

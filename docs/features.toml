@@ -3121,6 +3121,16 @@ tests = ["examples/delay-plugin/tests/delay.rs", "examples/delay-plugin/tests/na
 docs = ["docs/examples.md", "docs/plugin-export.md", "README.md"]
 
 [[feature]]
+id = "generic-lv2-export"
+title = "Generic LV2 export of any product through the plug-in table"
+status = "prototype"
+summary = "One generic LV2 DSP module, one UI module and a build-time Turtle generator are written once against RavetPlugin.h. The bundle carries the product library as ravet_product and loads it beside the module. Turtle is generated from the table: URI, class, preferred-layout audio ports, an Atom input for time:Position and MIDI, optional MIDI output, a latency port, and one control port per parameter with ranges, defaults, toggled/integer/enumeration (labelled scale points), logarithmic, units and the inverted lv2:enabled bypass. Control changes reach the table as offset-0 parameter events, MIDI maps to RAVET_NATIVE_MIDI both ways, time:Position drives an extrapolated transport with mid-block splits, long runs are chunked at the host's maximum block, and state:interface stores the state envelope as one atom:Chunk. The UI opens the product editor in ui:parent and talks to the DSP only through control ports via a mirror table instance. bundle-lv2.py --plugin delay|generic|mock or --crate builds, tests, packages and validates a bundle."
+limits = "First layout only, main bus, f32. MIDI 1 short messages only; at most 1,024 events per sub-block; transport extrapolated between host positions without loops, recording or tempo ramps. No hardRTCapable, presets, port groups or rsz:minimumSize. The LV2 editor sees parameter values only (mirror instance); editors open on macOS only, so Linux and Windows product bundles ship no UI by default; the X11 widget is found as the parent's newest child. Turtle is generated on the build platform (no cross-compilation). Evidence on macOS arm64 only: mock contracts (100 checks), real delay/gain smoke tests including the Cocoa editor, lilv host checks, lv2_validate with 0 errors and lv2apply renders. No DAW, Linux or Windows run yet."
+sources = ["crates/ravet-plugin/lv2/RavetLv2Product.hpp", "crates/ravet-plugin/lv2/adapter.cpp", "crates/ravet-plugin/lv2/ui.cpp", "crates/ravet-plugin/lv2/turtle.cpp", "crates/ravet-plugin/lv2/CMakeLists.txt", "crates/ravet-plugin/lv2/mock/mock_plugin.cpp", "scripts/lv2_generic.py", "scripts/bundle-lv2.py"]
+tests = ["crates/ravet-plugin/lv2/tests/contracts.cpp", "crates/ravet-plugin/lv2/tests/lilv_host.cpp", "scripts/tests/test_lv2_generic.py"]
+docs = ["docs/lv2.md", "docs/decisions/0283-generic-lv2-adapter.md", "docs/decisions/0281-generic-export-layer.md", "docs/plugin-export.md"]
+
+[[feature]]
 id = "plugin-automation-bypass-policies"
 title = "Plug-in automation and bypass policies"
 status = "prototype"
