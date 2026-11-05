@@ -207,3 +207,101 @@ checks do not require functioning live device playback.
 This fixture exercises REAPER's MIDI-to-VST3 note delivery. It does not establish
 DAW note-expression editing, custom editor/accessibility behavior, physical audio
 quality or deadline performance. SDK note-expression validation is separate.
+
+## Scripted RAVET Delay check (any format, macOS/Linux/Windows)
+
+`tools/reaper-validation/delay.py` runs the [tempo-synced delay](examples.md#tempo-synced-delay-plug-in)
+through REAPER unattended, in one plug-in format per run, and checks the audio.
+It needs no manual dialog handling when it works, and it never uses the normal
+REAPER configuration or projects:
+
+- It creates a new work directory (default `target/reaper-delay/<format>-<time>`)
+  holding a disposable resource directory (`resource/reaper.ini`, passed with
+  `-cfgfile`), a private copy of the bundle under `plugins/<format>`, the
+  synthetic source and the generated ReaScript. Only that format's REAPER
+  plug-in path points at the copy; the VST path points at an empty directory
+  and the startup VST scan is skipped (`vst_scan=2`) unless VST3 is under test,
+  because REAPER always appends the system VST3 folders and one unresponsive
+  third-party plug-in there can stall startup.
+- It launches `reaper -cfgfile <ini> -nosplash -ignoreerrors -newinst <script.lua>`
+  in its own process group, waits for REAPER to quit (default timeout 240 s,
+  after which REAPER and any scan helpers are stopped), then runs the checker.
+- On macOS, `--reaper` may name `REAPER.app`; the driver then runs a cached
+  private copy (`target/reaper-delay/app`) with its own bundle identifier,
+  `org.ravet.reaper-harness`, re-signed ad hoc. macOS keys its "reopen windows
+  after an unexpected quit" prompt to the bundle identifier, so a terminated
+  test run would otherwise block every later launch, including the normal
+  REAPER. `--no-isolate` disables the copy.
+- Guards: the script refuses to touch the host unless
+  `reaper.GetResourcePath()` is the disposable directory (it then logs `ABORT`
+  and the driver kills REAPER without letting it save settings), and the driver
+  fails the run if any top-level file in the normal REAPER resource directory
+  (`~/Library/Application Support/REAPER`, `~/.config/REAPER`,
+  `%APPDATA%\REAPER`) changed during it.
+
+The ReaScript (`delay.lua`) logs REAPER's version and every installed
+`RAVET Delay` entry, inserts the one whose name starts with the format prefix
+(`CLAP: RAVET Delay`, `LV2: RAVET Delay`, `VST3: RAVET Delay`,
+`AU: RAVET: RAVET Delay`; `--fx-name` overrides), finds the controls by name and
+drives them in physical units when REAPER reports the physical range (CLAP,
+LV2) or normalized units otherwise (VST3, AU). Every edit is read back after the
+plug-in has flushed it. It renders the master mix (48 kHz, 4 s, no tail) to
+`fixed.wav` (sync off, time 100 ms, feedback 0, mix 100), saves and reopens the
+project and checks every control, renders `recalled.wav`, then sets sync on,
+division 1/8 and mix 50 at 150 BPM, renders `synced.wav`, saves, reopens and
+checks the controls and tempo again, and quits REAPER. Hardware sends of the
+master are muted; nothing is played live.
+
+`delay_checks.py` reads the renders. The source holds stereo impulses at frames
+24000 and 96000 (+0.5 left, −0.25 right). Each render must hold the dry impulse
+scaled by 1 − mix at those frames, one echo scaled by mix exactly 4800 frames
+(100 ms) or 9600 frames (1/8 at 150 BPM = 200 ms) later, and silence (error ≤
+1e-4) elsewhere. It prints `PASS`/`FAIL` lines and `RESULT PASS|FAIL`, also
+written to `output/render-check.log`; the driver exits non-zero on failure.
+`python3 tools/reaper-validation/delay_checks.py <work>/output` re-checks a run.
+
+Build the bundle first (only the delay crate is built), then run per OS:
+
+```sh
+# macOS
+python3 scripts/bundle-clap.py --plugin delay --profile release
+python3 scripts/bundle-lv2.py --plugin delay --sdk "$(brew --prefix lv2)"
+python3 tools/reaper-validation/delay.py --format clap \
+    --bundle "target/clap/release/RAVET Delay.clap" --reaper /Applications/REAPER.app
+python3 tools/reaper-validation/delay.py --format lv2 \
+    --bundle target/lv2/ravet_delay.lv2 --reaper /Applications/REAPER.app
+
+# Linux (from a desktop session, or export its variables over SSH, e.g.
+# XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-1 DISPLAY=:0)
+python3 scripts/bundle-clap.py --plugin delay --profile release
+python3 scripts/bundle-lv2.py --plugin delay --sdk /path/to/lv2-1.18.10
+python3 tools/reaper-validation/delay.py --format clap \
+    --bundle "target/clap/release/RAVET Delay.clap" --reaper /usr/bin/reaper
+python3 tools/reaper-validation/delay.py --format lv2 \
+    --bundle target/lv2/ravet_delay.lv2 --reaper /usr/bin/reaper
+```
+
+```bat
+rem Windows (not yet run)
+py -3 scripts\bundle-clap.py --plugin delay --profile release
+py -3 tools\reaper-validation\delay.py --format clap --bundle "target\clap\release\RAVET Delay.clap" --reaper C:\REAPER\reaper.exe
+py -3 scripts\bundle-lv2.py --plugin delay --sdk C:\path\to\lv2-1.18.10
+py -3 tools\reaper-validation\delay.py --format lv2 --bundle target\lv2\ravet_delay.lv2 --reaper C:\REAPER\reaper.exe
+```
+
+The Windows plug-in path ini keys are not yet confirmed on a Windows host. The
+driver writes several candidates (`clap_path_win64`, `clap_path_windows-x86_64`,
+`clap_path_win-x86_64`; `lv2path_win64`, `lv2path_win`); if the log shows
+`Installed RAVET Delay candidates: none`, add the right key with
+`--ini KEY=VALUE`, or pass `--env-path` to also export `CLAP_PATH`/`LV2_PATH`.
+`--env-path` is off by default because the variable reaches any REAPER process
+started from that environment.
+
+VST3 and AUv2 runs use the same driver: `--format vst3 --bundle <path>.vst3`
+(the startup VST scan then runs, including the system VST3 folders), and
+`--format au` for an AU component already installed in a system Components
+folder, since REAPER scans AUs only there. Neither has been run yet.
+
+Executed results are recorded in [work status](WORK_STATUS.md). A pass covers
+the tested REAPER version, OS, format and offline render path only: no live
+playback, device, deadline, editor or automation claim.
