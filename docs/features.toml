@@ -3121,6 +3121,16 @@ tests = ["examples/delay-plugin/tests/delay.rs", "tools/clap-smoke/src/delay.rs"
 docs = ["docs/examples.md", "docs/plugin-export.md", "README.md"]
 
 [[feature]]
+id = "generic-aax-export"
+title = "Generic AAX adapter over the plug-in table"
+status = "prototype"
+summary = "One C++ adapter, compiled once against RavetPlugin.h, builds an unsigned .aaxplugin for any export_plugin! product on macOS and Windows: descriptors, one effect per layout with its AAX type ID, category, parameters (IDs, ranges, defaults, steps, text, master bypass), the state envelope as one chunk, prepare from host stems, host changes through set_value, editor gestures as touch/set/release, latency through SetSignalLatency, MIDI input/output nodes, host transport and an AAX_CEffectGUI hosting the web editor. bundle-aax.py --plugin delay|mock or --package <crate> builds a product's static library and the bundle from an external AAX SDK; the VST3 SDK is not needed."
+limits = "Unsigned: PACE/Avid wrapping is the vendor's step and unsigned builds load only in Pro Tools Developer. Main bus only, stems for 0, 1 and 2 channels; automation once per block; short MIDI only (SysEx skipped); no tail (no AAX SDK 2.8 native tail property), AudioSuite, sidechain, meters, page tables or host-driven editor resizing; coarse category. The table hosts editors on macOS only in this release. set_value is assumed to be called on the main thread by Pro Tools (unobserved). Evidence: macOS arm64 builds against AAX SDK 2.8.0 (reported version 0x20801345980), a synthetic-host bundle check of the mock and the delay product (including the delay editor in a real NSView) and adapter tests against a C++ mock table. No Windows build, Avid validator or Pro Tools run."
+sources = ["crates/ravet-plugin/aax/RavetAaxPlugin.hpp", "crates/ravet-plugin/aax/RavetAaxPlugin.cpp", "crates/ravet-plugin/aax/CMakeLists.txt", "crates/ravet-plugin/aax/Info.plist.in", "crates/ravet-plugin/aax/exports.txt", "crates/ravet-plugin/aax/mock/RavetPluginMock.cpp", "scripts/aax_plugin.py", "scripts/bundle-aax.py"]
+tests = ["crates/ravet-plugin/aax/tests/adapter-tests.cpp", "crates/ravet-plugin/aax/tests/check-bundle.cpp", "crates/ravet-plugin/aax/tests/FakeHost.hpp", "crates/ravet-plugin/aax/tests/editor-view.mm", "scripts/tests/test_aax_plugin.py"]
+docs = ["docs/aax.md", "docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md"]
+
+[[feature]]
 id = "release-support"
 title = "Production distribution and compatibility"
 status = "planned"

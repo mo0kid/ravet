@@ -7641,3 +7641,44 @@ Local macOS 27 arm64 validation:
   opened in a plug-in host.
 
 No DAW, Windows or Linux run.
+
+### Generic AAX adapter (2026-11-05)
+
+New `crates/ravet-plugin/aax`: one C++17 adapter written against
+`RavetPlugin.h` that builds an `.aaxplugin` for any `export_plugin!` product,
+using RAVET's native profile as decision 0281 requires. It reuses
+`RavetAaxTransport`, `RavetAaxShortMidiInput` and `RavetNativeMidiOutput`; the
+older parameter, processor and editor helpers are bound to the 0.0.1 native
+tables and editor ABI, so parameters, state, processing and the editor are
+implemented directly on the table. The AAX Library is compiled from the external
+SDK's sources; the VST3 SDK is not used. `scripts/bundle-aax.py` gains
+`--plugin delay|generic|mock` and `--package <crate>` (driver in
+`scripts/aax_plugin.py`); the 0.0.1 references are unchanged and still need
+`--vst3-sdk`. Builds are unsigned; PACE wrapping is the vendor's step.
+
+Local macOS 27 arm64 validation, AAX SDK 2.8.0 from a local JUCE checkout
+(`ACFGetSDKVersion` reports `0x20801345980`), Apple clang, CMake:
+
+- Mock table (`mock/RavetPluginMock.cpp`, gain, stepped mode, bypass, read-only
+  peak, hidden parameter; mono and stereo; MIDI echo): the adapter compiles
+  without warnings at `-Wall -Wextra`; `ravet_aax_adapter_tests` passes all ten
+  groups (descriptors, parameters, processing, MIDI, latency handshake, editor
+  gestures, state, read-only reflection, editor open/idle/close, stereo and
+  layout refusal) and `ravet_aax_check` passes on the built
+  `RAVET Mock.aaxplugin` (`ctest`: 2/2).
+- `examples/delay-plugin` after merging `plugin/native-table` (head `5d03ca4`):
+  `python3 scripts/bundle-aax.py --plugin delay --aax-sdk <JUCE>/modules/juce_audio_plugin_client/AAX/SDK`
+  builds `target/aax-plugin/delay/RAVET Delay.aaxplugin`; `ravet_aax_check`
+  passes for both effects (2x2 and 1x1): eight parameters registered with
+  `MasterBypassID` as bypass, text round trips, eight blocks plus an empty block
+  rendered, the 96-byte `RvSt` chunk saved, compared and reloaded and a corrupted
+  one rejected. With `--editor` the delay's 560x340 web editor opens in a real
+  off-screen `NSView` through `AAX_IEffectGUI`, runs ten timer ticks and closes.
+- `scripts/tests/test_aax_plugin.py`: 6 tests pass; `test_aax_bundle.py` still
+  passes (22 together).
+
+Not available or not run: Avid's AAX Validator (DSH/`aaxval`) is not installed
+here. The unsigned bundle was not loaded in Pro Tools (that needs Pro Tools
+Developer; nothing was installed into host folders). No Windows build has been
+made. No Pro Tools
+support is claimed.
