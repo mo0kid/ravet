@@ -7786,3 +7786,10 @@ Windows/Linux attachment is implemented in the adapter but requires the table's
 platform backends. f32/main-bus processing, bounded events/state, no SysEx/UMP,
 count-based speaker maps and Linux host-run-loop requirements remain as listed
 in `docs/vst3.md`. No change to `RavetPlugin.h` was authored by this adapter task.
+
+Final integration also merges the native-table branch through `21088c5`,
+including its contract clarifications and documentation. Fresh maintained mock,
+Delay and Gain packaging runs after that merge retain **47/0 each** and mock
+CTest **1/0**. `codesign --verify --deep --strict` passes for all three bundles.
+The adapter's CMake link dependencies include the product image so a later Cargo
+rebuild updates the nested library even when adapter C++ is unchanged.
