@@ -1,0 +1,33 @@
+[package]
+license.workspace = true
+name = "ravet-synth-plugin"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Deterministic MIDI instrument exported through RAVET's generic plug-in layer"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The plug-in entry point is a foreign function, so unsafe code is denied rather
+# than forbidden; this crate itself contains none.
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+ravet-foundation.workspace = true
+ravet-plugin = { workspace = true, features = ["clap", "native"] }
+
+[dev-dependencies]
+ravet-native-dsp.workspace = true
+allocation-counter = "=0.8.1"
+clack-host = { workspace = true, features = ["clack-plugin"] }
+clack-extensions = { workspace = true, features = ["clack-host", "params", "latency", "tail", "note-ports"] }
+ravet-clap-smoke = { path = "../../tools/clap-smoke" }

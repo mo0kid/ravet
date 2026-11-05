@@ -203,6 +203,19 @@ typedef struct RavetPluginEntryV1 {
     void (*editor_idle)(void *instance);
 } RavetPluginEntryV1;
 
+/* Current-thread floating-point scope, exported from the product library.
+   mode: 0 preserve, 1 flush denormal operands and results (FTZ/DAZ or FZ).
+   Runs callback(context) synchronously exactly once, restoring prior control
+   AND sticky status on return. Nested calls are lexical. No allocation/locks.
+   Returns 0 success, 1 invalid mode/NULL callback, 2 unsupported environment
+   (callback not invoked, prior environment unchanged).
+   Callback must return normally on this thread, never unwind/longjmp, and must
+   obey its context's lifetime. No token, ownership or register bits escape.
+   All exported process entry points already flush by default; use this function
+   for additional native DSP outside those entry points. */
+int32_t ravet_plugin_with_denormal_mode_v1(uint32_t mode,
+    void (*callback)(void *context), void *context);
+
 /* Exported by every product built with ravet_plugin::export_plugin!. */
 const RavetPluginEntryV1 *ravet_plugin_v1(void);
 

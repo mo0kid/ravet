@@ -211,6 +211,33 @@ class BundleTests(unittest.TestCase):
             self.assertTrue(artifact.is_file())
             self.assertEqual(artifact.read_bytes(), b"product")
 
+    def test_au_discovery_retries_only_discovery_and_always_removes_install(self):
+        import plistlib
+        from unittest.mock import Mock
+        for failure in ("didn't find the component", "render test failed"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                artifact = root / "source.component"
+                (artifact / "Contents").mkdir(parents=True)
+                (artifact / "Contents/Info.plist").write_bytes(plistlib.dumps({"AudioComponents": [
+                    {"type": "aumu", "subtype": "Test", "manufacturer": "RvTs"}]}))
+                error = subprocess.CalledProcessError(2, ["auval"], output=failure)
+                runner = Mock()
+                # actual-component fixture succeeds; auval initially fails.
+                runner.run.side_effect = [None, error, "AU VALIDATION SUCCEEDED."]
+                with patch.object(Path, "home", return_value=root / "home"), patch.object(bundle.time, "sleep") as sleep:
+                    if failure == "render test failed":
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            bundle.validate("au", artifact, runner, build=root / "build")
+                        self.assertEqual(runner.run.call_count, 2)
+                        sleep.assert_not_called()
+                    else:
+                        bundle.validate("au", artifact, runner, build=root / "build")
+                        self.assertEqual(runner.run.call_count, 3)
+                        sleep.assert_called_once_with(2)
+                installed = root / "home/Library/Audio/Plug-Ins/Components/ravet-validation-source.component"
+                self.assertFalse(installed.exists())
+
     def test_cross_validator_uses_wine_and_target_executable(self):
         runner = Runner(Path("/target"))
         with patch("shutil.which", return_value="/usr/bin/wine"):

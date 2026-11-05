@@ -40,6 +40,16 @@ static OSStatus midi(void *data, const AudioTimeStamp *, UInt32, const MIDIPacke
         list->packet[0].data[0] == 0x90 && list->packet[0].data[1] == 60 && list->packet[0].data[2] == 100, "MIDI output bytes/offset");
     ++events.midi; return noErr;
 }
+struct MidiRecord { uint64_t offset; std::vector<uint8_t> bytes; };
+static OSStatus synthMidi(void *data, const AudioTimeStamp *, UInt32, const MIDIPacketList *list) {
+    auto &records = *static_cast<std::vector<MidiRecord> *>(data);
+    const auto *packet = &list->packet[0];
+    for (UInt32 i = 0; i < list->numPackets; ++i) {
+        records.push_back({packet->timeStamp, {packet->data, packet->data + packet->length}});
+        packet = MIDIPacketNext(packet);
+    }
+    return noErr;
+}
 int main(int argc, char **argv) {
     @autoreleasepool { try {
         require(argc == 2 || argc == 3, "usage: contracts component-path [real]");
@@ -59,6 +69,7 @@ int main(int argc, char **argv) {
         AudioComponentDescription description{code(CFSTR("type")), code(CFSTR("subtype")), code(CFSTR("manufacturer")), 0, 0};
         auto component = AudioComponentRegister(&description, CFSTR("RAVET AU TEST in-process"), 256, factory);
         require(component, "register native factory");
+        const bool evidenceSynth = real && CFEqual(CFDictionaryGetValue(componentInfo,CFSTR("name")),CFSTR("RAVET: RAVET Evidence Synth"));
         Events events;
         // Retain a Cocoa view across each actual AU disposal; its callbacks and
         // timer run again afterwards. This is the release-plan lifetime case.
@@ -102,6 +113,11 @@ int main(int argc, char **argv) {
             okay(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &format, sizeof(format)), "output format");
             UInt32 maximum = 64;
             okay(AudioUnitSetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximum, sizeof(maximum)), "maximum frames");
+            std::vector<MidiRecord> synthOutput;
+            if (evidenceSynth && instrument) {
+                AUMIDIOutputCallbackStruct callback{synthMidi, &synthOutput};
+                okay(AudioUnitSetProperty(unit, kAudioUnitProperty_MIDIOutputCallback, kAudioUnitScope_Global, 0, &callback, sizeof(callback)), "synth output callback");
+            }
             if (!real && description.componentType != kAudioUnitType_Effect) {
                 AUMIDIOutputCallbackStruct callback{midi, &events};
                 okay(AudioUnitSetProperty(unit, kAudioUnitProperty_MIDIOutputCallback, kAudioUnitScope_Global, 0, &callback, sizeof(callback)), "MIDI output callback");
@@ -168,6 +184,32 @@ int main(int argc, char **argv) {
                     require(events.midi == before + 1, "MIDI loopback");
                 }
             }
+            if (evidenceSynth && instrument) {
+                require(ids == std::vector<AudioUnitParameterID>({1, 2}), "evidence synth controls");
+                okay(MusicDeviceMIDIEvent(unit, 0xb0, 1, 64, 0), "synth CC input");
+                okay(MusicDeviceMIDIEvent(unit, 0x90, 60, 100, 7), "synth note input");
+                okay(MusicDeviceMIDIEvent(unit, 0x80, 60, 0, 15), "synth note off input");
+                render();
+                const float amplitude = (100.f/127.f)*.25f*(64.f/127.f);
+                for (int i=0; i<64; ++i) require(std::fabs(left[i] - (i < 39 ? 0.f : (i%2 ? amplitude : -amplitude))) < 1e-7, "synth exact onset/CC");
+                render();
+                for (int i=0; i<64; ++i) require(std::fabs(left[i] - (i < 39 ? (i%2 ? amplitude : -amplitude) : 0.f)) < 1e-7, "synth finite tail");
+                require(synthOutput.size()==3 && synthOutput[0].offset==0 && synthOutput[0].bytes==std::vector<uint8_t>({0xb0,1,64}) &&
+                    synthOutput[1].offset==7 && synthOutput[1].bytes==std::vector<uint8_t>({0x90,60,100}) &&
+                    synthOutput[2].offset==15 && synthOutput[2].bytes==std::vector<uint8_t>({0x80,60,0}), "synth MIDI output bytes/offsets");
+                Float64 latency=0,tail=0; size=sizeof(latency);
+                okay(AudioUnitGetProperty(unit,kAudioUnitProperty_Latency,kAudioUnitScope_Global,0,&latency,&size),"synth latency"); size=sizeof(tail);
+                okay(AudioUnitGetProperty(unit,kAudioUnitProperty_TailTime,kAudioUnitScope_Global,0,&tail,&size),"synth tail");
+                require(latency==32./48000. && tail==96./48000.,"synth timing");
+                const auto notifications=events.latency;
+                okay(AudioUnitAddPropertyListener(unit,kAudioUnitProperty_Latency,property,&events),"synth latency listener");
+                okay(AudioUnitSetParameter(unit,2,kAudioUnitScope_Global,0,0,0),"synth latency change"); render(); pump(.08);
+                size=sizeof(latency); okay(AudioUnitGetProperty(unit,kAudioUnitProperty_Latency,kAudioUnitScope_Global,0,&latency,&size),"new synth latency");
+                require(latency==0 && events.latency>notifications,"synth latency notification");
+                okay(AudioUnitUninitialize(unit),"synth uninitialize"); okay(AudioComponentInstanceDispose(unit),"synth dispose");
+                std::cout << "PASS evidence synth AU: notes/CC, exact delayed audio/tail, MIDI bytes/offsets, latency notification cycle " << cycle << "\n";
+                continue;
+            }
             AUEventListenerRef listener = nullptr;
             okay(AUEventListenerCreate(event, &events, CFRunLoopGetMain(), kCFRunLoopDefaultMode, 0, 0, &listener), "automation listener");
             for (const auto kind : {kAudioUnitEvent_BeginParameterChangeGesture, kAudioUnitEvent_ParameterValueChange, kAudioUnitEvent_EndParameterChangeGesture}) {
@@ -231,8 +273,8 @@ int main(int argc, char **argv) {
                 "balanced view/instance lifetime, main-thread table calls and transported host context");
             const auto idles = counts[3]; pump(.1); stats(counts); require(counts[3] == idles, "no retired editor timer calls");
         }
-        std::cout << "PASS generic AUv2 " << (real ? "product metadata/render/editor lifetime" :
-            "mock metadata/stereo+mono/state/schedules/timing/transport/MIDI/editor lifetime/MAIN dispatch") << " (3 retained-view cycles)\n";
+        std::cout << "PASS generic AUv2 " << (real ? "product metadata/render (instrument MIDI/timing or effect editor lifetime)" :
+            "mock metadata/stereo+mono/state/schedules/timing/transport/MIDI/editor lifetime/MAIN dispatch") << " (3 lifecycle cycles)\n";
         CFRelease(bundle); return 0;
     } catch (const std::exception &error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; } }
 }

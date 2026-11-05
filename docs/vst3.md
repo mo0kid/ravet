@@ -578,3 +578,12 @@ A disposable REAPER 7.82/macOS arm64 fixture also passes synthetic 48 kHz MIDI
 rendering, saved Level recall and automation, with independent PCM checks.
 Other host/device/platform/editor/deadline claims require separate evidence. See
 [decision 0166](decisions/0166-vst3-performance-instrument.md).
+
+## Generic instrument evidence — 5 November 2026
+
+The [Evidence Synth](synth-plugin.md) now exercises the instrument category,
+CC response, note output and changing nonzero latency in Linux REAPER 7.82.
+The existing `IMidiMapping` hidden-controller implementation needed no change;
+a real-product adapter-class fixture checks hidden CC mapping, note IDs and output offsets, exact audio/tail and latency notification. Independent mock tests retain CC/aftertouch/pitch-bend and output-note regression coverage. The real instrument passes Steinberg's validator on macOS arm64 and
+Linux x86_64; no macOS REAPER instrument run is claimed.
+See the [receipt](WORK_STATUS.md#release-010-instrument-evidence).

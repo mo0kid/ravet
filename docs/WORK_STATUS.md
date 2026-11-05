@@ -6,6 +6,144 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="release-010-instrument-evidence"></a>
+
+## Generic instrument MIDI/timing evidence and C denormal scope — 5 November 2026
+
+Branch `midi/instrument-evidence`, based on `release/0.1.0` at `eb4d2f5`, in
+an independent worktree. No push or main/release checkout mutation. Added the
+RAVET-owned [Evidence Synth](synth-plugin.md), a generic stereo f32 instrument
+with timed 64-sample bipolar one-shots, CC 1 response toggle, short-MIDI/note
+echo, 32/0-sample lookahead and conservative 96/64-sample finite tail.
+The musical subtractive synth tutorial was read and retained separately.
+
+Generic CLAP now advertises the product's MIDI output port and enables the
+existing bounded bridge output. Accepted MIDI prefixes are never replayed;
+output rejection leaves successful audio valid. Activation publishes latency
+after cached controls are synchronized; active parameter flushes also detect
+latency changes. Existing VST3 IMidiMapping hidden CC/aftertouch/pitch-bend
+parameters, note output, AU MIDI callbacks, AAX local nodes and LV2 Atom
+mappings needed no adapter runtime change. Actual AU/AAX/LV2 product checks
+were extended for this instrument, including editor-free validation. The AU
+bundler retries only asynchronous component-discovery failures, not validator
+failures, and removes its exclusive temporary installation even on failure.
+The LV2 fixture now permits a product with no UI declaration.
+
+The native product library exposes `ravet_plugin_with_denormal_mode_v1`:
+synchronous callback, preserve/FlushBoth selection, no scope token or raw
+register setter, exact prior control/sticky-status restoration, invalid/null
+argument refusal and unsupported-environment refusal before callback dispatch.
+Nested scope and restoration tests pass. Native table test DSP now observes
+FlushBoth on every invocation. Entry-point review confirms CLAP process/active
+flush use the wrapped bridge; VST3 process, AU render chunks, AAX callbacks and
+LV2 run chunks use the same guarded native table. Host event conversion before
+DSP is outside this scope. See [contract](plugin-export.md#denormal-guard) and
+[decision 0291](decisions/0291-instrument-midi-and-c-denormal-scope.md).
+
+### Executed local checks (macOS 27.0.1 arm64)
+
+With external SDK paths provided through `RAVET_VST3_SDK`,
+`RAVET_AUDIO_UNIT_SDK`, `RAVET_AAX_SDK`, `RAVET_LV2_SDK`:
+
+```sh
+python3 scripts/bundle-plugin.py --package ravet-synth-plugin \
+  --formats clap,vst3,au,aax,lv2 --validate --clap-validator /path/to/clap-validator
+```
+
+All five final debug bundles pass this command. Separately built the VST3 mock
+with `bundle-vst3.py --sdk <external SDK> --mock --profile debug`.
+
+| Format | Actual result |
+|---|---|
+| CLAP | clap-validator 0.4.1: 34 pass, 0 fail, 0 warnings, 10 skips. `process-note-out-of-place-basic` and `process-note-inconsistent` run and pass. Native-CLAP wildcard notes remain skipped because the generic ports advertise MIDI only; other skips include f64, preset discovery and port configurations. |
+| VST3 | Steinberg SDK validator: real instrument 47 pass/0 fail. Real-product adapter-class CTest 1/1 checks hidden CC mapping, note IDs/output offsets, exact audio/tail and latency notification. Independent mock CTest 1/1 and validator 47/0 retain CC/pitch/pressure regression coverage. The SDK validator separately loads the final module. |
+| AUv2 | Actual MusicDevice component passes three note/CC/exact-audio/finite-tail/MIDI-byte-offset/latency-notification cycles. `auval` 1.10.0 passes `aumu/CJLN/TYDS`. Initial installation discovery failed, then a retry passed; it was not hidden as a validator pass. |
+| AAX | Actual unsigned bundle synthetic CTest 1/1 plus final bundle check pass: 0x2 layout, two local MIDI nodes, CC-scaled exact audio, note bytes/offsets and host latency-change notification. Finite audio tail passes; AAX SDK 2.8 has no tail report here. Avid validator and Pro Tools instrument run not performed. |
+| LV2 | CTest 4/4: mock contracts/lilv and actual instrument contracts/lilv; instrument checks exact CC audio, silence, Atom MIDI bytes/offsets and 32→0 latency port. LV2 1.18.10/lilv 0.28.0; `lv2_validate`: 0 errors among 84 files/1960 restrictions. No exported tail port. |
+
+Package tests for `ravet-plugin` (CLAP/native features), `ravet-synth-plugin`
+and `ravet-delay-plugin` pass. The instrument has six tests: CLAP MIDI/audio
+and allocation counts, cached-control activation latency, native MIDI/CC/
+latency/tail/reset/allocation checks, C scope nesting/restoration, block-boundary
+independence and atomic output-capacity rejection. Delay regression tests pass.
+Script tests: 123 pass, including selective AU discovery retries and cleanup.
+REAPER Python tests: 17 pass, including exact-sample corruption/late-tail
+rejection and disposable-directory setup. The lines saying FAIL in those
+Python logs are expected negative-fixture output; both unittest suites exit 0.
+Also passed workspace doctests (`cargo test --workspace --doc --locked`),
+warning-denied workspace Rustdoc (`RUSTDOCFLAGS="-D warnings" cargo doc
+--workspace --no-deps --locked`), targeted warning-denied Clippy for plugin/synth,
+Cargo formatting and the documentation registry/link checker. The existing
+native-DSP guard/processor integration tests also pass (six tests), including
+exact sticky-status restoration and fault/unwind paths. Whole-workspace
+non-doc tests/Clippy were not run for this work package.
+
+### Executed Linux host checks
+
+Synced this branch with `rsync` excluding `target` and `.git` into the new
+`~/ravet-instrument-20261105` directory on `comfy-omarchy`, leaving the normal
+checkout alone. Arch Linux x86_64 kernel 7.2.11; REAPER 7.82/linux-x86_64. Built
+CLAP/VST3/LV2 with the unified bundler and `--validate`, using the supplied
+external VST3/LV2 SDKs and installed clap-validator 0.4.1. Results: CLAP
+34/0/10 skips/0 warnings, VST3 47/0, LV2 CTest 4/4 and Turtle 0 errors. Native
+and CLAP Rust package tests also pass there, including the C floating-mode
+callback on physical x86_64. A final real-product VST3 adapter-class CTest 1/1
+also checks generated event offsets and note IDs directly, independently of
+REAPER MIDI-through; the final module validator again passes 47/0.
+
+Ran `instrument.py` separately for CLAP, VST3 and LV2 with
+`XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-1 DISPLAY=:0` and
+`--reaper /usr/bin/reaper`, in fresh work folders. All three final runs PASS:
+
+- `pdc`: reported latency 32, clicks begin exactly at samples 24,000 and 48,000.
+- `zero`: latency changes to 0; onsets remain aligned at those exact samples.
+- `cc_off`: latency 32, CC disabled; both first-sample amplitudes are 0.25.
+- `echo`: first instance latency 0 and audio pins disconnected; second
+  instrument receives MIDI and produces the expected 32-sample-compensated
+  audio. Independent format fixtures establish generated MIDI bytes/offsets;
+  the REAPER render alone does not exclude host MIDI-through.
+
+Every case checks all 192,000 stereo samples, polarity, amplitude and exact
+64-sample one-shot extent, then silence. CC-on second amplitude is
+`0.25 * 64 / 127`, tolerance 1e-5. All final runs exit normally and their normal
+REAPER resource snapshots remain unchanged. No live audio/MIDI device or
+callback deadline is qualified.
+
+Early Linux echo attempts exposed fixture errors: two lookaheads caused a
+32-sample advance from summed host audio PDC, and a second attempt mixed both
+instruments' audio (0.5 amplitude). Fixed the harness by using zero first-instance
+latency and disconnecting its audio output pins; retained failed logs and
+re-ran all formats successfully. These were fixture corrections, not claimed
+adapter defects.
+
+### macOS host attempts and remaining gaps
+
+Used the task's REAPER.app through a private ad hoc signed copy and the new
+instrument app identifier. Six CLAP startup attempts and one LV2 attempt timed
+out (90 seconds, except one 120-second attempt) **before any host script log**.
+A `sample` trace of the isolated process locates it in
+`Init_Audio → MessageBox → NSRunAlertPanel`. CUA could not attach a window
+(`cgWindowNotFound`), so the exact alert text was not observed. Attempts with
+explicit disposable CoreAudio settings, warning masks and a work-directory
+current directory did not resolve startup. Only the child test process was
+terminated; every normal-resource snapshot stayed unchanged. This supplies no
+macOS instrument MIDI/audio/PDC host evidence. VST3 on macOS was skipped as
+requested because of the known third-party scan stall; no normal REAPER config,
+production project or global audio service was changed. Windows instrument
+runs were not attempted.
+
+Local raw evidence is under `target/evidence/instrument/` (bundle checks,
+Rust/Python/Rustdoc/Clippy logs, VST3 mock, macOS failed-host logs and startup
+sample), `target/reaper-instrument/` and the copied `linux-reaper/` work folders.
+Linux originals are in the new checkout's `target/evidence/instrument/` and
+`target/reaper-instrument/`. Artifacts are generated/ignored, not published
+fixtures. The [support matrix](support-matrix.md#instrument-evidence) keeps
+these validator, synthetic-host and actual-DAW observations separate.
+
+The denormal release criterion is checked. The MIDI/timing criterion remains
+open: AAX SDK 2.8 has no native tail report and macOS instrument host execution
+remains blocked. No blanket platform, editor, device or deadline claim is added.
+
 <a id="release-010-docs-ci"></a>
 
 ## 0.1.0 release documentation, checklist audit and hosted CI — 5 November 2026
