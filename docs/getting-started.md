@@ -98,7 +98,7 @@ a module, with hyphens replaced by underscores, for example `ravet::midi_device`
 Component features pass through under their own names and turn on their
 component: `compressed`, `flac-encode`, `mp3-encode`, `vorbis-encode`,
 `resampled-playback`, `mp3-recording`, `vorbis-recording`,
-`crypto`, `entitlement`, `plugin-clap`, `plugin-native`, `convolution-transitions`, `au-hosting`, `vst3-catalogue`, `vst3-editor`,
+`crypto`, `entitlement`, `plugin-clap`, `plugin-native`, `plugin-editor`, `convolution-transitions`, `au-hosting`, `vst3-catalogue`, `vst3-editor`,
 `vst3-hosted-audio`, `system-fonts`, `postscript-fonts` and the surface image
 and text features. `no_std` projects depend on `ravet-foundation` and
 `ravet-embedded` directly, from the same tag.

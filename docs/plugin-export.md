@@ -145,8 +145,14 @@ The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 - Every processing call runs inside the product's
   [policies](#automation-and-bypass-policies) and the
   [denormal guard](#denormal-guard).
-- On macOS, a product with an editor gets the CLAP GUI extension; see
-  [editors](#editors).
+- On macOS, a product with an editor gets the CLAP GUI extension when the
+  `editor` feature is on; see [editors](#editors).
+- A block carries at most 1,024 events, counting queued editor values. A
+  block with more host events is rejected: its outputs are silenced and its
+  values are not applied, as in the [native table](#native-table). Editor
+  values that do not fit wait for the next block. Only core-namespace events
+  are passed to the processor, so the preallocated event buffer never grows
+  on the audio thread.
 
 Limits for now:
 
@@ -191,7 +197,9 @@ the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
   and events for unknown IDs or with nonfinite values are dropped. `process`
   and `reset` never allocate. `latency_changed` reports a latency change after
   a block until the adapter reads `timing`.
-- **Faults.** Every function catches panics and returns 2. After a panic,
+- **Faults.** A null or misaligned instance pointer is rejected (1, or `NaN`
+  from `get_value`) without being dereferenced. Every function catches panics
+  and returns 2. After a panic,
   `process` (silencing its outputs), `reset` and `timing` return 2 until the next
   successful `prepare`, which recreates the processor; parameter, state and
   editor calls keep working.
@@ -219,6 +227,23 @@ unsigned `.aaxplugin` on macOS and Windows from the product's table
 <external AAX SDK>`, or `--package <crate>` for another product crate. Vendors
 sign (PACE-wrap) their own builds. See [AAX](aax.md#generic-aax-adapter-010) for
 what maps where, the Windows commands, checks and limits.
+
+## Robustness at the host boundary
+
+Exports run inside third-party hosts, so no panic or C++ exception may cross
+into one ([decision 0286](decisions/0286-export-robustness-and-notices.md)):
+
+- Table and CLAP entry points catch panics; the C++ adapters catch exceptions
+  at every entry point that can allocate or call the table, and return the
+  format's error. This relies on Rust's default `panic = "unwind"`. Do not set
+  `panic = "abort"` in a product's release profile: a panic would then end
+  the host process.
+- Processing paths fault the block with silence instead of panicking, and do
+  not allocate. A panic hook may still allocate and print while a fault is
+  being handled; that happens only on the fault path.
+- Every bundle script ships RAVET's licence, the third-party notices of the
+  crates linked into the product, and the Rust standard library notice; see
+  [dependency notices](dependency-notices.md).
 
 ## Linux and Windows builds
 
@@ -357,6 +382,18 @@ pages, arrive with the first format adapter.
 `Product::with_editor(Editor { html, width, height, resizable })` gives a product
 a web editor: one HTML page of up to 1 MiB, between 64 and 4096 pixels in each
 direction. Resizable editors may grow to four times their size.
+
+The editor is built only with the `ravet-plugin` feature `editor` (umbrella
+`plugin-editor`), which adds `ravet-webview`:
+
+```toml
+ravet-plugin = { version = "…", features = ["clap", "native", "editor"] }
+```
+
+Without it, `clap` and `native` build no web view: the CLAP export offers no
+GUI extension and the native table reports a 0 × 0 editor, so adapters show
+none. Products without an editor leave the feature off and link no WebKit or
+Cocoa bindings. The delay and gain examples turn it on.
 
 RAVET injects its editor client into the page's `<head>`. The client speaks the
 [editor protocol](#editor-protocol) and exposes `window.ravetPlugin`:

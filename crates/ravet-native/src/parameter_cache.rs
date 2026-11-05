@@ -217,6 +217,8 @@ impl<
     }
     unsafe extern "C" fn destroy(cache: *mut c_void) {
         if !cache.is_null() {
+            // SAFETY: created by `create` and destroyed once after every borrower stops (table
+            // contract).
             drop(unsafe { Box::from_raw(cache.cast::<NativeParameterCache<N>>()) });
         }
     }
@@ -224,6 +226,8 @@ impl<
         if cache.is_null() || !aligned(cache.cast::<NativeParameterCache<N>>()) {
             None
         } else {
+            // SAFETY: checked nonnull and aligned; the contract requires a live cache from
+            // `create`.
             unsafe { cache.cast::<NativeParameterCache<N>>().as_ref() }
         }
     }
@@ -235,12 +239,14 @@ impl<
         if output.is_null() || !aligned(output) {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { Self::get(cache) }) else {
             return 1;
         };
         let Some(info) = cache.info(index as usize) else {
             return 1;
         };
+        // SAFETY: checked nonnull and aligned above.
         unsafe {
             output.write(*info);
         }
@@ -256,6 +262,7 @@ impl<
         if output.is_null() || !aligned(output) {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { Self::get(cache) }) else {
             return 1;
         };
@@ -267,6 +274,7 @@ impl<
         let Some(value) = value else {
             return 1;
         };
+        // SAFETY: checked nonnull and aligned above.
         unsafe {
             output.write(value);
         }
@@ -278,6 +286,7 @@ impl<
         value: f32,
         output: *mut f32,
     ) -> i32 {
+        // SAFETY: forwards this function's own caller contract.
         unsafe { Self::mapping(cache, id, value, output, true) }
     }
     unsafe extern "C" fn denormalize(
@@ -286,6 +295,7 @@ impl<
         value: f32,
         output: *mut f32,
     ) -> i32 {
+        // SAFETY: forwards this function's own caller contract.
         unsafe { Self::mapping(cache, id, value, output, false) }
     }
     unsafe extern "C" fn events(
@@ -305,17 +315,20 @@ impl<
         {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { Self::get(cache) }) else {
             return 1;
         };
         let input = if count == 0 {
             &[]
         } else {
+            // SAFETY: checked nonnull and aligned above; the caller passes `count` records.
             unsafe { slice::from_raw_parts(input, count as usize) }
         };
         let output = if capacity == 0 {
             &mut []
         } else {
+            // SAFETY: checked nonnull and aligned above; the caller provides `capacity` records.
             unsafe { slice::from_raw_parts_mut(output, capacity as usize) }
         };
         if cache.convert_events(input, frames as usize, output).is_ok() {

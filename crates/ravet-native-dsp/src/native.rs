@@ -40,7 +40,8 @@ pub(crate) fn read() -> Result<FloatState, DenormalError> {
             core::arch::asm!("fxsave [{p}]", p=in(reg) &mut area,
                 options(nostack, preserves_flags));
         }
-        let raw = u32::from_le_bytes(area.0[28..32].try_into().expect("fixed mask range"));
+        // Constant indices into the fixed 512-byte area: no panic path on audio.
+        let raw = u32::from_le_bytes([area.0[28], area.0[29], area.0[30], area.0[31]]);
         let mask = if raw == 0 { 0x0000_ffbf } else { raw };
         Ok(FloatState {
             backend: FloatBackend::X86_64,

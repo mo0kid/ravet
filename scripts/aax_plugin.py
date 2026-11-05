@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import third_party_notices
 import tomllib
 import windows_cross
 
@@ -128,6 +129,9 @@ def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None
     notices = artifact / "Contents" / "Resources" / "notices"
     notices.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / "LICENSE", notices / "RAVET-LICENSE.txt")
+    if selected.crate:
+        third_party_notices.write(root, selected.crate, notices, windows_cross.TRIPLE if cross else None,
+                                  run=runner.run)
     (notices / "AAX-SDK-NOTICE.txt").write_text(
         "Built against an externally supplied Avid AAX SDK. This build is not PACE-signed: the plug-in "
         "vendor signs (wraps) it under their own Avid agreement. Unsigned builds load only in Pro Tools "

@@ -230,6 +230,11 @@ Library &library() {
 } // namespace
 
 LV2_SYMBOL_EXPORT const LV2UI_Descriptor *lv2ui_descriptor(uint32_t index) {
-    auto &loaded = library();
-    return index == 0 && loaded.entry && loaded.entry->product->editor_width ? &loaded.descriptor : nullptr;
+    // As in the DSP module: no C++ exception may reach the C host.
+    try {
+        auto &loaded = library();
+        return index == 0 && loaded.entry && loaded.entry->product->editor_width ? &loaded.descriptor : nullptr;
+    } catch (...) {
+        return nullptr;
+    }
 }

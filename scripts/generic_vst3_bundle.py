@@ -4,6 +4,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+import third_party_notices
 from vst3_bundle import CommandRunner
 import windows_cross
 
@@ -74,6 +75,10 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
         notices.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sdk / "LICENSE.txt", notices / "Steinberg-VST3-LICENSE.txt")
         shutil.copy2(root / "LICENSE", notices / "RAVET-LICENSE.txt")
+        if product_library:
+            third_party_notices.write(root, package, notices, windows_cross.TRIPLE if cross else None,
+                                      manifest_path=Path(manifest_path).resolve() if manifest_path else None,
+                                      run=runner.run)
         if platform == "darwin":
             # Sign the nested product image before sealing the enclosing bundle.
             if product_library:

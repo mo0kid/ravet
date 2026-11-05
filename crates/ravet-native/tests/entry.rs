@@ -645,6 +645,15 @@ fn configuration_limits_and_control_panics_are_contained_and_sticky() {
     assert_eq!(unsafe { (entry.prepare)(ptr::null_mut(), &config) }, 1);
     assert_eq!(unsafe { (entry.reset)(ptr::null_mut()) }, 1);
     assert_eq!(unsafe { (entry.prepare)(handle, ptr::null()) }, 1);
+    // A misaligned handle (never returned by `create`) is rejected unread.
+    let misaligned = handle
+        .cast::<u8>()
+        .wrapping_add(1)
+        .cast::<std::ffi::c_void>();
+    assert_eq!(unsafe { (entry.prepare)(misaligned, &config) }, 1);
+    assert_eq!(unsafe { (entry.reset)(misaligned) }, 1);
+    assert_eq!(unsafe { (entry.deactivate)(misaligned) }, 1);
+    assert_eq!(unsafe { (entry.prepare)(handle, &config) }, 0);
     unsafe {
         (entry.destroy)(handle);
         (entry.destroy)(ptr::null_mut());

@@ -25,6 +25,18 @@ namespace {
 
 std::atomic<const RavetPluginEntryV1 *> overrideTable{nullptr};
 
+// The AAX Library forwards host calls to these methods without catching, so
+// every method that allocates (parameter objects, ID strings, state buffers,
+// text) runs through this guard: no C++ exception may unwind into the host.
+// The algorithm callback does not allocate and is not wrapped.
+template <class R, class F> R guarded(R failure, F &&body) noexcept {
+    try {
+        return body();
+    } catch (...) {
+        return failure;
+    }
+}
+
 bool valid(const RavetPluginEntryV1 *table) {
     return table && table->version == RAVET_PLUGIN_VERSION_1 &&
            table->byte_size >= sizeof(RavetPluginEntryV1) && table->product &&
@@ -62,6 +74,9 @@ public:
     Display *Clone() const AAX_OVERRIDE { return new Display(*this); }
     bool ValueToString(double value, AAX_CString *text) const AAX_OVERRIDE { return ValueToString(value, 0, text); }
     bool ValueToString(double value, int32_t maximum, AAX_CString *text) const AAX_OVERRIDE {
+        return guarded(false, [&] { return format(value, maximum, text); });
+    }
+    bool format(double value, int32_t maximum, AAX_CString *text) const {
         if (!text) return false;
         char buffer[256] = {};
         if (table_->value_to_text(index_, value, buffer, sizeof(buffer)) != 0) return false;
@@ -191,6 +206,10 @@ AAX_IEffectParameters *AAX_CALLBACK Parameters::create() {
 }
 
 AAX_Result Parameters::EffectInit() {
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] { return initialize(); });
+}
+
+AAX_Result Parameters::initialize() {
     if (!table_ || !owner_->instance) return AAX_ERROR_NOT_INITIALIZED;
     const RavetPluginProductV1 &product = *table_->product;
 
@@ -275,6 +294,11 @@ AAX_Result Parameters::Uninitialize() {
 }
 
 AAX_Result Parameters::UpdateParameterNormalizedValue(AAX_CParamID id, double value, AAX_EUpdateSource source) {
+    // The lookup builds a std::string from the host's ID.
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] { return update(id, value, source); });
+}
+
+AAX_Result Parameters::update(AAX_CParamID id, double value, AAX_EUpdateSource source) {
     const AAX_Result status = AAX_CEffectParameters::UpdateParameterNormalizedValue(id, value, source);
     if (status != AAX_SUCCESS || !id) return status;
     const auto found = indices_.find(id);
@@ -345,6 +369,10 @@ void Parameters::reflectValues() {
 }
 
 AAX_Result Parameters::TimerWakeup() {
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] { return wake(); });
+}
+
+AAX_Result Parameters::wake() {
     reportEdits();
     reportLatency();
     // Read-only parameters (meters and similar) follow the table.
@@ -405,17 +433,29 @@ AAX_Result Parameters::GetChunkSize(AAX_CTypeID id, uint32_t *size) const {
     if (!size) return AAX_ERROR_NULL_ARGUMENT;
     if (id != kStateChunkId) return AAX_ERROR_INVALID_CHUNK_ID;
     // The host allocates this size, then calls GetChunk: keep the bytes so both agree.
-    if (!saveState(chunk_)) return AAX_ERROR_INVALID_ARGUMENT;
-    *size = uint32_t(chunk_.size());
-    return AAX_SUCCESS;
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] {
+        if (!saveState(chunk_)) return AAX_ERROR_INVALID_ARGUMENT;
+        *size = uint32_t(chunk_.size());
+        chunkCapacity_ = *size;
+        return AAX_SUCCESS;
+    });
 }
 
 AAX_Result Parameters::GetChunk(AAX_CTypeID id, AAX_SPlugInChunk *chunk) const {
     if (!chunk) return AAX_ERROR_NULL_ARGUMENT;
     if (id != kStateChunkId) return AAX_ERROR_INVALID_CHUNK_ID;
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] { return writeChunk(chunk); });
+}
+
+AAX_Result Parameters::writeChunk(AAX_SPlugInChunk *chunk) const {
     std::vector<uint8_t> data;
     if (!chunk_.empty()) data.swap(chunk_);
     else if (!saveState(data)) return AAX_ERROR_INVALID_ARGUMENT;
+    // fData was allocated by the host from the last GetChunkSize. Without a
+    // cached chunk (GetChunk repeated, or never sized), never write more
+    // than that: the envelope length is fixed per product today, but a
+    // future product extra state may change it between the two calls.
+    if (data.size() > chunkCapacity_) return AAX_ERROR_INCORRECT_CHUNK_SIZE;
     chunk->fSize = int32_t(data.size());
     chunk->fVersion = 1;
     std::memcpy(chunk->fData, data.data(), data.size());
@@ -429,7 +469,8 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID id, const AAX_SPlugInChunk *chunk) {
     if (table_->load_state(owner_->instance, reinterpret_cast<const uint8_t *>(chunk->fData), uint32_t(chunk->fSize)) != 0)
         return AAX_ERROR_INCORRECT_CHUNK_SIZE;
     chunk_.clear();
-    reflectValues();
+    // The state is applied; reflecting it calls into the AAX Library.
+    guarded(0, [&] { reflectValues(); return 0; });
     ++mNumPlugInChanges;
     return AAX_SUCCESS;
 }
@@ -440,15 +481,20 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk *chunk, AAX_CBo
         *equal = true; // not ours: nothing to compare
         return AAX_SUCCESS;
     }
-    std::vector<uint8_t> current;
-    if (!saveState(current)) return AAX_ERROR_INVALID_ARGUMENT;
-    *equal = chunk->fSize >= 0 && size_t(chunk->fSize) == current.size() &&
-             std::memcmp(chunk->fData, current.data(), current.size()) == 0;
-    return AAX_SUCCESS;
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] {
+        std::vector<uint8_t> current;
+        if (!saveState(current)) return AAX_ERROR_INVALID_ARGUMENT;
+        *equal = chunk->fSize >= 0 && size_t(chunk->fSize) == current.size() &&
+                 std::memcmp(chunk->fData, current.data(), current.size()) == 0;
+        return AAX_SUCCESS;
+    });
 }
 
 // ---------------------------------------------------------------- processing
 
+// AUDIO. No allocation or exception path: fixed Owner arrays, and the field
+// pointers are those registered for this layout in describe(). Output silence
+// uses the host's frame count, which is also the length of its buffers.
 void AAX_CALLBACK Parameters::process(void *const instances[], const void *end) {
     for (void *const *cursor = instances; cursor < static_cast<void *const *>(end); ++cursor) {
         void *const *fields = static_cast<void *const *>(*cursor);
@@ -566,11 +612,14 @@ void Gui::DeleteViewContainer() {
 }
 
 AAX_Result Gui::TimerWakeup() {
-    if (Parameters *parameters = model()) {
-        if (open_ && parameters->instance()) parameters->table()->editor_idle(parameters->instance());
-        parameters->reportEdits();
-    }
-    return AAX_SUCCESS;
+    // reportEdits calls back into the AAX Library's parameter manager.
+    return guarded<AAX_Result>(AAX_ERROR_UNKNOWN_EXCEPTION, [&] {
+        if (Parameters *parameters = model()) {
+            if (open_ && parameters->instance()) parameters->table()->editor_idle(parameters->instance());
+            parameters->reportEdits();
+        }
+        return AAX_SUCCESS;
+    });
 }
 
 // ---------------------------------------------------------------- descriptors

@@ -233,14 +233,17 @@ impl<
             let Some(record) = info(*descriptor, P::parameter_roles(descriptor.id)) else {
                 return 1;
             };
+            // SAFETY: checked nonnull and aligned above.
             unsafe { output.write(record) };
             0
         })
     }
     unsafe extern "C" fn normalize(id: u32, value: f32, output: *mut f32) -> i32 {
+        // SAFETY: forwards this function's own caller contract.
         unsafe { Self::range(id, value, output, false) }
     }
     unsafe extern "C" fn denormalize(id: u32, value: f32, output: *mut f32) -> i32 {
+        // SAFETY: forwards this function's own caller contract.
         unsafe { Self::range(id, value, output, true) }
     }
     unsafe fn range(id: u32, value: f32, output: *mut f32, normalized: bool) -> i32 {
@@ -261,6 +264,7 @@ impl<
             let Some(value) = result else {
                 return 1;
             };
+            // SAFETY: checked nonnull and aligned above.
             unsafe { output.write(value) };
             0
         })
@@ -296,6 +300,8 @@ impl<
                 return 1;
             };
             for (index, descriptor) in P::parameter_schema().descriptors().iter().enumerate() {
+                // SAFETY: `output` is nonnull and aligned with room for `capacity` >= N records,
+                // and `index` < N.
                 unsafe {
                     output.add(index).write(NativeParameterValueV1 {
                         id: descriptor.id.0,
@@ -318,6 +324,8 @@ impl<
             let Ok(state) = Self::validate_snapshot(owner.processor.parameter_snapshot()) else {
                 return 1;
             };
+            // SAFETY: checked nonnull; `bytes` <= `capacity`, which the caller provides (u8 needs
+            // no alignment).
             let output = unsafe { slice::from_raw_parts_mut(output, bytes) };
             state
                 .encode(P::STATE_PRODUCT, P::STATE_VERSION, output)
@@ -335,6 +343,7 @@ impl<
             let input = if length == 0 {
                 &[]
             } else {
+                // SAFETY: checked nonnull; the caller provides `length` readable bytes.
                 unsafe { slice::from_raw_parts(input, length as usize) }
             };
             let Ok(state) = P::decode_parameter_snapshot(input).and_then(Self::validate_snapshot)

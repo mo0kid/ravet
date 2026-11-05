@@ -99,6 +99,11 @@ public:
     void reportLatency();
 
 private:
+    // Bodies of the host methods above, run inside an exception guard.
+    AAX_Result initialize();
+    AAX_Result update(AAX_CParamID id, double value, AAX_EUpdateSource source);
+    AAX_Result wake();
+    AAX_Result writeChunk(AAX_SPlugInChunk *chunk) const;
     bool saveState(std::vector<uint8_t> &out) const;
     void reflectValues();
     const RavetPluginEntryV1 *table_;
@@ -106,6 +111,8 @@ private:
     std::unordered_map<std::string, uint32_t> indices_;
     std::vector<std::string> ids_;
     mutable std::vector<uint8_t> chunk_;
+    // Size reported by the last GetChunkSize: the host's fData capacity.
+    mutable uint32_t chunkCapacity_ = 0;
     std::vector<double> readOnly_;
     int32_t reportedLatency_ = -1;
     bool prepared_ = false;

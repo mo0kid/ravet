@@ -7,6 +7,8 @@
 //! Policy affects runtime executed instructions, not every optimized Rust source
 //! expression or external math function. This is not a deadline guarantee.
 #![cfg_attr(not(feature = "std"), no_std)]
+// Every unsafe block in library code states why it is sound.
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 #[allow(unsafe_code)]
 mod native;

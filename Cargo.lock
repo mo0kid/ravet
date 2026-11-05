@@ -1457,6 +1457,9 @@ name = "ravet-delay-plugin"
 version = "0.0.1"
 dependencies = [
  "allocation-counter",
+ "clack-extensions",
+ "clack-host",
+ "ravet-clap-smoke",
  "ravet-foundation",
  "ravet-plugin",
  "ravet-signal",

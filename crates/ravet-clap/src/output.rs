@@ -177,7 +177,15 @@ pub(crate) fn deliver(
         };
     }
     for (index, event) in events.iter().enumerate() {
-        let accepted = match native(*event, port, clap, scoped, completion, flush).unwrap() {
+        // Every event converted in the check above; matching avoids a panic path.
+        let Some(converted) = native(*event, port, clap, scoped, completion, flush) else {
+            return OutputDelivery {
+                delivered: index,
+                undelivered: events.len() - index,
+                reason: Some(OutputRejection::Unrepresentable),
+            };
+        };
+        let accepted = match converted {
             Native::Choke(event) => output.try_push(event),
             Native::End(event) => output.try_push(event),
             Native::NoteOn(event) => output.try_push(event),
