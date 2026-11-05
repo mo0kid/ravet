@@ -324,7 +324,10 @@ class BundleTests(unittest.TestCase):
                 runner = Mock()
                 # actual-component fixture succeeds; auval initially fails.
                 runner.run.side_effect = [None, error, "AU VALIDATION SUCCEEDED."]
-                with patch.object(Path, "home", return_value=root / "home"), patch.object(bundle.time, "sleep") as sleep:
+                # The registrar-retry path is the arm64 slice; pin it so the test
+                # does not take the x86_64 private-validator path on Intel hosts.
+                with patch.object(Path, "home", return_value=root / "home"), patch.object(bundle.time, "sleep") as sleep, \
+                        patch.object(bundle.host_platform, "machine", return_value="arm64"):
                     if failure == "render test failed":
                         with self.assertRaises(subprocess.CalledProcessError):
                             bundle.validate("au", artifact, runner, build=root / "build")
