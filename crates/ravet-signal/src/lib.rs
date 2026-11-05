@@ -4,7 +4,8 @@
 //! It is independent of processors, plug-in formats, devices, and editors.
 //! [`DelayLine`] and [`DelayDiffuser`] provide prepared double-precision
 //! storage and feedback diffusion. [`HalfBand2x`] provides a fixed streaming
-//! oversampling path for effects.
+//! oversampling path for effects; [`StereoOversampler`] runs it over whole
+//! stereo blocks. [`StereoFir`] is a prepared fixed-size stereo FIR.
 //! [`CombFilter`] provides fixed-delay feedforward and feedback comb filtering.
 //! [`PeakRmsMeter`] measures caller-selected sample peak/RMS windows.
 //! [`PhaseRotation`] advances caller-owned quadrature oscillator banks.
@@ -27,6 +28,12 @@ pub use meter::{MeterReading, PeakRmsMeter};
 mod convolution;
 mod fft;
 pub use convolution::{ConvolutionError, FirConvolver};
+mod stereo_fir;
+pub use stereo_fir::{
+    ChannelLengthMismatch, FirSample, MAXIMUM_STEREO_FIR_FRAMES, MAXIMUM_STEREO_FIR_TAPS, StereoFir,
+};
+mod stereo_oversampling;
+pub use stereo_oversampling::{MAXIMUM_OVERSAMPLER_FRAMES, OversamplerError, StereoOversampler};
 mod partitioned;
 pub use fft::{Complex, FftError, FftPlan, FftPreparationError};
 mod fft32;
