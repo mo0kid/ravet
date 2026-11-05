@@ -24,7 +24,10 @@ unsafe_code = "deny"
 [dependencies]
 ravet-foundation.workspace = true
 ravet-signal.workspace = true
-ravet-plugin = { workspace = true, features = ["clap", "native"] }
+ravet-plugin = { workspace = true, features = ["clap", "native", "editor"] }
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
+clack-host = { workspace = true, features = ["clack-plugin"] }
+clack-extensions = { workspace = true, features = ["clack-host", "params"] }
+ravet-clap-smoke = { path = "../../tools/clap-smoke" }

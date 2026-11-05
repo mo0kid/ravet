@@ -34,13 +34,19 @@
 //! in the export layer's later steps. Everything here runs on control threads.
 //!
 //! [decision 0281]: https://github.com/mo0kid/ravet/blob/main/docs/decisions/0281-generic-export-layer.md
+// Every unsafe block in library code states why it is sound.
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 #[cfg(feature = "clap")]
 pub mod clap;
-#[cfg(all(feature = "clap", target_os = "macos"))]
+#[cfg(all(feature = "clap", feature = "editor", target_os = "macos"))]
 mod clap_gui;
 pub mod editor;
-#[cfg(all(any(feature = "clap", feature = "native"), target_os = "macos"))]
+#[cfg(all(
+    any(feature = "clap", feature = "native"),
+    feature = "editor",
+    target_os = "macos"
+))]
 mod editor_host;
 pub mod export;
 pub mod identity;

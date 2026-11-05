@@ -189,6 +189,8 @@ impl UmpMidi1 {
             | u32::from(bytes[0]) << 16
             | u32::from(*bytes.get(1).unwrap_or(&0)) << 8
             | u32::from(*bytes.get(2).unwrap_or(&0));
+        // Unreachable panic: `new` validated the group and message, so the
+        // single-word packet always validates.
         UmpPacket::from_words(&[word]).expect("validated single-word MIDI 1 message")
     }
     /// Zero-based UMP group.

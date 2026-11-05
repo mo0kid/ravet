@@ -138,6 +138,8 @@ impl<
         if pointer.is_null() || !aligned(pointer.cast::<Self>()) {
             None
         } else {
+            // SAFETY: checked nonnull and aligned; the contract requires a live publication from
+            // `create`.
             unsafe { pointer.cast::<Self>().as_ref() }
         }
     }
@@ -165,6 +167,7 @@ impl<
                 let input = if length == 0 {
                     &[]
                 } else {
+                    // SAFETY: checked nonnull above; the caller provides `length` readable bytes.
                     unsafe { slice::from_raw_parts(input, length as usize) }
                 };
                 let Ok(state) = P::decode_parameter_snapshot(input)
@@ -190,6 +193,8 @@ impl<
     }
     unsafe extern "C" fn destroy(publication: *mut c_void) {
         if !publication.is_null() {
+            // SAFETY: created by `create` and destroyed once after every borrower stops (table
+            // contract).
             drop(unsafe { Box::from_raw(publication.cast::<Self>()) });
         }
     }
@@ -200,6 +205,7 @@ impl<
         output: *mut NativeStateRevisionV1,
     ) -> i32 {
         Self::contain(|| {
+            // SAFETY: `get` checks null and alignment; the caller passes a live publication.
             let Some(publication) = (unsafe { Self::get(publication) }) else {
                 return 1;
             };
@@ -213,6 +219,7 @@ impl<
             let input = if length == 0 {
                 &[]
             } else {
+                // SAFETY: checked nonnull above; the caller provides `length` readable bytes.
                 unsafe { slice::from_raw_parts(input, length as usize) }
             };
             let Ok(state) = P::decode_parameter_snapshot(input)
@@ -225,6 +232,7 @@ impl<
                 .try_publish(state.values().map(f32::to_bits))
             {
                 Ok(generation) => {
+                    // SAFETY: checked nonnull and aligned above.
                     unsafe { output.write(publication.revision(generation)) };
                     0
                 }
@@ -239,6 +247,7 @@ impl<
         revision: *mut NativeStateRevisionV1,
     ) -> i32 {
         Self::contain(|| {
+            // SAFETY: `get` checks null and alignment; the caller passes a live publication.
             let Some(publication) = (unsafe { Self::get(publication) }) else {
                 return 1;
             };
@@ -257,6 +266,8 @@ impl<
                 return 1;
             };
             for (index, descriptor) in publication.schema.descriptors().iter().enumerate() {
+                // SAFETY: `output` is nonnull and aligned with room for `capacity` >= N records,
+                // and `index` < N.
                 unsafe {
                     output.add(index).write(NativeParameterValueV1 {
                         id: descriptor.id.0,
@@ -264,6 +275,7 @@ impl<
                     })
                 };
             }
+            // SAFETY: checked nonnull and aligned above.
             unsafe { revision.write(publication.revision(snapshot.generation)) };
             0
         })
@@ -275,6 +287,7 @@ impl<
         revision: *mut NativeStateRevisionV1,
     ) -> i32 {
         Self::contain(|| {
+            // SAFETY: `get` checks null and alignment; the caller passes a live publication.
             let Some(publication) = (unsafe { Self::get(publication) }) else {
                 return 1;
             };
@@ -294,6 +307,7 @@ impl<
                 return 1;
             };
             if state
+                // SAFETY: checked nonnull; `bytes` <= `capacity`, which the caller provides.
                 .encode(P::STATE_PRODUCT, P::STATE_VERSION, unsafe {
                     slice::from_raw_parts_mut(output, bytes)
                 })
@@ -301,6 +315,7 @@ impl<
             {
                 return 1;
             }
+            // SAFETY: checked nonnull and aligned above.
             unsafe { revision.write(publication.revision(snapshot.generation)) };
             0
         })
@@ -317,6 +332,7 @@ impl<
             if !owner.is_prepared() || output.is_null() || !aligned(output) {
                 return 1;
             }
+            // SAFETY: `get` checks null and alignment; the caller passes a live publication.
             let Some(publication) = (unsafe { Self::get(publication) }) else {
                 return 1;
             };
@@ -338,6 +354,7 @@ impl<
                 }
                 owner.state_revision = Some((publication.id, snapshot.generation));
             }
+            // SAFETY: checked nonnull and aligned above.
             unsafe {
                 output.write(NativeStateApplyV1 {
                     revision,
@@ -360,6 +377,7 @@ impl<
             if !owner.is_prepared() || output.is_null() || !aligned(output) {
                 return 1;
             }
+            // SAFETY: `get` checks null and alignment; the caller passes a live publication.
             let Some(publication) = (unsafe { Self::get(publication) }) else {
                 return 1;
             };
@@ -383,12 +401,14 @@ impl<
             };
             let words = state.values().map(f32::to_bits);
             if words == current.words {
+                // SAFETY: checked nonnull and aligned above.
                 unsafe { output.write(publication.revision(generation)) };
                 return 0;
             }
             match publication.mailbox.try_publish_if(generation, words) {
                 Ok(generation) => {
                     owner.state_revision = Some((id, generation));
+                    // SAFETY: checked nonnull and aligned above.
                     unsafe { output.write(publication.revision(generation)) };
                     0
                 }

@@ -19,6 +19,7 @@ import shutil
 import sys
 
 from lv2_bundle import CommandRunner
+import third_party_notices
 import windows_cross
 
 # Product crates exported with ravet_plugin::export_plugin!. "mock" is the C++
@@ -127,6 +128,9 @@ def package_generic(context, target, build):
     shutil.copy2(context.sdk / "COPYING", artifact / "LV2-SDK-LICENSE.txt")
     shutil.copy2(context.root / "LICENSE", artifact / "RAVET-LICENSE.txt")
     shutil.copy2(context.root / "LICENSING.md", artifact / "RAVET-LICENSING.md")
+    if context.crate:
+        third_party_notices.write(context.root, context.crate, artifact,
+                                  windows_cross.TRIPLE if context.cross else None, run=context.runner.run)
     if context.platform == "darwin" and not context.cross:
         suffix = module_suffix(context.platform)
         for binary in ("ravet_lv2", "ravet_lv2_ui", "ravet_product"):

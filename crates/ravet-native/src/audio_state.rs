@@ -104,6 +104,7 @@ impl<
         {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { NativeCachedParameters::<P, S, N>::get(cache) }) else {
             return 1;
         };
@@ -117,6 +118,8 @@ impl<
             let input = if N == 0 {
                 &[]
             } else {
+                // SAFETY: checked nonnull and aligned above; the caller passes `count` == N
+                // records.
                 unsafe { slice::from_raw_parts(input, N) }
             };
             let Ok(state) = Self::complete(cache, input) else {
@@ -142,6 +145,7 @@ impl<
         {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { NativeCachedParameters::<P, S, N>::get(cache) }) else {
             return 1;
         };
@@ -164,6 +168,8 @@ impl<
                 return 1;
             };
             for (index, descriptor) in cache.schema.descriptors().iter().enumerate() {
+                // SAFETY: `output` is nonnull and aligned with room for `capacity` >= N records,
+                // and `index` < N.
                 unsafe {
                     output.add(index).write(NativeParameterValueV1 {
                         id: descriptor.id.0,

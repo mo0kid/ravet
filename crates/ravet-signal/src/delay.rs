@@ -9,6 +9,8 @@
 /// nonfinite delays read zero without changing storage.
 #[derive(Debug)]
 pub struct DelayLine {
+    // Invariant: `samples` is never empty and `cursor < samples.len()`, so
+    // every index below is in bounds and the accessors cannot panic.
     samples: Vec<f64>,
     cursor: usize,
 }

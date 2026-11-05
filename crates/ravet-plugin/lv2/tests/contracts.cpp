@@ -22,6 +22,7 @@
 #include "lv2/urid/urid.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -129,6 +130,22 @@ struct Sequence {
     }
     void midi(Host &host, int64_t frame, std::vector<uint8_t> bytes) {
         std::memcpy(append(frame, host.id(LV2_MIDI__MidiEvent), uint32_t(bytes.size())), bytes.data(), bytes.size());
+    }
+    // time:Position with every listed property as an atom:Double.
+    void doublePosition(Host &host, int64_t frame, std::vector<std::pair<const char *, double>> values) {
+        const uint32_t size = uint32_t(sizeof(LV2_Atom_Object_Body) + values.size() * (sizeof(LV2_Atom_Property_Body) + 8));
+        auto *body = append(frame, host.id(LV2_ATOM__Object), size);
+        auto *object = reinterpret_cast<LV2_Atom_Object_Body *>(body);
+        object->id = 0;
+        object->otype = host.id(LV2_TIME__Position);
+        auto *cursor = body + sizeof(LV2_Atom_Object_Body);
+        for (const auto &v : values) {
+            auto *property = reinterpret_cast<LV2_Atom_Property_Body *>(cursor);
+            property->key = host.id(v.first); property->context = 0;
+            property->value.type = host.id(LV2_ATOM__Double); property->value.size = 8;
+            std::memcpy(cursor + sizeof(LV2_Atom_Property_Body), &v.second, 8);
+            cursor += sizeof(LV2_Atom_Property_Body) + 8;
+        }
     }
     // time:Position with Float bpm/speed/beatsPerBar, Double beat, Long frame, Int beatUnit.
     void position(Host &host, int64_t frame, float bpm, float speed, double beat, int64_t sample) {
@@ -465,6 +482,27 @@ int main(int argc, char **argv) {
     CHECK(probe->transport[0].tempo == 120.0 && (probe->transport[0].flags & RAVET_TRANSPORT_FLAG_PLAYING));
     CHECK(probe->transport[1].tempo == 90.0 && !(probe->transport[1].flags & RAVET_TRANSPORT_FLAG_PLAYING) &&
           probe->transport[1].beat_position == 2.0);
+    // Out-of-range host values saturate instead of overflowing integer
+    // conversions or the extrapolated frame and bar (undefined behaviour).
+    resetProbe();
+    events.clear(host);
+    events.doublePosition(host, 0, {{LV2_TIME__frame, 1e300}, {LV2_TIME__speed, 1e300}, {LV2_TIME__beat, 0.0},
+                                    {LV2_TIME__bar, 1e300}, {LV2_TIME__barBeat, 0.0}, {LV2_TIME__beatsPerBar, 4.0},
+                                    {LV2_TIME__beatUnit, 1e12}, {LV2_TIME__beatsPerMinute, 120.0}});
+    run(240);
+    run(240);  // extrapolated from the saturated report
+    CHECK(probe->transport_count == 2);
+    for (uint32_t i = 0; i < 2 && i < probe->transport_count; ++i) {
+        const auto &t = probe->transport[i];
+        CHECK((t.present & RAVET_TRANSPORT_SAMPLES) && t.sample_position == INT64_MAX);
+        CHECK(!(t.present & RAVET_TRANSPORT_SIGNATURE) && !(t.present & RAVET_TRANSPORT_BAR));
+    }
+    events.doublePosition(host, 0, {{LV2_TIME__frame, -1e300}, {LV2_TIME__speed, 0.0}, {LV2_TIME__bar, -1e300}});
+    resetProbe();
+    run(64);
+    CHECK(probe->transport_count == 1 && probe->transport[0].sample_position == INT64_MIN);
+    events.position(host, 0, 120.f, 0.f, 0.0, 0);  // back to an ordinary stopped transport
+    run(64);
 
     // 6. State: one atom:Chunk property; restore wins over stale ports.
     StateStore store;

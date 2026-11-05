@@ -21,10 +21,15 @@ unsafe_code = "deny"
 [features]
 default = []
 # Generic CLAP export through `export_plugin!`.
-clap = ["dep:ravet-clap", "dep:ravet-native-dsp", "dep:ravet-webview", "dep:clack-plugin", "dep:clack-extensions"]
+clap = ["dep:ravet-clap", "dep:ravet-native-dsp", "dep:clack-plugin", "dep:clack-extensions"]
 # The generic C table (`include/RavetPlugin.h`, `ravet_plugin_v1`) used by the
 # VST3, AUv2, AAX and LV2 adapters.
-native = ["dep:ravet-native", "dep:ravet-native-dsp", "dep:ravet-webview"]
+native = ["dep:ravet-native", "dep:ravet-native-dsp"]
+# The product's web editor in the CLAP export and the native table (macOS
+# Cocoa views in this release). Without it no editor is offered: the CLAP GUI
+# extension is absent and the table reports a 0 x 0 editor. Adds ravet-webview
+# (WebKit/Cocoa and a compiled Objective-C++ archive on macOS).
+editor = ["dep:ravet-webview"]
 
 [dependencies]
 ravet-foundation.workspace = true

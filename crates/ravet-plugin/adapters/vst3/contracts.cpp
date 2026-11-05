@@ -6,6 +6,18 @@
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include <cstdio>
 #include <cstdlib>
+#include <atomic>
+#include <new>
+// Allocation failure injection: every host-facing method that allocates must
+// report failure instead of letting std::bad_alloc unwind into the host.
+static std::atomic<bool> failAllocations{false};
+void* operator new(std::size_t size) {
+    if (failAllocations.load(std::memory_order_relaxed)) throw std::bad_alloc();
+    if (void* memory = std::malloc(size ? size : 1)) return memory;
+    throw std::bad_alloc();
+}
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
 namespace ravet_mock {
 extern std::array<RavetNativeEventV1, 1024> received;
 extern uint32_t receivedCount, processCalls, closed, idled;
@@ -116,6 +128,19 @@ int main() {
     // Short streams reject without replacing the accepted envelope.
     MemoryStream invalid; const char badState[] = "bad"; invalid.write(const_cast<char*>(badState), 3, nullptr);
     invalid.seek(0, IBStream::kIBSeekSet, nullptr); CHECK(component->setState(&invalid) == kResultFalse);
+    // Out of memory: refused, never thrown into the host; nothing is replaced.
+    failAllocations = true;
+    state.seek(0, IBStream::kIBSeekSet, nullptr);
+    const bool stateRefused = component->setState(&state) == kResultFalse;
+    MemoryStream unsaved; const bool saveRefused = component->getState(&unsaved) == kResultFalse;
+    state.seek(0, IBStream::kIBSeekSet, nullptr);
+    const bool controllerRefused = controller->setState(&state) == kResultFalse;
+    const bool noComponent = ravet::plugin::vst3::Component::create(nullptr) == nullptr, noController = Controller::create(nullptr) == nullptr;
+    const bool noView = controller->createView(ViewType::kEditor) == nullptr;
+    failAllocations = false;
+    CHECK(stateRefused && saveRefused && controllerRefused && noComponent && noController && noView);
+    MemoryStream intact; CHECK(component->getState(&intact) == kResultOk);
+    CHECK(intact.getSize() == state.getSize() && !std::memcmp(intact.getData(), state.getData(), size_t(state.getSize())));
     auto view = owned(controller->createView(ViewType::kEditor)); CHECK(view);
 #if SMTG_OS_MACOS
     const auto platform = kPlatformTypeNSView;

@@ -73,9 +73,25 @@ class GenericBundleTests(unittest.TestCase):
     def test_external_manifest(self):
         manifest = self.root / "consumer/Cargo.toml"
         self.run_bundle(manifest_path=manifest, platform="linux")
+        ravet = str((self.root / "Cargo.toml").resolve())
         for command in self.runner.commands:
-            if command[:2] in (["cargo", "metadata"], ["cargo", "build"]):
+            # The notices step also reads RAVET's own manifest to recognise its crates.
+            if command[:2] in (["cargo", "metadata"], ["cargo", "build"], ["cargo", "tree"]) \
+                    and ravet not in command:
                 self.assertIn(str(manifest.resolve()), command)
+
+    def test_bundles_ship_third_party_notices(self):
+        for cross in (None, "windows"):
+            with self.subTest(cross=cross), tempfile.TemporaryDirectory() as target, \
+                    mock.patch("windows_cross.prepare", return_value=[]):
+                self.runner = Runner(Path(target))
+                artifact, = self.run_bundle(platform="linux", cross=cross)
+                notices = artifact / "Contents/Resources/notices"
+                for name in ("THIRD-PARTY-NOTICES.txt", "RAVET-LICENSE.txt", "Steinberg-VST3-LICENSE.txt"):
+                    self.assertTrue((notices / name).is_file(), name)
+                tree = next(c for c in self.runner.commands if c[:2] == ["cargo", "tree"])
+                self.assertEqual(tree[tree.index("-p") + 1], "ravet-delay-plugin")
+                self.assertEqual("--target" in tree, cross is not None)
 
     def test_missing_sdk_before_build(self):
         (self.sdk / "CMakeLists.txt").unlink()

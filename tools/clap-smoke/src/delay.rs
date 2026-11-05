@@ -119,7 +119,9 @@ pub fn exercise_delay(entry: &PluginEntry) -> Result<usize, Box<dyn std::error::
                 let mut input_ports = AudioPorts::with_capacity(2, 1);
                 let mut output_ports = AudioPorts::with_capacity(2, 1);
                 let host_tempo = transport(120.0);
-                let mut render = |started: &mut StartedPluginAudioProcessor<_>, first: f32| {
+                let mut render = |started: &mut StartedPluginAudioProcessor<_>,
+                                  first: f32,
+                                  events: &InputEvents| {
                     let mut input = [[0.0_f32; BLOCK]; 2];
                     input[0][0] = first;
                     input[1][0] = first;
@@ -140,7 +142,7 @@ pub fn exercise_delay(entry: &PluginEntry) -> Result<usize, Box<dyn std::error::
                         .process(
                             &inputs,
                             &mut outputs,
-                            &InputEvents::empty(),
+                            events,
                             &mut OutputEvents::void(),
                             None,
                             Some(&host_tempo),
@@ -149,11 +151,15 @@ pub fn exercise_delay(entry: &PluginEntry) -> Result<usize, Box<dyn std::error::
                     output
                 };
                 // The first block delivers the tempo; reset completes the glide.
-                render(&mut started, 0.0);
+                render(&mut started, 0.0, &InputEvents::empty());
                 started.reset();
                 let mut rendered = [Vec::new(), Vec::new()];
                 for block in 0..blocks - 1 {
-                    let output = render(&mut started, if block == 0 { 1.0 } else { 0.0 });
+                    let output = render(
+                        &mut started,
+                        if block == 0 { 1.0 } else { 0.0 },
+                        &InputEvents::empty(),
+                    );
                     for (all, channel) in rendered.iter_mut().zip(output) {
                         all.extend_from_slice(&channel);
                     }
@@ -166,6 +172,17 @@ pub fn exercise_delay(entry: &PluginEntry) -> Result<usize, Box<dyn std::error::
                     assert_eq!(peaks, [2000], "synced repeat position");
                     assert!((channel[2000] - 1.0).abs() < 1e-6);
                 }
+                // More events than one block accepts (1,024): the block is
+                // rejected with silence and the values are not applied, so the
+                // saved state below is unchanged.
+                let flood: Vec<_> = (0..1100)
+                    .map(|_| ParamValueEvent::new(0, MIX, Pckn::match_all(), 0.0))
+                    .collect();
+                let output = render(&mut started, 1.0, &InputEvents::from_buffer(&flood));
+                assert!(
+                    output.iter().flatten().all(|sample| *sample == 0.0),
+                    "oversized block is silenced"
+                );
                 started.stop_processing()
             })
             .join()

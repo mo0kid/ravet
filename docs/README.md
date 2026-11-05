@@ -14,6 +14,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [0.1.0 release plan](releases/0.1.0.md) | Criteria for the next release; not yet released |
 | [Plug-in export layer](plugin-export.md) | Product descriptions, format identities and saved state for generic exports (prototype) |
 | [Versioning and compatibility](compatibility.md) | API, state and identity guarantees between releases |
+| [Dependency notices](dependency-notices.md) | Licences of the plug-in export graph and the notices each bundle ships |
 | [Getting started](getting-started.md) | Requirements, offline example, CLAP bundle, and local API documentation |
 | [Small examples](examples.md) | MIDI synth, effect plug-in, MPE expression and MIDI 2.0 walkthroughs |
 | [Embedded projects](embedded-projects.md) | no_std STM32 processing, native Arduino C++ subset and Pi Linux starters |

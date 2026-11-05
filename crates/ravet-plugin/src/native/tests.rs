@@ -189,16 +189,15 @@ fn instance() -> *mut c_void {
     let instance = (table.create)();
     assert!(!instance.is_null());
     // SAFETY: valid instance and configuration.
-    assert_eq!(
-        unsafe { (table.prepare)(instance, &config(512, (2, 2))) },
-        0
-    );
+    let prepared = unsafe { (table.prepare)(instance, &config(512, (2, 2))) };
+    assert_eq!(prepared, 0);
     instance
 }
 
 fn recorder(instance: *mut c_void) -> &'static Recorder {
     // SAFETY: test-only peek at a stopped instance created by this table.
     let owner = unsafe { &*instance.cast::<Instance<TestPlugin>>() };
+    // SAFETY: no processing runs while the test inspects the instance.
     let audio = unsafe { &*owner.audio.get() };
     audio.processor.as_ref().unwrap().processor().processor()
 }
@@ -297,7 +296,12 @@ fn static_data_matches_the_resolved_product() {
             record.editor_height,
             record.editor_resizable
         ),
-        (300, 200, 1)
+        // Without the `editor` feature the table offers no editor.
+        if cfg!(feature = "editor") {
+            (300, 200, 1)
+        } else {
+            (0, 0, 0)
+        }
     );
     // SAFETY: layout_count records.
     let layouts = unsafe { slice::from_raw_parts(record.layouts, record.layout_count as usize) };
@@ -563,6 +567,35 @@ fn preparation_validates_the_configuration() {
 }
 
 #[test]
+fn null_and_misaligned_instances_are_rejected() {
+    let table = table();
+    let instance = instance();
+    // An address no `create` returns; it is never dereferenced.
+    let misaligned = instance.cast::<u8>().wrapping_add(1).cast::<c_void>();
+    let mut length = 0;
+    let mut timing = NativeProcessorTimingV1::default();
+    for pointer in [ptr::null_mut(), misaligned] {
+        // SAFETY: the table rejects these pointers before dereferencing them.
+        unsafe {
+            assert!((table.get_value)(pointer, 0).is_nan());
+            assert_eq!((table.set_value)(pointer, 0, 1.0), 1);
+            assert_eq!(
+                (table.save_state)(pointer, ptr::null_mut(), 0, &mut length),
+                1
+            );
+            assert_eq!((table.reset)(pointer), 1);
+            assert_eq!((table.timing)(pointer, &mut timing), 1);
+            assert_eq!((table.latency_changed)(pointer), 0);
+            (table.editor_idle)(pointer);
+        }
+        assert_eq!(process(pointer, &[1.0; 8], &[]).code, 1);
+    }
+    // The real instance is untouched.
+    assert_eq!(process(instance, &[1.0; 8], &[]).code, 0);
+    destroy(instance);
+}
+
+#[test]
 fn panics_return_2_and_fault_processing_until_prepare() {
     let table = table();
     let instance = instance();
@@ -656,7 +689,7 @@ fn processing_and_reset_allocate_nothing() {
     destroy(instance);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "editor", target_os = "macos"))]
 #[test]
 fn editor_edits_flow_to_take_edits_and_the_processor() {
     use ravet_webview::Callbacks;

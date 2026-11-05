@@ -261,6 +261,8 @@ impl Midi2Message {
                 | u32::from(low),
             data,
         ])
+        // Unreachable panic: the constructors validated every field, so the
+        // two-word packet always validates.
         .expect("validated two-word MIDI 2 message")
     }
 
