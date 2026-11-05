@@ -515,7 +515,7 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0283](0283-generic-lv2-adapter.md) | Generic LV2 adapter: generated Turtle, one port set, mirror-instance UI | Prototype; macOS arm64 contracts, lilv and validator evidence; no DAW, Linux or Windows run |
 | [0284](0284-native-auv2-product-adapter.md) | Native AUv2 product adapter contracts | Prototype; macOS arm64 mock auval and real-delay in-process evidence, no DAW claim |
 | [0285](0285-linux-windows-plugin-builds.md) | Linux builds and Windows cross-builds of plug-in exports | Prototype; Linux x86_64 and Windows 11 x64 validator evidence for the Delay, no DAW claim |
-| [0286](0286-editor-keyboard-focus.md) | Keyboard focus for web-editor text fields in hosts that keep key status | Implemented in Cocoa/WebKit; AppKit fixture evidence; confirmed in Pro Tools 26.4 (macOS) |
+| [0286](0286-editor-keyboard-focus.md) | Keyboard focus for web-editor text fields in hosts that keep key status | Implemented in Cocoa/WebKit; AppKit fixture evidence; Pro Tools 26.4 partial (characters), Return/Escape fix awaits re-check |
 | [0287](0287-export-robustness-and-notices.md) | Export robustness, opt-in editor and bundle notices | Implemented for the plug-in export surface; offline and validator evidence on macOS arm64 |
 | [0288](0288-unified-product-bundling-and-foundry.md) | Unified product bundling and generic Foundry projects | Implemented; macOS explicit/universal slices and Rosetta checks, Linux and Windows cross-build evidence; no production signing claim |
 | [0289](0289-versioned-tree-records.md) | Versioned observable-tree records and the 0.1.0 state inventory | Implemented; offline macOS arm64 tests |

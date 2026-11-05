@@ -138,9 +138,13 @@ in the web editor (such as the delay's typed values) could not be typed into;
 mouse editing worked. AAX SDK 2.8 has no keyboard-focus call, so the macOS web
 view now takes key status itself while a text field has focus and returns it
 afterwards (see [keyboard focus](native-editor.md#keyboard-focus)). This is
-checked with AppKit fixtures, and the owner confirmed it in Pro Tools 26.4 with
-a signed rebuild: typed values apply, Escape cancels, clicking away commits, and
-Space and Command-S still reach Pro Tools.
+checked with AppKit fixtures. In the owner's Pro Tools 26.4 check, characters
+then reached the field, but Pro Tools still took Return, Enter and Escape, and
+clicking away did not commit. The web view therefore now forwards every plain
+key to the focused field while editing, whatever window is key, and ends
+editing (committing on blur) when the editor window stops being key; this
+passes a fixture that swallows Return and Escape like Pro Tools and awaits a
+Pro Tools re-check.
 Where the validator is installed, run its
 standard test suite on the built bundle as its own documentation describes, and
 record the validator version and results with the build.

@@ -9488,3 +9488,26 @@ being edited; clicking the Time value, typing 250 and pressing Enter sets
 Mix value; clicking away commits a typed Feedback value; Command-S saves the
 session while a value is being edited. The owner reports that the check passes.
 This is a manual single-host check; Pro Tools for Windows is not covered.
+
+**Correction (owner, same day):** the check passed only in part. Typing
+characters into a field worked, but Return, Enter and Escape were taken by
+Pro Tools; clicking away after typing 250 did not commit; and Space while a
+field was focused typed a space into it, as expected for a text field. The
+earlier sentence overstated the result.
+
+### Keyboard focus follow-up for Pro Tools (2026-11-05)
+
+Cause: when Pro Tools lets the editor window become key, the decision 0286 code
+installed no key monitor, so key events took the normal path, where Pro Tools'
+own event handling takes Return, Enter and Escape; and WebKit keeps a field
+focused when its window resigns key status, so clicking a Pro Tools window never
+blurred it. `RavetWebView.mm` now always forwards plain keys to the web view
+while a field is focused and ends editing (blurring, so pages commit) when the
+editor window resigns key (decision 0286 amendment). New fixture group "host
+that takes Return and Escape" fails against the previous code ("Return and
+Escape reach the field") and passes with the fix; the native web-view CTest
+passes 18/18 on macOS arm64 in this session (including first-mouse and
+keyboard-focus, which this session can now run). The AAX delay was rebuilt (its
+bundle check passes), signed outside the repository with the owner's
+Developer ID through `wraptool` (signed, not wrapped) and installed in
+`/Library/Application Support/Avid/Audio/Plug-Ins` for a Pro Tools re-check.

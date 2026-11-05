@@ -27,6 +27,7 @@
 @property(nonatomic, strong) id keyMonitor;
 @property(nonatomic, strong) id mouseMonitor;
 @property(nonatomic, strong) id resignObserver;
+@property(nonatomic, strong) id resignKeyObserver;
 - (void)poll:(NSTimer*)timer;
 - (void)endTyping:(BOOL)blur;
 @end
@@ -97,12 +98,15 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
     }];
 }
 // A text field has focus. Make the editor's window key and the web view first
-// responder; hosts such as Logic and Live already have, so nothing changes
-// there. If the host refuses key status, forward plain typing (no Command key)
-// from the application's key events to the web view until the field loses
-// focus, a mouse button goes down in another window, or the application
-// resigns active; the last two blur the field. The AAX SDK has no keyboard
-// focus call, so this is done in AppKit for every format.
+// responder; hosts such as Logic and Live already have. While the field has
+// focus, plain keys (no Command key) go straight to the web view from a local
+// event monitor, which runs before the application dispatches the event: some
+// hosts (Pro Tools) take Return, Enter and Escape in their own event handling
+// even when the editor window is key, and others refuse key status entirely.
+// Editing ends, blurring the field (so pages commit on blur), when a mouse
+// button goes down in another window, the editor window stops being key or the
+// application resigns active. The AAX SDK has no keyboard focus call, so this
+// is done in AppKit for every format.
 - (void)beginTyping {
     WKWebView* web = _web;
     NSWindow* window = web.window;
@@ -116,13 +120,14 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
     NSResponder* responder = window.firstResponder;
     if (![responder isKindOfClass:NSView.class] || ![(NSView*)responder isDescendantOf:web])
         [window makeFirstResponder:web];
-    if (window.isKeyWindow) return;
     __weak RavetWebBridge* weak = self;
     _keyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp
                                                          handler:^NSEvent*(NSEvent* event) {
         WKWebView* view = weak.web;
-        if (!view || !view.window || view.window.isKeyWindow || event.window == view.window ||
-            (event.modifierFlags & NSEventModifierFlagCommand)) return event;
+        // Command shortcuts stay with the host. Editing ends before another
+        // window can take the keyboard (see the observers below), so every
+        // other key belongs to the focused field.
+        if (!view || !view.window || (event.modifierFlags & NSEventModifierFlagCommand)) return event;
         if (event.type == NSEventTypeKeyDown) [view keyDown:event];
         else [view keyUp:event];
         return nil;
@@ -136,6 +141,11 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
     }];
     _resignObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification
         object:nil queue:nil usingBlock:^(NSNotification*) { [weak endTyping:YES]; }];
+    // WebKit keeps the field focused when its window stops being key, so the
+    // page would never see a blur: end editing here instead.
+    if (window.isKeyWindow)
+        _resignKeyObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidResignKeyNotification
+            object:window queue:nil usingBlock:^(NSNotification*) { [weak endTyping:YES]; }];
 }
 // The field lost focus (or, with blur, must lose it). Give key status back to
 // the window that had it, but only if this editor took it and still has it.
@@ -145,7 +155,8 @@ static NSString* const kKeyboardScript = @"(()=>{'use strict';"
     if (_keyMonitor) [NSEvent removeMonitor:_keyMonitor];
     if (_mouseMonitor) [NSEvent removeMonitor:_mouseMonitor];
     if (_resignObserver) [NSNotificationCenter.defaultCenter removeObserver:_resignObserver];
-    _keyMonitor = _mouseMonitor = _resignObserver = nil;
+    if (_resignKeyObserver) [NSNotificationCenter.defaultCenter removeObserver:_resignKeyObserver];
+    _keyMonitor = _mouseMonitor = _resignObserver = _resignKeyObserver = nil;
     WKWebView* web = _web;
     NSWindow* window = web.window;
     NSWindow* previous = _previousKey;
