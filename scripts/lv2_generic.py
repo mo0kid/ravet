@@ -90,19 +90,25 @@ def module_suffix(platform):
     return {"win32": ".dll", "darwin": ".dylib"}.get(platform, ".so")
 
 
-def build_generic(context):
+def build_generic(context, *, product_library=None, target_directory=None,
+                  profile="release", validate=True):
     """Build the product library and the adapter; return (target, build directory)."""
-    metadata = json.loads(context.runner.run(["cargo", "metadata", "--no-deps", "--locked",
-                                              "--format-version", "1"], capture=True))
+    metadata = ({"target_directory": str(target_directory)} if target_directory else json.loads(context.runner.run(["cargo", "metadata", "--no-deps", "--locked",
+                                              "--format-version", "1"], capture=True)))
     target = pathlib.Path(metadata["target_directory"])
     build = target / "lv2" / (f"windows/generic-{context.name}" if context.cross else f"generic-{context.name}")
+    config = "Release" if profile == "release" else "Debug"
+    if target_directory:
+        build /= profile
     configure = ["cmake", "-S", context.root / "crates/ravet-plugin/lv2", "-B", build,
-                 "-DCMAKE_BUILD_TYPE=Release", f"-DRAVET_LV2_SDK={context.sdk}"]
+                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_LV2_SDK={context.sdk}"]
     platform, release = context.platform, target / "release"
     if context.cross:
         configure += windows_cross.prepare(context.runner, target, platform=context.platform)
         platform, release = "win32", windows_cross.output_directory(target)
-    if context.crate:
+    if product_library:
+        configure += [f"-DRAVET_PLUGIN_LIBRARY={product_library}", f"-DRAVET_LV2_BUNDLE_NAME={context.name}"]
+    elif context.crate:
         cargo = windows_cross.cargo("build") if context.cross else ["cargo", "build"]
         context.runner.run([*cargo, "--release", "--locked", "-p", context.crate])
         library = release / library_name(context.crate.replace("-", "_"), platform)
@@ -110,12 +116,13 @@ def build_generic(context):
     else:
         configure += ["-DRAVET_PLUGIN_LIBRARY=", "-DRAVET_LV2_BUNDLE_NAME="]
     context.runner.run(configure)
-    context.runner.run(["cmake", "--build", build, "--config", "Release", "--parallel", "2"])
-    context.runner.run(["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"])
+    context.runner.run(["cmake", "--build", build, "--config", config, "--parallel", "2"])
+    if validate:
+        context.runner.run(["ctest", "--test-dir", build, "-C", config, "--output-on-failure"])
     return target, build
 
 
-def package_generic(context, target, build):
+def package_generic(context, target, build, *, sign=True):
     """Copy the assembled bundle, add notices and sign on macOS."""
     source = build / "bundles" / f"{context.name if context.crate else 'ravet_lv2_mock'}.lv2"
     artifact = target / "lv2" / ("windows" if context.cross else "") / \
@@ -127,7 +134,7 @@ def package_generic(context, target, build):
     shutil.copy2(context.sdk / "COPYING", artifact / "LV2-SDK-LICENSE.txt")
     shutil.copy2(context.root / "LICENSE", artifact / "RAVET-LICENSE.txt")
     shutil.copy2(context.root / "LICENSING.md", artifact / "RAVET-LICENSING.md")
-    if context.platform == "darwin" and not context.cross:
+    if sign and context.platform == "darwin" and not context.cross:
         suffix = module_suffix(context.platform)
         for binary in ("ravet_lv2", "ravet_lv2_ui", "ravet_product"):
             context.runner.run(["codesign", "--force", "--sign", "-", artifact / f"{binary}{suffix}"])

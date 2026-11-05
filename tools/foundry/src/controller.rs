@@ -1,9 +1,8 @@
 use crate::{Format, Project, Result, create, framework_root, load, regenerate};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
     sync::{
         Arc, Mutex,
@@ -418,6 +417,9 @@ fn execute(request: Request, state: &State, cancel: &AtomicBool) -> Result<Strin
             // Settings edited by hand must be applied before building. This also
             // catches managed-file conflicts instead of silently building stale IDs.
             regenerate(&root, project.clone())?;
+            if let Some(format) = selected {
+                crate::exports::check(&root, &project, format, state, cancel)?;
+            }
             if !root.join("Cargo.lock").is_file() {
                 let mut command = Command::new("cargo");
                 command.arg("generate-lockfile").current_dir(&root);
@@ -426,42 +428,24 @@ fn execute(request: Request, state: &State, cancel: &AtomicBool) -> Result<Strin
                 }
                 process(&mut command, state, cancel)?;
             }
-            let mut command = Command::new("cargo");
-            command
-                .args(["build", "--locked", "--jobs", "2", "--target-dir"])
-                .arg(root.join("target"))
-                .current_dir(&root);
-            if release {
-                command.arg("--release");
-            }
-            if offline {
-                command.arg("--offline");
-            }
-            process(&mut command, state, cancel)?;
-            let profile = if release { "release" } else { "debug" };
-            let artifact = if let Some(format) = selected.filter(|f| *f != Format::Clap) {
-                crate::exports::build(&root, &project, format, release, state, cancel)?
-            } else if project.kind == crate::Kind::Plugin {
-                let stem = project.name.replace('-', "_");
-                let library = if cfg!(target_os = "macos") {
-                    format!("lib{stem}.dylib")
-                } else if cfg!(target_os = "windows") {
-                    format!("{stem}.dll")
-                } else {
-                    format!("lib{stem}.so")
-                };
-                let library = root.join("target").join(profile).join(library);
-                if bundle {
-                    package(&root, &project, profile, &library, state, cancel)?
-                } else {
-                    library
-                }
+            let artifact = if let Some(format) = selected {
+                crate::exports::build(&root, &project, format, release, offline, state, cancel)?
             } else {
-                root.join("target").join(profile).join(format!(
-                    "{}{}",
-                    project.name,
-                    std::env::consts::EXE_SUFFIX
-                ))
+                let mut command = Command::new("cargo");
+                command
+                    .args(["build", "--locked", "--jobs", "2", "--target-dir"])
+                    .arg(root.join("target"))
+                    .current_dir(&root);
+                if release {
+                    command.arg("--release");
+                }
+                if offline {
+                    command.arg("--offline");
+                }
+                process(&mut command, state, cancel)?;
+                root.join("target")
+                    .join(if release { "release" } else { "debug" })
+                    .join(format!("{}{}", project.name, std::env::consts::EXE_SUFFIX))
             };
             let mut snapshot = state.lock().unwrap_or_else(|e| e.into_inner());
             snapshot.root = Some(root);
@@ -470,65 +454,4 @@ fn execute(request: Request, state: &State, cancel: &AtomicBool) -> Result<Strin
             Ok("Build complete".into())
         }
     }
-}
-#[cfg(target_os = "macos")]
-fn xml(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-fn package(
-    root: &Path,
-    p: &Project,
-    profile: &str,
-    library: &Path,
-    state: &State,
-    cancel: &AtomicBool,
-) -> Result<PathBuf> {
-    // Package filenames use validated Cargo names; display titles cannot escape paths.
-    let artifact = root
-        .join("target/clap")
-        .join(profile)
-        .join(format!("{}.clap", p.name));
-    fs::create_dir_all(artifact.parent().ok_or("Bundle needs parent")?)?;
-    #[cfg(target_os = "macos")]
-    {
-        let executable = p.name.replace('-', "_");
-        let contents = artifact.join("Contents");
-        fs::create_dir_all(contents.join("MacOS"))?;
-        fs::copy(library, contents.join("MacOS").join(&executable))?;
-        let entries = [
-            ("CFBundleExecutable", executable.as_str()),
-            ("CFBundleIdentifier", p.plugin_id.as_str()),
-            ("CFBundleName", p.display_name.as_str()),
-            ("CFBundlePackageType", "BNDL"),
-            ("CFBundleVersion", p.version.as_str()),
-            ("CFBundleShortVersionString", p.version.as_str()),
-        ];
-        let body = entries
-            .into_iter()
-            .map(|(k, v)| format!("<key>{k}</key><string>{}</string>", xml(v)))
-            .collect::<String>();
-        fs::write(
-            contents.join("Info.plist"),
-            format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict>{body}</dict></plist>"
-            ),
-        )?;
-        process(
-            Command::new("codesign")
-                .args(["--force", "--sign", "-"])
-                .arg(&artifact),
-            state,
-            cancel,
-        )?;
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (state, cancel);
-        fs::copy(library, &artifact)?;
-    }
-    Ok(artifact)
 }

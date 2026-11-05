@@ -345,48 +345,48 @@ fn controller_actions_report_failures_and_preserve_open_project() {
 }
 
 #[test]
-fn instruments_generate_native_adapters_and_keep_class_ids_on_metadata_changes() {
-    let temp = Temp::new();
-    let mut p = settings(Kind::Plugin);
-    p.plugin_type = PluginType::Instrument;
-    p.formats = vec![Format::Clap, Format::Vst3, Format::Au, Format::Lv2];
-    let root = create(&temp.project(), p).unwrap();
-    assert!(
-        fs::read_to_string(root.join("src/lib.rs"))
-            .unwrap()
-            .contains("SinePlugin")
-    );
-    let native = fs::read_to_string(root.join("native/plugin.cpp")).unwrap();
-    assert!(native.contains("Instrument|Synth"));
-    let header = fs::read_to_string(root.join(".foundry/Product.hpp")).unwrap();
-    let ids: Vec<_> = header
-        .lines()
-        .filter(|s| s.contains("_ID 0x"))
-        .map(str::to_owned)
-        .collect();
-    assert_eq!(ids.len(), 2);
-    let mut next = load(&root).unwrap();
-    next.formats = vec![Format::Vst3];
-    next.display_name = "Renamed instrument".into();
-    next.version = "1.2.3".into();
-    regenerate(&root, next.clone()).unwrap();
-    assert_eq!(
-        fs::read_to_string(root.join("native/plugin.cpp")).unwrap(),
-        native
-    );
-    assert_eq!(
-        fs::read_to_string(root.join(".foundry/Product.hpp"))
-            .unwrap()
-            .lines()
-            .filter(|s| s.contains("_ID 0x"))
-            .collect::<Vec<_>>(),
-        ids
-    );
-    next.plugin_type = PluginType::Effect;
-    assert!(regenerate(&root, next).is_err());
-    let mut unsupported = load(&root).unwrap();
-    unsupported.formats.push(Format::Aax);
-    assert!(unsupported.validate().is_err());
+fn generic_products_own_their_dsp_and_preserve_source_on_regeneration() {
+    for role in [PluginType::Effect, PluginType::Instrument] {
+        let temp = Temp::new();
+        let mut p = settings(Kind::Plugin);
+        p.plugin_type = role;
+        p.formats = vec![
+            Format::Clap,
+            Format::Vst3,
+            Format::Au,
+            Format::Aax,
+            Format::Lv2,
+        ];
+        let root = create(&temp.project(), p).unwrap();
+        let source = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+        let dsp = fs::read_to_string(root.join("src/dsp.rs")).unwrap();
+        assert!(source.contains("impl PluginExport for MyPlugin"));
+        assert!(source.contains("export_plugin!(MyPlugin)"));
+        assert!(dsp.contains("impl Processor for MyProcessor"));
+        assert!(!root.join("native").exists());
+        let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        for legacy in [
+            "ravet-gain",
+            "ravet-performance-native",
+            "clack-plugin",
+            "ravet-clap",
+        ] {
+            assert!(!manifest.contains(legacy));
+        }
+        let identity = fs::read(root.join(".foundry/product.rs")).unwrap();
+        let mut next = load(&root).unwrap();
+        next.display_name = "Renamed product".into();
+        next.version = "1.2.3".into();
+        regenerate(&root, next.clone()).unwrap();
+        assert_eq!(
+            fs::read(root.join(".foundry/product.rs")).unwrap(),
+            identity
+        );
+        assert_eq!(fs::read_to_string(root.join("src/lib.rs")).unwrap(), source);
+        assert_eq!(fs::read_to_string(root.join("src/dsp.rs")).unwrap(), dsp);
+        next.formats.push(Format::Auv3);
+        assert!(next.validate().unwrap_err().to_string().contains("AUv3"));
+    }
 }
 
 #[test]
@@ -394,6 +394,7 @@ fn missing_native_sdk_fails_before_dependency_resolution() {
     let temp = Temp::new();
     let mut p = settings(Kind::Plugin);
     p.formats = vec![Format::Vst3];
+    p.sdks.vst3 = Some(temp.0.join("missing-sdk"));
     let root = create(&temp.project(), p).unwrap();
     let mut controller = Controller::default();
     controller
@@ -407,13 +408,28 @@ fn missing_native_sdk_fails_before_dependency_resolution() {
         assert!(Instant::now() < deadline);
         thread::sleep(Duration::from_millis(10));
     }
-    assert!(
-        controller
-            .snapshot()
-            .error
-            .unwrap()
-            .contains("VST3 SDK path")
-    );
+    assert!(controller.snapshot().error.is_some());
+    assert!(controller.snapshot().log.contains("is missing LICENSE.txt"));
     assert!(!root.join("Cargo.lock").exists());
     assert!(!root.join("target").exists());
+}
+
+#[test]
+fn historical_wrappers_require_explicit_migration_and_gui_uses_shared_default() {
+    let temp = Temp::new();
+    let root = create(&temp.project(), settings(Kind::Plugin)).unwrap();
+    fs::remove_file(root.join(".foundry/product.rs")).unwrap();
+    assert!(
+        regenerate(&root, load(&root).unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("historical Foundry wrappers")
+    );
+    let document = ravet_foundry::document();
+    assert!(!document.contains("@DEFAULT_FRAMEWORK_SOURCE@"));
+    let expected = format!(
+        "get('framework-source').value={};",
+        serde_json::to_string(&FrameworkSource::default()).unwrap()
+    );
+    assert!(document.contains(&expected));
 }

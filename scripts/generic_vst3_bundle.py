@@ -9,7 +9,8 @@ import windows_cross
 
 
 def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
-                  manifest_path=None, package=None, runner=None, platform=None, cross=None):
+                  manifest_path=None, package=None, runner=None, platform=None, cross=None,
+                  product_library=None, target_directory=None, validate=True, sign=True, run_validation=True, bundle_name=None):
     """Build only the selected product; package locally and run SDK validation.
 
     cross="windows" cross-compiles for x86_64 Windows (see windows_cross); the
@@ -30,17 +31,19 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
     metadata_args = ["cargo", "metadata", "--no-deps", "--locked", "--format-version", "1"]
     if manifest_path:
         metadata_args += ["--manifest-path", Path(manifest_path).resolve()]
-    metadata = json.loads(runner.run(metadata_args, capture=True))
+    metadata = ({"target_directory": str(target_directory)} if target_directory else
+                json.loads(runner.run(metadata_args, capture=True)))
     target = Path(metadata["target_directory"])
     config = "Release" if profile == "release" else "Debug"
-    name = "ravet_mock_vst3" if mock else f"ravet_{plugin}_vst3"
+    name = bundle_name or ("ravet_mock_vst3" if mock else f"ravet_{plugin}_vst3")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise ValueError("VST3 bundle name must be a simple product name")
     build = target / "vst3/generic" / ("mock" if mock else plugin) / profile
     toolchain = []
     if cross:
         toolchain = windows_cross.prepare(runner, target, platform=platform) + ["-DSMTG_USE_STATIC_CRT=ON"]
         platform, build = "win32", build.with_name(f"windows-{profile}")
-    product_library = None
-    if not mock:
+    if not mock and product_library is None:
         package = package or f"ravet-{plugin}-plugin"
         matches = [p for p in metadata["packages"] if p["name"] == package]
         if len(matches) != 1:
@@ -61,7 +64,7 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_VST3_SDK={sdk}",
                 f"-DRAVET_VST3_NAME={name}", f"-DRAVET_VST3_MOCK={'ON' if mock else 'OFF'}",
                 f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}", *toolchain])
-    targets = [name, "validator"] + (["moduleinfotool"] if cross else []) + \
+    targets = [name] + (["validator"] if validate else []) + (["moduleinfotool"] if cross else []) + \
         (["ravet_generic_vst3_contracts"] if mock else [])
     runner.run(["cmake", "--build", build, "--config", config, "--target", *targets, "--parallel", "2"])
     if mock and (not cross or windows_cross.emulator_available(toolchain)):
@@ -74,7 +77,7 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
         notices.mkdir(parents=True, exist_ok=True)
         shutil.copy2(sdk / "LICENSE.txt", notices / "Steinberg-VST3-LICENSE.txt")
         shutil.copy2(root / "LICENSE", notices / "RAVET-LICENSE.txt")
-        if platform == "darwin":
+        if platform == "darwin" and sign:
             # Sign the nested product image before sealing the enclosing bundle.
             if product_library:
                 runner.run(["codesign", "--force", "--sign", "-", artifact / "Contents/MacOS" / product_library.name])
@@ -82,6 +85,8 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
         if cross:
             # Single-configuration cross builds put the SDK tools in bin/.
             print(f"cross-built; run on Windows: {build / 'bin/validator.exe'} <bundle>", file=sys.stderr)
+            continue
+        if not validate or not run_validation:
             continue
         validator = build / "bin" / config / ("validator.exe" if platform == "win32" else "validator")
         runner.run([validator, artifact])

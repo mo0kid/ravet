@@ -89,53 +89,19 @@ rtrb = {{ version = "=0.4.0", optional = true }}
         }
         Kind::Plugin => {
             manifest += &format!(
-                r#"[lib]
-crate-type = ["cdylib", "rlib", "staticlib"]
-
-[features]
-default = [{}]
-native-editor = ["dep:ravet-webview", "dep:serde_json", "clack-extensions/gui", "ravet-gain-native/native-editor"]
-
-[dependencies]
-ravet-foundation = {}
-ravet-surface = {}
-ravet-gain = {}
-ravet-clap = {}
-clack-plugin = "=0.2.0"
-clack-extensions = {{ version = "=0.2.0", features = ["clack-plugin", "audio-ports", "audio-ports-config", "params", "state"] }}
-
-[target.'cfg(target_os = "macos")'.dependencies]
-ravet-webview = {}
-serde_json = {{ version = "=1.0.151", optional = true }}
-"#,
+                "[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[features]\ndefault = [{}]\nnative-editor = []\n\n[dependencies]\nravet-foundation = {}\nravet-plugin = {}\n",
                 if p.native_editor {
                     "\"native-editor\""
                 } else {
                     ""
                 },
                 dep(p, "crates/ravet-foundation", "")?,
-                dep(p, "crates/ravet-surface", "")?,
-                dep(p, "examples/gain", "")?,
-                dep(p, "crates/ravet-clap", "")?,
-                dep(p, "crates/ravet-webview", ", optional = true")?
+                dep(
+                    p,
+                    "crates/ravet-plugin",
+                    ", features = [\"clap\", \"native\"]"
+                )?
             );
-            let native = dep(p, "examples/gain-native", "")?;
-            manifest = manifest.replace(
-                "clack-plugin = \"=0.2.0\"",
-                &format!("ravet-gain-native = {native}\nclack-plugin = \"=0.2.0\""),
-            );
-            if p.plugin_type == PluginType::Instrument {
-                manifest = format!(
-                    "# Managed by RAVET Foundry.\n[package]\nname = {}\nversion = {}\nedition = \"2024\"\npublish = false\nlicense = {}\n\n[workspace]\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\", \"staticlib\"]\n\n[dependencies]\nravet-foundation = {}\nravet-instrument = {}\nravet-clap = {}\nravet-performance-native = {}\nclack-plugin = \"=0.2.0\"\nclack-extensions = {{ version = \"=0.2.0\", features = [\"clack-plugin\", \"audio-ports\", \"note-ports\", \"params\", \"state\", \"tail\"] }}\n",
-                    quoted(&p.name)?,
-                    quoted(&p.version)?,
-                    quoted(&p.license)?,
-                    dep(p, "crates/ravet-foundation", "")?,
-                    dep(p, "crates/ravet-instrument", "")?,
-                    dep(p, "crates/ravet-clap", "")?,
-                    dep(p, "examples/performance-native", "")?
-                );
-            }
         }
     }
     if p.kind != Kind::Offline {
@@ -156,7 +122,9 @@ serde_json = {{ version = "=1.0.151", optional = true }}
     build += "}\n";
     let mut files = BTreeMap::from([("Cargo.toml".into(), manifest), ("build.rs".into(), build)]);
     if p.kind == Kind::Plugin {
-        files.extend(crate::native_templates::metadata(p)?);
+        let hash = ravet_data::crypto::sha256(p.plugin_id.as_bytes());
+        files.insert(".foundry/product.rs".into(), format!(
+            "// Managed by Foundry. Identity-derived saved-state tag.\nconst STATE_TAG: [u8; 8] = {:?};\n", &hash[..8]));
     }
     Ok(files)
 }
@@ -196,46 +164,33 @@ pub(crate) fn sources(p: &Project) -> Result<BTreeMap<String, String>> {
             );
         }
         Kind::Plugin => {
-            if p.plugin_type == PluginType::Instrument {
-                let source = fs::read_to_string(root.join("examples/sine-clap/src/lib.rs"))?
+            let instrument = p.plugin_type == PluginType::Instrument;
+            for (name, destination) in [("lib.rs", "src/lib.rs"), ("dsp.rs", "src/dsp.rs")] {
+                let source = fs::read_to_string(root.join("templates/plugin-generic").join(name))?
+                    .replace("@INSTRUMENT@", if instrument { "true" } else { "false" })
                     .replace(
-                        "pub const PLUGIN_ID: &str = \"org.ravet.sine\";",
-                        "pub const PLUGIN_ID: &str = env!(\"RAVET_PLUGIN_ID\");",
+                        "@CATEGORY@",
+                        if instrument { "Instrument" } else { "Effect" },
                     )
                     .replace(
-                        "PluginDescriptor::new(PLUGIN_ID, \"RAVET Sine\")",
-                        "PluginDescriptor::new(PLUGIN_ID, env!(\"RAVET_PRODUCT_NAME\"))",
+                        "@LAYOUT@",
+                        if instrument {
+                            "STEREO_INSTRUMENT"
+                        } else {
+                            "STEREO"
+                        },
                     )
                     .replace(
-                        ".with_vendor(\"RAVET\")",
-                        ".with_vendor(env!(\"RAVET_COMPANY\"))",
+                        "@NOTES@",
+                        if instrument {
+                            ".with_notes(ravet_plugin::NotePorts { input: true, output: false })"
+                        } else {
+                            ""
+                        },
                     );
-                files.insert("src/lib.rs".into(), source + "\n// Native instrument exports used by the other format adapters.\npub use ravet_performance_native::*;\n");
-            } else {
-                copy_tree(root, "examples/gain-clap/src", "src", &mut files)?;
-                copy_tree(root, "examples/gain-clap/editor", "editor", &mut files)?;
-                files.remove("src/control_tests.rs");
-                let source = files.get_mut("src/lib.rs").ok_or("Missing CLAP template")?;
-                *source = source
-                    .replace(
-                        "pub const PLUGIN_ID: &str = \"org.ravet.gain\";",
-                        "pub const PLUGIN_ID: &str = env!(\"RAVET_PLUGIN_ID\");",
-                    )
-                    .replace(
-                        "PluginDescriptor::new(PLUGIN_ID, \"RAVET Gain\")",
-                        "PluginDescriptor::new(PLUGIN_ID, env!(\"RAVET_PRODUCT_NAME\"))",
-                    )
-                    .replace(
-                        ".with_vendor(\"RAVET\")",
-                        ".with_vendor(env!(\"RAVET_COMPANY\"))",
-                    )
-                    .replace(
-                        "#[cfg(test)]\n#[allow(unsafe_code)]\nmod control_tests;",
-                        "",
-                    );
-                source.push_str("\n// Native effect exports used by the other format adapters.\npub use ravet_gain_native::*;\n");
+                files.insert(destination.into(), source);
             }
-            files.extend(crate::native_templates::sources(p)?);
+            files.insert("editor/index.html".into(), "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><label>Gain <input id=\"gain\" type=\"range\" min=\"0\" max=\"1\" step=\"0.001\"></label><script>const dial=document.getElementById('gain');dial.oninput=()=>window.ravetPlugin.set('gain',Number(dial.value));window.ravetPlugin.on('values',()=>{dial.value=window.ravetPlugin.value('gain')});</script></body></html>\n".into());
         }
         Kind::Standalone => {
             // Consumer-owned public reference: complete settings, audio/MIDI routing,
@@ -279,6 +234,6 @@ pub(crate) fn sources(p: &Project) -> Result<BTreeMap<String, String>> {
         "LICENSE-RAVET-TEMPLATE".into(),
         fs::read_to_string(root.join("LICENSE"))?,
     );
-    files.insert("README.md".into(), format!("# {}\n\nCreated by RAVET Foundry. This is an independent consumer workspace.\n\nEdit DSP/editor source freely. Foundry regenerates Cargo.toml, build.rs and native build/product metadata;\nchanges to those files reject regeneration. Edit ravet-project.toml for product\nsettings, then use Foundry Regenerate. Package name and template remain fixed.\n\nBuild with Foundry or `cargo generate-lockfile` followed by `cargo build --locked`.\nKeep Cargo.lock. `framework_source` in ravet-project.toml selects how Cargo finds RAVET:\n`path` uses the local checkout (update it if RAVET moves); `tag` uses the release tag\nmatching the checkout's version. Native CMake builds always read the local checkout.\nFoundry Build packages the selected format locally. Native exports require CMake and external SDK paths in ravet-project.toml. Native adapters and CLAP use the public gain/sine references; update each adapter's processor binding when replacing the reference DSP.\nStandalone uses the public multi-mode synth/delay UI and default Audio/MIDI popup\non macOS. Devices start only from an explicit Start action. Other standalone\nplatform bindings remain pending.\n\nThe selected Cargo licence metadata does not relicense copied RAVET templates\nor dependencies. Copied reference source remains GPL-3.0-only under the included\nLICENSE-RAVET-TEMPLATE or separately agreed RAVET commercial terms.\n",p.display_name));
+    files.insert("README.md".into(), format!("# {}\n\nCreated by RAVET Foundry. This is an independent consumer workspace.\n\nEdit DSP/editor source freely. Foundry regenerates Cargo.toml, build.rs and identity metadata;\nchanges to those files reject regeneration. Edit ravet-project.toml for product\nsettings, then use Foundry Regenerate. Package name and template remain fixed.\n\nBuild with Foundry or `cargo generate-lockfile` followed by `cargo build --locked`.\nKeep Cargo.lock. `framework_source` in ravet-project.toml selects how Cargo finds RAVET:\n`path` uses the local checkout (update it if RAVET moves); `tag` uses the release tag\nmatching the checkout's version. Bundle tooling/adapters always read the local checkout.\nFoundry Build packages the selected format locally. Native exports require CMake and external SDK paths in ravet-project.toml. Plug-in DSP lives in src/dsp.rs and PluginExport in src/lib.rs. Every format uses that same product through scripts/bundle-plugin.py in the selected RAVET checkout. SDK discovery also reads ravet-sdks.toml and RAVET_*_SDK environment variables.\nStandalone uses the public multi-mode synth/delay UI and default Audio/MIDI popup\non macOS. Devices start only from an explicit Start action. Other standalone\nplatform bindings remain pending.\n\nThe selected Cargo licence metadata does not relicense copied RAVET templates\nor dependencies. Copied reference source remains GPL-3.0-only under the included\nLICENSE-RAVET-TEMPLATE or separately agreed RAVET commercial terms.\n",p.display_name));
     Ok(files)
 }
