@@ -9511,3 +9511,12 @@ keyboard-focus, which this session can now run). The AAX delay was rebuilt (its
 bundle check passes), signed outside the repository with the owner's
 Developer ID through `wraptool` (signed, not wrapped) and installed in
 `/Library/Application Support/Avid/Audio/Plug-Ins` for a Pro Tools re-check.
+
+Pro Tools 26.4 re-check of the follow-up (owner): (1) typing 250 then Return
+did not commit, and Pro Tools returned its transport to zero; (2) Space started
+and stopped the transport; (3) Escape closed the plug-in window; (4) typing 30
+then clicking the Edit window committed 30 %; (5) Command-S saved the session
+while a value was being edited. Return and Escape therefore never reach the
+plug-in: Pro Tools handles them before AppKit's local monitors run. RAVET does
+not patch host event handling; in Pro Tools typed values apply on click-away,
+and editor pages should commit on blur (decision 0286, final note).

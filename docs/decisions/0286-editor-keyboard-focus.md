@@ -3,7 +3,8 @@
 Status: implemented in the Cocoa/WebKit backend; macOS AppKit fixture evidence.
 In Pro Tools 26.4 (owner, 5 November 2026) characters reached the field but
 Return, Enter and Escape did not, and clicking away did not commit; the
-amendment below addresses both and awaits a Pro Tools re-check.
+amendment below fixed click-away commit; Return and Escape remain Pro Tools
+shortcuts (see the end of this record).
 
 ## Context
 
@@ -66,3 +67,11 @@ the editor window resigns key status, as well as on a click in another window or
 the application resigning active. Command shortcuts still reach the host. A new
 fixture group (a window whose `sendEvent:` swallows Return, Enter and Escape)
 fails on the previous code and passes with this change.
+
+Pro Tools re-check (owner, 5 November 2026) after the amendment: click-away
+commits, Command-S and Space reach Pro Tools, but Return and Escape still do not
+reach the plug-in (Pro Tools returns to zero and closes the plug-in window).
+Pro Tools therefore handles them in its own application event handling, before
+AppKit's local monitors run. Reaching them would require patching the host's
+event handling from the plug-in, which RAVET does not do. Pages should commit
+on blur; in Pro Tools, Return and Escape are host shortcuts.

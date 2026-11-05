@@ -142,9 +142,15 @@ checked with AppKit fixtures. In the owner's Pro Tools 26.4 check, characters
 then reached the field, but Pro Tools still took Return, Enter and Escape, and
 clicking away did not commit. The web view therefore now forwards every plain
 key to the focused field while editing, whatever window is key, and ends
-editing (committing on blur) when the editor window stops being key; this
-passes a fixture that swallows Return and Escape like Pro Tools and awaits a
-Pro Tools re-check.
+editing (committing on blur) when the editor window stops being key. Re-checked
+in Pro Tools 26.4: typing works, clicking away commits the typed value, and
+Command-S and Space still reach Pro Tools; Return and Escape do not reach the
+plug-in at all (Pro Tools returns to zero and closes the plug-in window), because
+Pro Tools handles them in its own application event handling before any
+plug-in code sees them, and AAX has no keyboard-focus call. **In Pro Tools,
+typed values apply when you click away; Return and Escape are Pro Tools
+shortcuts.** Editor pages should therefore commit on blur rather than rely on
+Return.
 Where the validator is installed, run its
 standard test suite on the built bundle as its own documentation describes, and
 record the validator version and results with the build.
