@@ -4,9 +4,14 @@
 // chunk round trip, and teardown. Works for any product built with the generic
 // adapter. It is NOT Avid's validator (DSH/aaxval) and NOT a Pro Tools run.
 //
-//   ravet_aax_check <path/to/Name.aaxplugin>
+//   ravet_aax_check <path/to/Name.aaxplugin> [--editor]
+//
+// --editor (macOS) also opens each effect's editor through its AAX_IEffectGUI in
+// a real, off-screen NSView, runs the GUI timer, and closes it.
 #include "FakeHost.hpp"
 #include "AAX_CString.h"
+#include "AAX_IEffectGUI.h"
+#include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -17,7 +22,14 @@
 #include <dlfcn.h>
 #endif
 
+#if defined(__APPLE__)
+extern "C" void *ravet_check_make_view(double width, double height);
+extern "C" unsigned ravet_check_subviews(void *view);
+extern "C" void ravet_check_pump(double seconds);
+#endif
+
 using fake::require;
+bool openEditors = false;
 namespace fs = std::filesystem;
 
 namespace {
@@ -46,12 +58,14 @@ fs::path binary(const fs::path &bundle) {
 }
 
 std::string fourcc(uint32_t v) {
-    std::string s;
+    char hex[16];
+    std::snprintf(hex, sizeof(hex), "0x%08x '", v);
+    std::string s = hex;
     for (int shift = 24; shift >= 0; shift -= 8) {
         const char c = char((v >> shift) & 0xff);
         s += (c >= 32 && c < 127) ? c : '?';
     }
-    return s;
+    return s + "'";
 }
 
 void exercise(const std::string &id, fake::Descriptor &descriptor) {
@@ -133,6 +147,30 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
     require(model->SetChunk(chunkId, chunk) != AAX_SUCCESS, id + ": corrupt chunk rejected");
     std::cout << "  state chunk " << fourcc(chunkId) << " " << size << " bytes: save/compare/load ok, corrupt rejected\n";
 
+#if defined(__APPLE__)
+    if (openEditors && descriptor.createGui) {
+        using Create = AAX_IEffectGUI *(AAX_CALLBACK *)();
+        std::unique_ptr<AAX_IEffectGUI> gui(reinterpret_cast<Create>(descriptor.createGui)());
+        fake::GuiHost guiHost(host, model.get());
+        require(gui && gui->Initialize(&guiHost) == AAX_SUCCESS, id + ": GUI Initialize");
+        AAX_Point size(0, 0);
+        require(gui->GetViewSize(&size) == AAX_SUCCESS && size.horz > 0 && size.vert > 0, id + ": GUI size");
+        void *parent = ravet_check_make_view(size.horz, size.vert);
+        fake::ViewContainer view(AAX_eViewContainer_Type_NSView, parent);
+        require(gui->SetViewContainer(&view) == AAX_SUCCESS, id + ": SetViewContainer");
+        const unsigned attached = ravet_check_subviews(parent);
+        for (int tick = 0; tick < 10; ++tick) {
+            ravet_check_pump(0.05);
+            gui->TimerWakeup();
+            model->TimerWakeup();
+        }
+        require(attached > 0, id + ": editor_open attached a view to the host NSView");
+        require(gui->SetViewContainer(nullptr) == AAX_SUCCESS && gui->Uninitialize() == AAX_SUCCESS, id + ": GUI close");
+        ravet_check_pump(0.05);
+        std::cout << "  editor " << size.horz << "x" << size.vert << " opened in an NSView (" << attached
+                  << " subview), 10 timer ticks, closed\n";
+    }
+#endif
     require(model->Uninitialize() == AAX_SUCCESS, id + ": Uninitialize");
     model.reset();
 }
@@ -140,10 +178,11 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
 } // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "usage: ravet_aax_check <Name.aaxplugin>\n";
+    if (argc < 2 || argc > 3 || (argc == 3 && std::string(argv[2]) != "--editor")) {
+        std::cerr << "usage: ravet_aax_check <Name.aaxplugin> [--editor]\n";
         return 2;
     }
+    openEditors = argc == 3;
     try {
         const fs::path bundle = fs::absolute(argv[1]);
         Module module(binary(bundle));
