@@ -58,17 +58,23 @@ pub struct OutputDeviceInfo {
 
 /// Enumerate the default host's output devices and supported configurations.
 /// Refresh explicitly after device changes; this does not subscribe to hotplug.
+///
+/// A device whose ID, name or configurations cannot be read is left out
+/// rather than failing the whole list. For example, on Linux ALSA a hardware
+/// PCM held exclusively by another application reports `DeviceBusy`; the
+/// remaining devices (such as the PipeWire or PulseAudio `default` PCM) are
+/// still returned. Only a host-level enumeration failure is an error.
 pub fn output_devices() -> Result<Vec<OutputDeviceInfo>, cpal::Error> {
-    cpal::default_host()
+    Ok(cpal::default_host()
         .output_devices()?
-        .map(|device| {
-            Ok(OutputDeviceInfo {
-                id: device.id()?.to_string(),
-                name: device.description()?.name().to_owned(),
-                configurations: device.supported_output_configs()?.collect(),
+        .filter_map(|device| {
+            Some(OutputDeviceInfo {
+                id: device.id().ok()?.to_string(),
+                name: device.description().ok()?.name().to_owned(),
+                configurations: device.supported_output_configs().ok()?.collect(),
             })
         })
-        .collect()
+        .collect())
 }
 
 /// Select an enumerated host-local ID, or the current default output device.
@@ -77,7 +83,11 @@ pub fn output_device(id: Option<&str>) -> Result<Option<cpal::Device>, cpal::Err
     let host = cpal::default_host();
     if let Some(id) = id {
         for device in host.output_devices()? {
-            if device.id()?.to_string() == id {
+            // Skip devices whose ID cannot be read, as `output_devices` does.
+            if device
+                .id()
+                .is_ok_and(|device_id| device_id.to_string() == id)
+            {
                 return Ok(Some(device));
             }
         }

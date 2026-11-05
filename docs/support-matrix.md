@@ -89,6 +89,24 @@ both platforms. These are scripted observations in one host per platform: no
 keyboard input, accessibility, other DAW, display scaling above 100 % or
 real-time claim.
 
+## Standalone audio and MIDI
+
+The DW-303 standalone application (its own repository), built on RAVET's
+`StandaloneWindow`, Audio/MIDI popup, `ravet-device` and `ravet-midi-device`.
+Windows/Linux runs were on 5 November 2026
+([receipt](WORK_STATUS.md#release-010-standalone-win-linux)).
+
+| Platform | Audio output | MIDI input |
+|---|---|---|
+| macOS arm64 | Owner report: exercised; device not recorded | Owner report: exercised; device not recorded |
+| Arch Linux x86_64 (PipeWire 1.6.9) | ALSA `PipeWire Sound Server` (`alsa:pipewire`) into PipeWire's `Dummy Output` null sink; capture of the app's stream verified | ALSA sequencer `Midi Through Port-0` (14:0); notes produced the expected pitches in that capture |
+| Windows 11 x64 VM (26100) | WASAPI `Speakers (High Definition Audio Device)` (emulated HDA); WASAPI loopback capture verified the demo pattern | **Not exercised**: no WinMM MIDI input on the VM (needs a Windows MIDI Services loopback endpoint or a virtual MIDI driver) |
+
+No hardware output on Linux, physical MIDI device, latency or callback deadline
+was measured. On Linux the window's rendered content and a clean quit were not
+confirmed. On Windows the window rendered (screendump) and quit cleanly with
+saved state.
+
 ## Validators and adapter checks (separate from hosts)
 
 All entries below were recorded on **5 November 2026**. These are results from
@@ -171,8 +189,8 @@ custom editor, polyphony or live deadline.
 - Delay accepts sample rates up to 768 kHz, allocates two two-second delay
   lines at prepare, reads tempo once per block, clamps synced time to two
   seconds and has no editor meters.
-- Native Intel macOS hardware, standalone audio/MIDI on all three platforms
-  with named devices, production signing for arbitrary vendors and real-time
+- Native Intel macOS hardware, standalone MIDI input on Windows (see
+  [standalone audio and MIDI](#standalone-audio-and-midi)), production signing for arbitrary vendors and real-time
   deadlines remain unestablished. The Rosetta AU render failure above is open. AAX vendor signing is separate from adapter checks.
   AAX applies automation once per block and reports no tail through SDK 2.8.
   VST2 is excluded.

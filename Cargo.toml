@@ -41,6 +41,7 @@ members = [
     "crates/ravet-runtime",
     "crates/ravet-runtime-ffi",
     "tools/device-probe",
+    "tools/standalone-probe",
     "tools/foundry",
 ]
 resolver = "3"

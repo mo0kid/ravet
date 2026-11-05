@@ -1775,6 +1775,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ravet-standalone-probe"
+version = "0.0.1"
+dependencies = [
+ "ravet-device",
+ "ravet-midi-device",
+ "rtrb",
+]
+
+[[package]]
 name = "ravet-state"
 version = "0.0.1"
 

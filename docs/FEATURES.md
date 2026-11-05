@@ -195,6 +195,7 @@ See [Getting started](getting-started.md) for commands,
 | [Guarded macOS CoreMIDI UMP endpoints](#core-midi-ump-endpoints) | Prototype | Exact-ID protocol-selected native inputs/outputs and owned virtual destinations/sources connect bounded exact-word UMP handoff through guarded native callback lifetime. |
 | [Bounded OSC packet codecs and explicit UDP](#osc-codecs-udp) | Implemented | Explicit worker/control APIs encode/decode padded ASCII OSC messages and nested bundles, preserve borrowed data/timetags and exchange datagrams only with caller-selected numeric endpoints. |
 | [Standalone output audio devices](#standalone-output-devices) | Prototype | Explicit CPAL enumeration/ID selection and configured f32 output streams adapt owned prepared processors through bounded planar scratch; a CLI runs silent callback validation. |
+| [Standalone audio/MIDI evidence probe](#standalone-evidence-probe) | Prototype | A CLI lists audio outputs and MIDI ports, sends a fixed A2/A3 note pattern to a MIDI output, records an output device through CPAL loopback capture and reports per-100 ms RMS and pitch for 32-bit float WAV files. |
 | [Classified stream notifications and recovery faults](#device-stream-notification-statistics) | Implemented | Every CPAL stream error callback shares kind-based classification: Xrun increments xruns, DeviceChanged increments route_changes, and all other kinds increment backend_errors in input/output statistics; only backend failures and existing panics trigger fault recovery. |
 | [Explicit device nominal-rate admission](#device-rate-admission) | Prototype | Every native stream build verifies the current device rate before returning; explicit mismatches and known-rate update timeouts allow callers to reprepare and retry at the actual rate. |
 | [Input capture and FIFO duplex effects](#input-duplex-devices) | Prototype | Explicit CPAL f32 input streams publish whole-frame prefixes to a prepared ring; duplex rendering zero-fills underflow, partitions variable callbacks and feeds portable effects. |
@@ -3966,7 +3967,7 @@ Framed UMP portable events preserve ordered sample offsets and map to/from selec
 
 Native midir connections enumerate/select exact ports, receive short/SysEx packets through prepared SPSC storage and send validated packets to explicit destinations.
 
-**Limits:** 1024-byte complete packets, power-of-two 1..1024 slots; newest full input drops. Connection-local microsecond timestamps require explicit audio mapping. No fragmented SysEx, UMP, automatic reconnect/hotplug, physical-device or non-macOS runtime/deadline claim.
+**Limits:** 1024-byte complete packets, power-of-two 1..1024 slots; newest full input drops. Connection-local microsecond timestamps require explicit audio mapping. Linux ALSA sequencer input (Midi Through Port-0) exercised through the DW-303 standalone app on 5 November 2026; Windows WinMM listed no input on the test VM. No fragmented SysEx, UMP, automatic reconnect/hotplug, physical-device, Windows input or deadline claim.
 
 **Source:** [`crates/ravet-midi-device/Cargo.toml`](../crates/ravet-midi-device/Cargo.toml), [`crates/ravet-midi-device/src/lib.rs`](../crates/ravet-midi-device/src/lib.rs).
 
@@ -3994,13 +3995,27 @@ Exact-ID protocol-selected native inputs/outputs and owned virtual destinations/
 
 Explicit CPAL enumeration/ID selection and configured f32 output streams adapt owned prepared processors through bounded planar scratch; a CLI runs silent callback validation.
 
-**Limits:** Output-only, 1..64 channels and at most 65,536 scratch frames; no inputs, auxiliary buses, MIDI/events, implicit resampling/conversion, hotplug subscriptions or automatic recovery. macOS UMC1820 20-channel 96 kHz silent callbacks exercised; audible output, latency, deadlines and other targets remain unvalidated. Callback-path invariant failures silence the sub-block and count a processor fault instead of panicking; the device crates deny undocumented unsafe blocks (decision 0295).
+**Limits:** Output-only, 1..64 channels and at most 65,536 scratch frames; no inputs, auxiliary buses, MIDI/events, implicit resampling/conversion, hotplug subscriptions or automatic recovery. Devices whose ID, name or configurations cannot be read (for example a busy ALSA hardware PCM) are silently left out of the list (decision 0296). macOS UMC1820 20-channel 96 kHz silent callbacks exercised. Through the DW-303 standalone app, output captured on Arch Linux via ALSA `pipewire` into PipeWire's Dummy Output null sink and on a Windows 11 VM via WASAPI `Speakers (High Definition Audio Device)`; no hardware output on Linux, latency or deadline measured. Callback-path invariant failures silence the sub-block and count a processor fault instead of panicking; the device crates deny undocumented unsafe blocks (decision 0295).
 
 **Source:** [`crates/ravet-device/Cargo.toml`](../crates/ravet-device/Cargo.toml), [`crates/ravet-device/src/lib.rs`](../crates/ravet-device/src/lib.rs), [`tools/device-probe/Cargo.toml`](../tools/device-probe/Cargo.toml), [`tools/device-probe/src/main.rs`](../tools/device-probe/src/main.rs).
 
-**Tests:** [`crates/ravet-device/tests/output.rs`](../crates/ravet-device/tests/output.rs), [`tools/device-probe/src/main.rs`](../tools/device-probe/src/main.rs).
+**Tests:** [`crates/ravet-device/tests/output.rs`](../crates/ravet-device/tests/output.rs), [`tools/device-probe/src/main.rs`](../tools/device-probe/src/main.rs), [`tools/standalone-probe/src/main.rs`](../tools/standalone-probe/src/main.rs).
 
-**Documentation:** [`docs/audio-devices.md`](../docs/audio-devices.md), [`docs/decisions/0018-output-devices.md`](../docs/decisions/0018-output-devices.md), [`docs/decisions/0295-device-crate-robustness.md`](../docs/decisions/0295-device-crate-robustness.md).
+**Documentation:** [`docs/audio-devices.md`](../docs/audio-devices.md), [`docs/decisions/0018-output-devices.md`](../docs/decisions/0018-output-devices.md), [`docs/decisions/0296-skip-unqueryable-devices.md`](../docs/decisions/0296-skip-unqueryable-devices.md), [`docs/decisions/0295-device-crate-robustness.md`](../docs/decisions/0295-device-crate-robustness.md).
+
+<a id="standalone-evidence-probe"></a>
+
+### Standalone audio/MIDI evidence probe
+
+A CLI lists audio outputs and MIDI ports, sends a fixed A2/A3 note pattern to a MIDI output, records an output device through CPAL loopback capture and reports per-100 ms RMS and pitch for 32-bit float WAV files.
+
+**Limits:** Test helper, not a product path; it observes a separate standalone application from outside. Loopback capture of an output device needs CPAL's WASAPI host (Windows); other platforms need an external recorder such as pw-record. f32 devices only; at most 60 s capture into a preallocated ring, with stream notifications printed to stderr. Fixed note pattern (notes 45 and 57, velocity 100, wall-clock timing). The pitch estimate is a 50 Hz to 1 kHz autocorrelation peak, not a tuner. Used on Arch Linux (analysis) and a Windows 11 VM (listing, capture, analysis) on 5 November 2026.
+
+**Source:** [`tools/standalone-probe/Cargo.toml`](../tools/standalone-probe/Cargo.toml), [`tools/standalone-probe/src/main.rs`](../tools/standalone-probe/src/main.rs).
+
+**Tests:** [`tools/standalone-probe/src/main.rs`](../tools/standalone-probe/src/main.rs).
+
+**Documentation:** [`docs/audio-devices.md`](../docs/audio-devices.md).
 
 <a id="device-rate-admission"></a>
 
@@ -4022,7 +4037,7 @@ Every native stream build verifies the current device rate before returning; exp
 
 Explicit CPAL f32 input streams publish whole-frame prefixes to a prepared ring; duplex rendering zero-fills underflow, partitions variable callbacks and feeds portable effects.
 
-**Limits:** 1..64 channels per direction, power-of-two ring 1..65536 frames, scratch up to 65536. Matching nominal rates, independently clocked/sequential streams; no drift compensation or sample-exact alignment. No automatic recovery, hotplug or MIDI/events; hidden-producer automatic recording integration is exercised synthetically, without physical recording validation. The plain input callback has no unwind containment and contains no panic path; an internal duplex invariant failure reads as input underflow or faults the block with silence (decision 0295).
+**Limits:** Unqueryable input devices are silently left out of the list (decision 0296). 1..64 channels per direction, power-of-two ring 1..65536 frames, scratch up to 65536. Matching nominal rates, independently clocked/sequential streams; no drift compensation or sample-exact alignment. No automatic recovery, hotplug or MIDI/events; hidden-producer automatic recording integration is exercised synthetically, without physical recording validation. The plain input callback has no unwind containment and contains no panic path; an internal duplex invariant failure reads as input underflow or faults the block with silence (decision 0295).
 
 **Source:** [`crates/ravet-device/src/input.rs`](../crates/ravet-device/src/input.rs), [`crates/ravet-device/src/lib.rs`](../crates/ravet-device/src/lib.rs), [`tools/device-probe/src/main.rs`](../tools/device-probe/src/main.rs).
 
@@ -5196,6 +5211,7 @@ roles; feature records above determine implementation status.
 | `ravet-sidechain-clap` | Native f32/f64 CLAP sidechain bus validation reference | [`examples/sidechain-clap/Cargo.toml`](../examples/sidechain-clap/Cargo.toml) |
 | `ravet-signal` | Audio processing building blocks for RAVET | [`crates/ravet-signal/Cargo.toml`](../crates/ravet-signal/Cargo.toml) |
 | `ravet-sine-clap` | CLAP MIDI instrument export of the portable sine synthesis reference | [`examples/sine-clap/Cargo.toml`](../examples/sine-clap/Cargo.toml) |
+| `ravet-standalone-probe` | Standalone audio/MIDI evidence helper: device and port listing, timed MIDI notes, loopback capture and WAV analysis | [`tools/standalone-probe/Cargo.toml`](../tools/standalone-probe/Cargo.toml) |
 | `ravet-state` | Explicit control-thread observable trees, transactions, undo and preset records | [`crates/ravet-state/Cargo.toml`](../crates/ravet-state/Cargo.toml) |
 | `ravet-surface` | Editors, controls, and visualisation for RAVET | [`crates/ravet-surface/Cargo.toml`](../crates/ravet-surface/Cargo.toml) |
 | `ravet-synth-plugin` | Deterministic MIDI instrument exported through RAVET's generic plug-in layer | [`examples/synth-plugin/Cargo.toml`](../examples/synth-plugin/Cargo.toml) |
