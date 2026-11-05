@@ -39,7 +39,7 @@ class WebView2DownloadTests(unittest.TestCase):
                 mock.patch.object(download, "SHA256", __import__("hashlib").sha256(data).hexdigest()), \
                 mock.patch.object(download.urllib.request, "urlopen", return_value=response):
             root = download.install(Path(temporary) / "sdk")
-            files = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+            files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
             self.assertEqual(files, ["LICENSE.txt", "NOTICE.txt", "build/native/include/WebView2.h",
                                      "build/native/x64/WebView2LoaderStatic.lib"])
             self.assertFalse((Path(temporary) / "unexpected").exists())
