@@ -5,8 +5,9 @@
 description, saved-state envelope, editor protocol, automation and bypass
 policies, a generic CLAP export and the generic C table for the other formats
 exist so far, in `ravet-plugin` (umbrella features `plugin` and `plugin-clap`;
-`plugin-native` / crate feature `native` for the table). The VST3, AU, AAX and LV2 adapters over
-that table, the editor transport and the bundle tool follow.
+`plugin-native` / crate feature `native` for the table). A
+[generic native AUv2 adapter](audio-unit.md) now builds macOS components over
+that table; VST3, AAX and LV2 adapters and wider bundle integration follow.
 
 ## Product description
 
