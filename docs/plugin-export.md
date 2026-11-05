@@ -470,9 +470,9 @@ const ASSETS: &[EditorAsset] = &[
 // Product::new(…).with_editor(Editor { … }).with_editor_assets(ASSETS)
 ```
 
-```html
-<link rel="stylesheet" href="style.css"><script src="app.js"></script><img src="img/knob.png">
-```
+The page then refers to each asset by its relative path, exactly as declared:
+a stylesheet link to `style.css`, a script element for `app.js` and an image
+whose source is `img/knob.png`.
 
 With assets, the page itself is served as `index.html` from a local asset
 origin that also serves them: `ravet://editor/` on macOS,

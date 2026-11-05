@@ -26,7 +26,8 @@ values before translating them into processor parameter events.
 an explicit numeric destination; no DNS/peer discovery or credentials are inferred.
 Receive returns the sender and borrowed decoded packet; Rust prevents another
 mutable receive while borrowed data lives. Oversized datagrams reject, including
-truncated reads detected by extra scratch capacity. Timeout/I/O errors retain
+truncated reads detected by extra scratch capacity (on Windows, where the
+socket reports WSAEMSGSIZE instead of truncating, the same `Capacity` error). Timeout/I/O errors retain
 platform error kind. There is no authentication/encryption or reconnect policy.
 
 Four fixtures check an independent gain packet, every truncated prefix of it,

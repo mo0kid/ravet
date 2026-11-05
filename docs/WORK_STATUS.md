@@ -9808,3 +9808,23 @@ hosted macOS/Windows CI run (its first run), create the annotated `v0.1.0` tag
 on the release commit, then move DW-303's RAVET dependency to the tag. Until the
 tag exists, projects generated with the new tag default cannot fetch RAVET;
 choose `path` for them.
+
+### First hosted CI runs (2026-11-05)
+
+The release commit's first push to `main` ran the hosted workflows for the
+first time. macOS (`macos-latest`) passed the hosted portable release checks in
+full, including the delay CLAP and clap-validator. Fixes made from the
+failures, each new to these runners:
+
+- Windows: `ravet-graph`'s 8 MiB-aligned storage-budget fixture crashes the test
+  process (Windows cannot realign a stack frame that far); it is ignored on
+  Windows with that reason.
+- Windows: `OscSocket::receive` returned an I/O error for an oversized datagram,
+  because Windows reports WSAEMSGSIZE (10040) instead of truncating; it now
+  returns `OscError::Capacity`, as on other platforms.
+- Linux documentation job: the AU registrar-retry test followed the host
+  architecture and took the x86_64 path on Intel runners; it now pins arm64.
+- Hosted site link checker: rustdoc and guide examples that named
+  `img/knob.png` and `style.css` as attributes were read as missing files;
+  reworded.
+- omarchy runtime job: formatting of the new `cfg_attr`.
