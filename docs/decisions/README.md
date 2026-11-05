@@ -520,3 +520,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0288](0288-unified-product-bundling-and-foundry.md) | Unified product bundling and generic Foundry projects | Implemented; macOS five-format, Linux and Windows cross-build evidence; no production signing claim |
 | [0289](0289-versioned-tree-records.md) | Versioned observable-tree records and the 0.1.0 state inventory | Implemented; offline macOS arm64 tests |
 | [0290](0290-stereo-block-dsp-kernels.md) | Stereo block FIR and oversampling kernels | Implemented; tested and measured on one Apple M4 Pro, x86_64 under Rosetta 2 only |
+| [0291](0291-cross-platform-plugin-editors-and-asset-origin.md) | Plug-in editors on Windows and Linux, and the editor asset origin | Prototype; REAPER 7.82 editor runs on Linux and Windows (CLAP/VST3/LV2), synthetic-host AAX on Windows, native asset probes on all three platforms |

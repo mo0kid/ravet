@@ -6,6 +6,100 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="release-010-editors-win-linux"></a>
+
+## Plug-in editors on Windows and Linux, editor asset origin — 5 November 2026
+
+Branch `editors/windows-linux`, based on `release/0.1.0` at `eb4d2f5`
+([decision 0291](decisions/0291-cross-platform-plugin-editors-and-asset-origin.md)).
+
+Implemented:
+
+- The native table's `editor_open` accepts `RAVET_PLUGIN_VIEW_WIN32` on Windows
+  and `RAVET_PLUGIN_VIEW_X11` on Linux (and still `COCOA` on macOS);
+  `editor_idle` pumps GTK on Linux. The CLAP GUI offers `win32`/`x11` and, on
+  Linux, registers a 10 ms host timer. The VST3, LV2 and AAX adapters needed no
+  change: they already passed these view kinds, so the empty Windows AAX view
+  was the table refusing `WIN32`. LV2 product bundles now declare their UI on
+  every platform. `RavetPlugin.h` changed in comments only.
+- Editor assets: `EditorAsset`/`Product::with_editor_assets` →
+  `ravet_webview::WebView::from_html_with_assets` → `ravet_web_create_assets`,
+  served from `ravet://editor/` (macOS `WKURLSchemeHandler`),
+  `ravet-<module address>://editor/` (WebKitGTK scheme) and
+  `https://editor.ravet.invalid/` (WebView2 `WebResourceRequested`). Products
+  without assets keep the inline page. The Gain example ships `asset.css`.
+- Cargo MSVC builds link `WebView2LoaderStatic.lib` (no loader DLL in bundles);
+  `bundle-plugin.py` takes `--webview2-sdk`/`RAVET_WEBVIEW2_SDK`/`[sdks].webview2`
+  and copies the SDK's BSD-3-Clause LICENSE and NOTICE into the notices of
+  Windows editor bundles (the metadata tool now reports the editor size).
+- Backends pin their module once a view exists. Before this, REAPER 7.82 on
+  Linux crashed (SIGSEGV in `g_main_context_iteration`, frame in unmapped
+  code) about a second after a CLAP Delay with an open editor was removed,
+  because it unloaded the library while GLib callbacks remained.
+- New checks: `ravet-web-assets` native probe; `ravet_aax_check --editor` on
+  Windows (real top-level HWND); `tools/reaper-validation/editor.py` +
+  `editor.lua` (disposable REAPER configuration, as `delay.py`) and
+  `x11-editor-probe.c` (finds the editor's plug in a named window, prints the
+  window chain with map state and `_XEMBED_INFO`, captures only that window,
+  injects XTest clicks/drags).
+
+Evidence (5 November 2026):
+
+- **macOS arm64 (macOS 27.0.1):** `bundle-plugin.py --package ravet-delay-plugin
+  --formats clap,vst3,au,aax,lv2 --release --validate` passed: clap-validator
+  0.3.2 33 passed/0 failed/11 skipped, VST3 validator 47/0, `auval` PASS, LV2
+  `CocoaUI` declared and its checks passed; `ravet_aax_check --editor` opened
+  both Delay effects' editors in an NSView. `ravet-editor-smoke --generic` on
+  the Gain CLAP passed two cycles, now also asserting
+  `location.href === 'ravet://editor/index.html'` and the asset stylesheet's
+  custom property. `ravet-web-assets` and `ravet-web-lifecycle` passed.
+  `cargo test`/`clippy` for `ravet-plugin` (clap, native, editor),
+  `ravet-webview`, both examples; plug-in bundle, LV2, Windows-cross, AAX and editor-client script tests (42) passed.
+- **Arch Linux x86_64** (kernel 7.2.11, Hyprland/XWayland, WebKitGTK 2.54.1,
+  NVIDIA; bundles built with `RAVET_WEB_LINUX_SOFTWARE_RENDERING=1`, as the
+  earlier REAPER note requires on this machine): `ravet-web-assets` passed with
+  and without software rendering, including the plain X11 parent (plug
+  reparented, viewable at 320×180, followed a resize to 400×200); lifecycle and
+  host-GTK probes passed with `GDK_BACKEND=x11`; the accelerated paint probe
+  fails on this NVIDIA machine as before and passes with software rendering.
+  Delay bundles: clap-validator 32/0, VST3 validator 47/0, LV2 contracts 4/4 and
+  `lv2_validate` 0 errors with `ui:X11UI`. REAPER 7.82/linux-x86_64,
+  `editor.py --probe` for CLAP, VST3 and LV2 (`RESULT PASS`, REAPER exit 0,
+  normal REAPER directory unchanged): the window chain was the floating FX
+  window → REAPER's plain child window (no `_XEMBED_INFO`) → our GtkPlug
+  (`_XEMBED_INFO`, viewable, 560×340); captures show the rendered Delay with
+  the host's Feedback edit (47.5 %); an XTest click on Ping-pong logged
+  `CHANGE Ping-pong 0 -> 1` and a 40-pixel drag on Mix logged 8–10 steps to
+  55 %; close, reopen (state kept) and removal with the editor open passed.
+  The Gain CLAP (asset page, resizable) passed the same run; REAPER reopened
+  it at 480×321 and the plug followed. clippy for `ravet-plugin`/`ravet-webview`
+  with each feature combination and `ravet-plugin` tests passed there.
+- **Windows 11 x64 VM** (build 26100, WebView2 Runtime 156.0.4314.58; bundles
+  cross-built on the Linux machine with WebView2 SDK 1.0.3650.58, imports
+  checked: no `WebView2Loader.dll`): `ravet-web-assets.exe` passed (origin
+  `https://editor.ravet.invalid`, 1.5 MiB script, 404, snapshots); REAPER 7.82
+  x64 `editor.py --windows-root` runs for CLAP, VST3 and LV2: editor rendered
+  (QEMU `screendump`), host Feedback edit shown, close/reopen/removal passed,
+  REAPER exited 0; the Gain CLAP asset page rendered and reached `Ready`.
+  `ravet_aax_check --editor` opened and rendered both Delay AAX effects'
+  editors in a top-level HWND (2 child windows, 5 descendants with WebView2),
+  210 timer ticks, closed; `PASS`. Windows clippy (cargo-xwin) clean.
+
+Not established / open:
+
+- No editor→host input on Windows: QEMU monitor clicks landed on the taskbar
+  and minimised REAPER, so Windows clicks were dropped from the evidence.
+- The Delay's division buttons never responded to XTest clicks in any Linux
+  format, while toggles and knob drags did; the protocol accepts the message
+  (checked offline). Not investigated.
+- The existing `ravet-web-lifecycle` probe fails on Windows with "snapshot not
+  delivered"; the unmodified `release/0.1.0` backend fails the same way.
+- No Pro Tools for Windows, no LV2 host other than REAPER (jalv and Carla are
+  not installed; Ardour is GTK 2-based and refused by design), no keyboard
+  input, display scaling above 100 %, Wayland parent or deadline claim.
+  WebView2 page content scales with monitor DPI while editor sizes are physical
+  pixels.
+
 <a id="release-010-docs-ci"></a>
 
 ## 0.1.0 release documentation, checklist audit and hosted CI — 5 November 2026

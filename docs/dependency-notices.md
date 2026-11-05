@@ -84,8 +84,18 @@ toolchain's `share/doc/rust/COPYRIGHT-library.html` (installed with the
 | Microsoft C runtime and Windows SDK import libraries | Windows builds (CRT linked statically) | Microsoft's terms, accepted when cargo-xwin downloads them | No; review Microsoft's redistribution terms for the static CRT |
 | glibc, libgcc_s, libstdc++ | Linux builds | System libraries, dynamically linked (glibc LGPL-2.1+; GCC Runtime Library Exception) | No |
 
-There is no WebView2 or WebKitGTK dependency in this release: editors open on
-macOS only (see [plug-in export](plugin-export.md#linux-and-windows-builds)).
+Editor products also use the platform web engine
+([plug-in editors](plugin-export.md#editors)):
+
+| Component | Where | Licence route | Shipped in bundles |
+|---|---|---|---|
+| Microsoft WebView2 SDK static loader (`WebView2LoaderStatic.lib`, SDK 1.0.3650.58 tested) | Windows editor builds (MSVC), linked in | BSD-3-Clause (the SDK's `LICENSE.txt`); binary redistributions reproduce its notice | Yes: `bundle-plugin.py` copies `WEBVIEW2-SDK-LICENSE.txt` and `WEBVIEW2-SDK-NOTICE.txt` into the notices of Windows bundles of editor products |
+| Microsoft Edge WebView2 Runtime | Windows editors at run time | Installed by the user or Windows | No |
+| GTK 3, WebKitGTK 4.1, JSON-GLib | Linux editor builds, dynamically linked | LGPL-2.1+ system libraries from the distribution | No |
+
+The per-format legacy scripts (`bundle-clap.py` and the others) do not copy the
+WebView2 notices; use `bundle-plugin.py`, or add them, when shipping Windows
+editors.
 
 ## What the bundle scripts ship
 

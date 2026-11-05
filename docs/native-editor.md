@@ -5,9 +5,13 @@ RAVET now has a Cargo-built macOS binding and an embedded CLAP gain editor.
 `ravet-surface/native` contains reusable C++ backends for macOS, Windows and
 Linux, with native lifecycle probes. The Cargo Rust binding (`WebView`,
 `StandaloneWindow`) builds all three: Cocoa/WebKit, Win32/WebView2 (set
-`RAVET_WEBVIEW2_SDK` to an extracted WebView2 NuGet package and ship its
-`WebView2Loader.dll` beside the consuming binary) and GTK 3/WebKitGTK 4.1
-(pkg-config; Linux hosts call `ravet_webview::pump` from their UI loop). On
+`RAVET_WEBVIEW2_SDK` to an extracted WebView2 NuGet package; MSVC builds link
+its `WebView2LoaderStatic.lib`, GNU builds ship its `WebView2Loader.dll` beside
+the consuming binary) and GTK 3/WebKitGTK 4.1 (pkg-config; Linux hosts call
+`ravet_webview::pump` from their UI loop). Generic plug-in exports host product
+editors through it on all three platforms; see
+[plug-in editors](plugin-export.md#editors) and the
+[asset origin](#embedded-asset-origin). On
 Windows/Linux the standalone window keeps Audio/MIDI settings in a JSON file
 under the user's configuration directory, and its `snapshot` is unavailable;
 the native accessibility companion is macOS only. The gain GUI example remains
@@ -180,9 +184,12 @@ build their own format wrappers; this framework does not acquire VST3/AAX SDKs
 or package proprietary products.
 
 Windows parents are HWNDs. Build with `RAVET_WEBVIEW2_SDK` pointing at an
-extracted official `Microsoft.Web.WebView2` NuGet package. The caller packages
-its matching `WebView2Loader.dll` next to the consuming DLL/executable, retaining
-the SDK's LICENSE/NOTICE and redistribution obligations. The backend checks for
+extracted official `Microsoft.Web.WebView2` NuGet package. Cargo MSVC builds of
+`ravet-webview` link the package's `WebView2LoaderStatic.lib` (with `advapi32`
+and `version`), so nothing ships beside the binary; the CMake library and GNU
+(MinGW) builds load `WebView2Loader.dll` from beside the module that contains
+the backend, and the caller packages that DLL. Either way retain the SDK's
+LICENSE/NOTICE and redistribution obligations. The backend checks for
 an installed WebView2 Runtime before returning a view. Browser/controller
 creation then completes asynchronously through the host's STA message loop.
 Attach immediately, keep the UI loop running, and keep context alive until
@@ -191,10 +198,24 @@ no browser runtime is bundled by RAVET. The SDK 1.0.3650.58 backend cross-compil
 Windows 11 24H2 (WebView2 156) in a standalone window and in REAPER 7.82 as VST3
 and CLAP editors. `NavigateToString` reaches the navigation filter as one
 `data:text/html` URI, which the backend admits once per inline page. Set
-`RAVET_WEB_DEBUG=<file>` to append environment, controller and navigation
-events to that file.
+`RAVET_WEB_DEBUG=<file>` to append runtime, environment, controller, navigation
+and asset events to that file.
+
+Once a backend has created a view it pins its own module
+(`GET_MODULE_HANDLE_EX_FLAG_PIN` on Windows, `RTLD_NODELETE` on Linux).
+WebView2 and GLib can deliver completion handlers, destroy notifications and
+scheme requests after the last view is destroyed; a host that unloads the
+plug-in library at that point (REAPER does with CLAP libraries on Linux, which
+crashed in GLib before this) would otherwise call into unmapped code. A pinned
+module stays loaded until the process exits.
 
 Linux parents are X11 Window IDs cast to `void*`, including XWayland windows.
+The parent need not be an XEmbed socket. The editor is a GtkPlug created for
+the parent window; XEmbed leaves mapping the plug to its embedder, so the
+backend maps the plug's window itself after showing it. REAPER 7.82 gives
+plug-ins a plain child X window of its floating FX window (no XEmbed), and the
+Delay editor was viewable, painted and interactive there in CLAP, VST3 and LV2
+(see [work status](WORK_STATUS.md)). XEmbed focus messages are not emulated.
 The backend selects X11 if it initializes GTK. It rejects an already initialized
 Wayland GTK display; such hosts need an X11 GTK context, for example by launching
 with `GDK_BACKEND=x11`. Native Wayland parenting is not provided. Dependencies
@@ -240,8 +261,13 @@ Build and run the local-file probe on Linux with an X11 display:
 ```sh
 cmake -S crates/ravet-surface/native -B target/web-linux -DRAVET_WEB_EDITOR_TESTS=ON
 cmake --build target/web-linux --parallel 4
-ctest --test-dir target/web-linux --output-on-failure
+GDK_BACKEND=x11 ctest --test-dir target/web-linux --output-on-failure
 ```
+
+`ravet-web-assets` (all three platforms) checks the
+[asset origin](#embedded-asset-origin), and on Linux attaches the editor to a
+plain X11 child window (not a socket) and checks that the plug is reparented,
+viewable at the editor size and follows a resize.
 
 The portable probe checks malformed snapshot rejection, identical snapshot
 suppression, changed updates, viewport dimensions, restricted navigation, hide/show, reattachment,
@@ -250,6 +276,32 @@ It passed on Ubuntu 24.04 arm64 and x64 under local virtualization/emulation.
 Those environments are not Omarchy/DAW evidence. For a root-only container probe,
 WebKit sandboxing had to be disabled for that isolated test process; production
 builds retain the default WebKit sandbox and require no such setting.
+
+## Embedded asset origin
+
+`ravet_web_create_assets` (Rust: `WebView::from_html_with_assets` with
+`ravet_webview::Asset`) loads the page as `index.html` from a local origin that
+also serves the caller's assets from memory, so editors can ship images,
+fonts, scripts and styles of any size without inlining them into the 1 MiB page
+or chunking them through 64 KiB snapshots:
+
+| Platform | Origin | Mechanism |
+|---|---|---|
+| macOS | `ravet://editor/` | `WKURLSchemeHandler` on the view's configuration |
+| Linux | `ravet-<id>://editor/` | WebKitGTK URI scheme on the default context; one scheme per loaded binary, because schemes are process-wide; registered secure and CORS-enabled |
+| Windows | `https://editor.ravet.invalid/` | `WebResourceRequested` filter on a reserved `.invalid` host, answered before any network request |
+
+Pages use relative URLs, so the origin does not matter to them. Only GET is
+answered; unknown paths get 404; navigation stays inside the origin. The view
+copies paths and content types; asset data must stay valid until the view is
+destroyed (normally static data in the binary) and is copied once per request.
+Limits: 4,096 assets, 64 MiB each, 256 MiB in total, paths of at most 512 bytes
+from ASCII letters, digits and `._-/` without `.`, `..` or empty segments;
+`index.html` is reserved. Snapshots and page messages keep their 64 KiB limit;
+the origin is for static assets. `ravet-web-assets` loads a 1.5 MiB script, a
+stylesheet and an SVG image, fetches an asset and a missing path, and checks
+snapshot delivery, on each platform. Plug-in products declare assets with
+`EditorAsset` ([plug-in editors](plugin-export.md#editor-assets)).
 
 ## Native file chooser
 

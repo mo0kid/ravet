@@ -4,10 +4,13 @@
 //!
 //! macOS native code targets macOS 12 or later and requires Xcode command-line
 //! tools. Windows builds need `RAVET_WEBVIEW2_SDK` (an extracted WebView2 NuGet
-//! package) and ship its `WebView2Loader.dll` beside the consuming binary. Linux
+//! package); MSVC builds link its `WebView2LoaderStatic.lib`, while GNU builds
+//! ship its `WebView2Loader.dll` beside the consuming binary. Linux
 //! builds need the GTK 3, WebKitGTK 4.1 and JSON-GLib development packages, and
 //! hosts must call [`pump`] from their UI loop. This crate is separate from
 //! portable DSP and the umbrella dependency graph.
+//! [`WebView::from_html_with_assets`] serves embedded [`Asset`]s to the page
+//! from a local origin, beyond the 1 MiB page and 64 KiB message limits.
 //! Browser context menus are disabled in all loaded frames. Right-click events
 //! still reach page controls for reset actions and custom menus.
 //! `ContentConstraints` and checked explicit native semantic models are portable;

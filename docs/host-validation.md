@@ -373,3 +373,35 @@ outside `[REAPER]`).
 Executed results are recorded in [work status](WORK_STATUS.md). A pass covers
 the tested REAPER version, OS, format and offline render path only: no live
 playback, device, deadline, editor or automation claim.
+
+## Scripted RAVET editor check (REAPER, Linux/Windows)
+
+`tools/reaper-validation/editor.py` reuses the Delay harness's disposable
+configuration and runs `editor.lua`: insert the plug-in, open its editor in a
+floating FX window, set Feedback from the host, log every parameter change,
+close and reopen the editor, remove the plug-in with its editor open, save,
+reopen the saved project (so quitting raises no prompt) and quit. It prints
+`RESULT PASS` when the script reached `DONE editor check` without a failure and
+the normal REAPER directory is unchanged.
+
+On Linux, `--probe` adds `x11-editor-probe` (X11/XWayland, XTest), run only on
+the REAPER window it started:
+
+```sh
+cc -O2 -o target/x11-editor-probe tools/reaper-validation/x11-editor-probe.c -lX11 -lXtst
+python3 tools/reaper-validation/editor.py --format vst3 \
+    --bundle target/plugins/release/ravet-delay-plugin.vst3 \
+    --probe target/x11-editor-probe --seconds 20 \
+    --action 214,293 --action drag:478,128,-40
+```
+
+The probe prints the window chain from the editor's plug to the floating
+window, with map state and whether each window carries `_XEMBED_INFO` (the
+plug does; an XEmbed socket parent would not be a plain host window), saves
+PPM/PNG captures of that window only, and injects the clicks and drags, whose
+edits appear as `CHANGE` lines in `output/delay-host.log`. Other products need
+`--fx-name`, `--title` and `--size WIDTHxHEIGHT`. On Windows, `--windows-root`
+prepares a work directory and `run-windows.ps1` exactly as for the Delay
+check; the script holds the editor open for `--seconds` so it can be captured
+from outside (for a QEMU VM, the monitor's `screendump`). Editor input is not
+injected on Windows.

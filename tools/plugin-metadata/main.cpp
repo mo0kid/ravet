@@ -43,7 +43,8 @@ int main(int argc, char** argv) {
         std::cout << ",\"version\":"; quoted(p.version);
         std::cout << ",\"plugin_id\":"; quoted(p.plugin_id);
         std::cout << ",\"au_type\":" << p.au_type << ",\"au_subtype\":" << p.au_subtype
-                  << ",\"au_manufacturer\":" << p.au_manufacturer << "}\n";
+                  << ",\"au_manufacturer\":" << p.au_manufacturer
+                  << ",\"editor_width\":" << p.editor_width << ",\"editor_height\":" << p.editor_height << "}\n";
         // Retain the trusted Rust image until process exit.
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
