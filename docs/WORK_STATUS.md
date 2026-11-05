@@ -9339,3 +9339,39 @@ matches the Rosetta observation, while Logic Pro bounces were sample-exact, so
 REAPER's AU hosting exposes a time/tempo delivery defect in the AUv2 adapter
 or a host interaction still to be found. Under the `sandbox-exec` wrapper REAPER
 saw none of the AU's parameters, so AU runs must not use it.
+
+### Integration: Windows/Linux plug-in editors merged (2026-11-05)
+
+Merged `editors/windows-linux`; its decision record became 0293 (0291 and 0292
+were taken). Code conflicts with the web-view robustness review were combined:
+the new `ravet_web_create_assets` follows decision 0292 (`noexcept` on all three
+platforms; on macOS a wrong-thread call returns null instead of asserting), and
+the WebView2 state keeps the review's rule that the loader is never unloaded
+while adding the asset handler's environment and token. Documentation now says
+MSVC builds link the static WebView2 loader (no DLL shipped) and that plug-in
+editors open on all three platforms.
+
+A cross-target lint found 16 undocumented `unsafe` blocks in the x86_64 SSE2
+paths of `ravet-native-dsp`, which the robustness review's new lint rejects but
+had only checked on arm64; each now has the same safety comment as its AArch64
+twin.
+
+Checks on the merged branch:
+- macOS 27 arm64: 97 Rust tests pass for `ravet-webview`, `ravet-plugin` and
+  the delay, gain and synth plug-ins (all features); Clippy with warnings
+  denied passes; native web-view CTest 16/18, including the new asset test —
+  `first-mouse` and `keyboard-focus` fail as before this merge because the
+  session cannot take key-window status; `bundle-plugin.py` for the delay in
+  all five formats with `--validate` passes (clap-validator 33/0/11, Steinberg
+  47/0, `auval`, AAX 1/1, LV2 4/4 with 0 Turtle errors).
+- Arch Linux x86_64 (omarchy): Clippy with warnings denied for `ravet-webview`,
+  `ravet-plugin` and `ravet-native-dsp`; `ravet-webview` and `ravet-plugin`
+  tests pass; native web-view CTest 5/5 (including assets) with
+  `GDK_BACKEND=x11`, `DISPLAY=:0`, no `WAYLAND_DISPLAY` and
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1`. With `WAYLAND_DISPLAY` set, lifecycle and
+  paint segfault and `host-gtk-supported` fails identically on both source
+  branches, since editors reject a Wayland GTK context.
+- Windows x64 cross-build (cargo-xwin, WebView2 SDK): Clippy with warnings
+  denied for the same three crates, and `bundle-plugin.py --target windows`
+  builds the delay CLAP, VST3 and LV2 bundles with notices. Not run on Windows
+  after the merge.
