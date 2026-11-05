@@ -6,6 +6,107 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="release-010-windows-midi"></a>
+
+## Standalone MIDI input on Windows — 5 November 2026
+
+Release-plan §5 item "Standalone audio and MIDI on each platform with a named
+device", on branch `evidence/windows-midi` from `release/0.1.0` (`9c96b1c`).
+This closes the Windows MIDI gap left by the
+[Windows/Linux run](#release-010-standalone-win-linux). No RAVET source changed.
+
+**MIDI device (owner-approved).** The VM already had Windows MIDI Services
+enabled in Windows: `midisrv` running (`midisrv.exe` and `wdmaud2.drv`
+10.0.26100.9549), WinMM routed through it (`Drivers32` `midi1=wdmaud2.drv`,
+`MidisrvTransferComplete=1`) and the in-box MIDI 2.0 loopback transport
+`Midi2.LoopbackMidiTransport.dll` 1.0.16.1 (CLSID
+`{942BF02D-93C0-4EA8-B03E-D51156CA75E1}`) enabled. The service only had no
+loopback configured. No installer was run. The Windows MIDI Services SDK
+runtime and tools are not needed, and are not offered for this build: the
+releases that matched the 24H2 in-box service (rc-3, rc-4) no longer carry
+installers. The current "In-box Preview 13" Tools/Transports packages state
+Windows 11 25H2 or later; the VM is 24H2 (26100.9711).
+
+A persistent loopback pair was created with the service's own configuration
+mechanism, as the Windows MIDI Services tools do:
+
+- File `C:\ProgramData\Microsoft\MIDI\WindowsMidiServices.midiconfig.json`
+  (new; 926 bytes, SHA-256 `23e41058…a777bf`) with one `create` entry for the
+  loopback transport: endpoint A `RAVET Loopback A`, endpoint B
+  `RAVET Loopback B`, unique identifier `RAVETLOOP`, not muted. The format is
+  that of the repository's `src/in-box/Config/Default.midiconfig.json`
+  (github.com/microsoft/MIDI, MIT).
+- Registry value `HKLM\SOFTWARE\Microsoft\Windows MIDI Services\CurrentConfig`
+  (new, REG_SZ) = `WindowsMidiServices.midiconfig.json`.
+- `Restart-Service midisrv`. The service created MIDI endpoints
+  `SWD\MIDISRV\MIDIU_LOOP_A_RAVETLOOP` and `…_B_RAVETLOOP` and, for WinMM, four
+  `SWD\MMDEVAPI\MIDIU_LOOP_{A,B}_RAVETLOOP_{0,1}_0` software devices.
+
+Both commands ran from the SSH session, which is an elevated administrator
+token; no UAC prompt appeared and no security setting was changed. The pair is
+left installed at the owner's request. To remove it: delete the JSON file and
+the `CurrentConfig` value, then restart `midisrv`. The service reads the file
+whenever it starts; the pair appeared on the one service restart made. A VM
+reboot was not tried, because it would end the logged-on session other runs
+use.
+
+**Ports.** `ravet-standalone-probe list`, from SSH and from the logged-on
+session (WinMM through midir):
+
+| Direction | Name | ID |
+|---|---|---|
+| input | `RAVET Loopback A` | `\\?\swd#midisrv#midiu_loop_a_ravetloop#{e7cce071-3c03-423f-88d3-f1045d02552b}` |
+| input | `RAVET Loopback B` | `\\?\swd#midisrv#midiu_loop_b_ravetloop#{e7cce071-3c03-423f-88d3-f1045d02552b}` |
+| output | `Microsoft GS Wavetable Synth` | (empty) |
+| output | `RAVET Loopback A` | as input A |
+| output | `RAVET Loopback B` | as input B |
+
+Data sent to output A arrives at input B.
+
+**Application.** DW-303 standalone from the same DW-303 scratch sources as the
+earlier run (DW-303 `e5f205d`, unchanged), its RAVET path dependencies pointing
+at a copy of this branch's tree. Cross-built on omarchy with cargo-xwin 0.23.1,
+the WebView2 SDK from `~/sdk-review/webview2` and `+crt-static`
+(`DW-303.exe` SHA-256 `82d7324f…`, `ravet-standalone-probe.exe` `6b8d7ab9…`).
+Each run started in the logged-on session through a temporary `/it` scheduled
+task. The script wrote a scratch `APPDATA\DW-303\audio.json` selecting
+`Speakers (High Definition Audio Device)` (48 kHz, pair 1/2, default buffer)
+and MIDI input `RAVET Loopback B`. Five seconds after launch,
+`ravet-standalone-probe capture-notes` recorded the speakers through WASAPI
+loopback for 5 s and sent note 45 and note 57 (velocity 100) into output
+`RAVET Loopback A` at 1.0–2.0 s and 2.7–3.7 s. WM_CLOSE then quit the app.
+
+**Results** (`ravet-standalone-probe analyse`, 100 ms windows):
+
+| Run (UTC) | MIDI input selected | Before first note | Note 45: onset level, pitch | 100 ms after note-off | Note 57: onset level, pitch | 100 ms after note-off |
+|---|---|---|---|---|---|---|
+| 15:21:27 | Loopback B | −inf dBFS | −25.2 dBFS, 109.1–109.8 Hz | −100.6 dBFS | −23.7 dBFS, 218.2–220.2 Hz | −101.1 dBFS |
+| 15:22:07 | Loopback B | −inf | −25.5 dBFS, 108.8–110.1 Hz | −91.8 dBFS | −24.2 dBFS, 218.2–220.2 Hz | −109.8 dBFS |
+| 15:22:31 | Loopback B | −inf | −25.4 dBFS, 109.1–109.6 Hz | −102.7 dBFS | −23.7 dBFS, 218.2–219.2 Hz | −106.2 dBFS |
+| 15:22:55 | Loopback B | −inf | −25.2 dBFS, 109.1–110.1 Hz | −91.5 dBFS | −23.9 dBFS, 218.2–221.2 Hz | −104.5 dBFS |
+| 15:23:21 (control) | none | −inf | −inf | −inf | −inf | −inf |
+
+Each note decayed to about −34 dBFS before its note-off. Peaks 0.29–0.31 in
+the four note runs; left and right identical. In every run
+DW-303 exited with code 0 and wrote `state.bin` (3,200 bytes), and its saved
+`audio.json` kept the selected output and MIDI input. The control run sent the
+same notes with no MIDI input selected and captured digital silence for all
+5 s, so the notes reached the synthesizer only through the app's MIDI input.
+An earlier attempt (15:20:50) passed a MIDI ID with a lost backslash: the probe
+reported `Unavailable`, DW-303 fell back to no MIDI input, and the run is not
+counted. Each capture printed one CPAL stream notification ("A buffer underrun
+or overrun occurred"), as in the earlier Windows run; the captures were still
+complete (240,000 frames in 500 callbacks, one with 240,480 in 501). This shows
+MIDI input through WinMM on Windows 11 24H2 with a Windows MIDI Services
+loopback; it does not cover a physical MIDI device, MIDI 2.0/UMP, latency or
+callback deadlines. The popup itself was not operated; the selection came from
+the saved settings file.
+
+Cleanup: the scheduled task `RAVET-midi-evidence` was deleted; no DW-303 or
+probe process is left; the default audio device was not changed. Scratch:
+`C:\RavetMidiEvidence` (VM) and `~/ravet-windows-midi-evidence` (omarchy,
+including copies of the runs and the configuration file).
+
 <a id="release-010-device-crate-review"></a>
 
 ## Device crate panic and unsafe review — 5 November 2026

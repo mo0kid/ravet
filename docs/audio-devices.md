@@ -165,6 +165,20 @@ PipeWire, record the application's node with `pw-record --target` instead.
 `analyse` reads 32-bit float WAV files from either source. The capture callback
 pushes into a preallocated ring and reports CPAL stream notifications on
 stderr; it is a test helper, not a real-time product path.
+
+A Windows machine without a MIDI device needs a loopback port that WinMM lists.
+Where Windows MIDI Services is enabled (`midisrv` running and `Drivers32`
+`midi1` set to `wdmaud2.drv`), its in-box MIDI 2.0 loopback transport provides
+one with no installer. Write a configuration file in
+`%ProgramData%\Microsoft\MIDI` with a `create` entry for the loopback transport
+(`{942BF02D-93C0-4EA8-B03E-D51156CA75E1}`, two endpoints with names and one
+shared unique identifier; see `Default.midiconfig.json` in
+github.com/microsoft/MIDI), set `HKLM\SOFTWARE\Microsoft\Windows MIDI
+Services\CurrentConfig` to the file name, and restart `midisrv`. WinMM then
+lists both endpoints as inputs and outputs; data sent to one side arrives at
+the other. Removing the file and value and restarting the service removes the
+pair. The [Windows MIDI receipt](WORK_STATUS.md#release-010-windows-midi)
+records the exact configuration used.
 Offline tests check interleaving, partition/time continuity, fault silencing,
 malformed frames, preparation bounds, panic disable/silencing and 1,000
 allocation-free callbacks. Callback counts include disabled callbacks; frame

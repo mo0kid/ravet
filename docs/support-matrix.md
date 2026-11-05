@@ -94,16 +94,17 @@ real-time claim.
 The DW-303 standalone application (its own repository), built on RAVET's
 `StandaloneWindow`, Audio/MIDI popup, `ravet-device` and `ravet-midi-device`.
 Windows/Linux runs were on 5 November 2026
-([receipt](WORK_STATUS.md#release-010-standalone-win-linux)).
+([receipt](WORK_STATUS.md#release-010-standalone-win-linux); Windows MIDI
+[receipt](WORK_STATUS.md#release-010-windows-midi)).
 
 | Platform | Audio output | MIDI input |
 |---|---|---|
 | macOS arm64 | Owner report: exercised; device not recorded | Owner report: exercised; device not recorded |
 | Arch Linux x86_64 (PipeWire 1.6.9) | ALSA `PipeWire Sound Server` (`alsa:pipewire`) into PipeWire's `Dummy Output` null sink; capture of the app's stream verified | ALSA sequencer `Midi Through Port-0` (14:0); notes produced the expected pitches in that capture |
-| Windows 11 x64 VM (26100) | WASAPI `Speakers (High Definition Audio Device)` (emulated HDA); WASAPI loopback capture verified the demo pattern | **Not exercised**: no WinMM MIDI input on the VM (needs a Windows MIDI Services loopback endpoint or a virtual MIDI driver) |
+| Windows 11 x64 VM (26100) | WASAPI `Speakers (High Definition Audio Device)` (emulated HDA); WASAPI loopback capture verified the demo pattern | WinMM `RAVET Loopback B`, a Windows MIDI Services in-box MIDI 2.0 loopback configured on the VM (notes sent to `RAVET Loopback A`); notes produced the expected pitches in a WASAPI loopback capture, and no sound with no MIDI input selected |
 
 No hardware output on Linux, physical MIDI device, latency or callback deadline
-was measured. On Linux the window's rendered content and a clean quit were not
+was measured. Both MIDI inputs are software loopbacks. On Linux the window's rendered content and a clean quit were not
 confirmed. On Windows the window rendered (screendump) and quit cleanly with
 saved state.
 
@@ -189,7 +190,7 @@ custom editor, polyphony or live deadline.
 - Delay accepts sample rates up to 768 kHz, allocates two two-second delay
   lines at prepare, reads tempo once per block, clamps synced time to two
   seconds and has no editor meters.
-- Native Intel macOS hardware, standalone MIDI input on Windows (see
+- Native Intel macOS hardware, physical MIDI devices in standalone apps (see
   [standalone audio and MIDI](#standalone-audio-and-midi)), production signing for arbitrary vendors and real-time
   deadlines remain unestablished. The Rosetta AU render failure above is open. AAX vendor signing is separate from adapter checks.
   AAX applies automation once per block and reports no tail through SDK 2.8.
