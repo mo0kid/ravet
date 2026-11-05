@@ -1,0 +1,8 @@
+_ACFRegisterPlugin
+_ACFRegisterComponent
+_ACFGetClassFactory
+_ACFCanUnloadNow
+_ACFStartup
+_ACFShutdown
+_ACFGetSDKVersion
+__Z21GetEffectDescriptionsP15AAX_ICollection
