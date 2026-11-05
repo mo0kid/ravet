@@ -7642,6 +7642,71 @@ Local macOS 27 arm64 validation:
 
 No DAW, Windows or Linux run.
 
+### Export layer: native table, automation and bypass policies (2026-11-05)
+
+The Rust side of the generic C table `crates/ravet-plugin/include/RavetPlugin.h`
+is implemented in `ravet_plugin::native` (crate feature `native`, umbrella
+`plugin-native`). With it, `export_plugin!` also exports `ravet_plugin_v1`;
+`examples/delay-plugin` and `examples/gain-plugin` enable it, and the delay's
+release cdylib exports both `clap_entry` and `ravet_plugin_v1`. The table
+reuses `ravet-native` for buses (prepared scratch through `NativeAudioAdapter`),
+events and transport. Host-side changes and editor edits mark parameters in a
+lock-free dirty bitset and reach the processor at offset 0 of the next block;
+state loads deliver every value in a zero-frame block followed by a reset.
+
+`Product::with_automation` (`SampleAccurate`, `PerBlock`) and
+`Product::with_bypass` (`Processor`, `Hard`, `Crossfade`, `Frozen`) are
+implemented once in `PolicyProcessor`, which the CLAP export and the table both
+run inside `DenormalProcessor` (`FlushBoth`). `Frozen` uses the new
+`AudioBuffer::pass_through` in `ravet-foundation`. Parameter text formatting and
+parsing moved from `clap.rs` to `ravet_plugin::text`, and the macOS web-editor
+host moved from `clap_gui.rs` to `editor_host.rs`; both exports use them.
+[Decision 0282](decisions/0282-plugin-policies-and-native-table.md) records the
+bypass semantics and the table's fault and delivery rules.
+
+`RavetPlugin.h` changed in comments only: float samples; fault scope (process,
+reset and timing return 2 until prepare; other calls keep working);
+`get_value` returns NaN for an unknown index; truncated `value_to_text` returns 1;
+parameter values need not be exact floats and are clamped, snapped and cached,
+unknown IDs and nonfinite values dropped, at most 1,024 processor events per
+block; Cocoa-only editor in this release with one-to-four-times resizing;
+`editor_idle` does nothing on macOS.
+
+Local macOS 27 arm64 validation:
+
+- `cargo test -p ravet-plugin --all-features`: 40 tests and 1 doctest pass
+  (11 policy and text unit tests, 12 native-table tests, 17 existing integration
+  tests). Native tests drive every function through the table: product record
+  and identities against `ResolvedProduct`, parameter records, text and
+  truncation, normalization, set/get, saved state, state load with reset and
+  full delivery, migration and import hooks, host automation with offsets and
+  inexact doubles, rejected offsets with silence, the hard bypass policy,
+  latency change reporting, configuration validation, panics returning 2 and
+  recovering through prepare, editor-protocol edits through `take_edits`, no
+  heap activity across 500 processed blocks with a pending state load, and a
+  C99 `-Wall -Werror` compile of the header (Apple clang 21) whose sizes and
+  offsets match every Rust record.
+- `cargo test -p ravet-delay-plugin`: 17 tests pass, including 5 new table
+  tests (identities, text round trip, saved and loaded state with a 10 ms repeat
+  at exactly 80 samples at 8 kHz, a 120 BPM eighth-note repeat at exactly 2,000
+  samples through native transport, and no heap activity across 500 blocks).
+  `ravet-gain-plugin`: 1 test passes. `ravet-foundation`: 3 new
+  `pass_through` tests pass.
+- Clippy with warnings denied for `ravet-plugin` (no features, `clap`, `native`
+  and all features), `ravet-foundation`, `ravet-delay-plugin` and
+  `ravet-gain-plugin`; library Clippy for `ravet-plugin` cross-checked for
+  `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` (compile-only; this
+  removed pre-existing dead-code errors in macOS-GUI-only CLAP items);
+  `cargo fmt --check`; warning-free Rustdoc for
+  `ravet-plugin`; `cargo +1.88.0 check -p ravet-plugin --all-features`; the
+  documentation checker.
+- CLAP regression after the policy wrapper and shared editor host: the release
+  delay bundle passes `ravet-clap-smoke --delay`, and clap-validator
+  0.3.2-127 reports 33 passed, 0 failed, 11 skipped.
+
+No adapter or host has loaded the table yet, the editor was not opened through
+it in a host, and there is no Windows or Linux run.
+
 ## 5 November 2026: Generic VST3 adapter — independent C++ table validation
 
 Implemented `crates/ravet-plugin/adapters/vst3` against `RavetPlugin.h`, with

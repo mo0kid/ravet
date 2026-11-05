@@ -68,6 +68,7 @@ entitlement = ["data", "ravet-data/entitlement"]
 
 # ravet-plugin
 plugin-clap = ["plugin", "ravet-plugin/clap"]
+plugin-native = ["plugin", "ravet-plugin/native"]
 
 # ravet-graph
 convolution-transitions = ["graph", "ravet-graph/convolution-transitions"]
