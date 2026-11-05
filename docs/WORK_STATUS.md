@@ -8223,3 +8223,25 @@ The strict checker fails both files on amplitude only, because the parameters
 were not set exactly; echo positions and tempo sync are exact. Keyboard entry
 into the web editor does not work in Pro Tools, which keeps key input for its
 own shortcuts; mouse editing works. This is a manual single-host check.
+
+### Logic Pro AUv2 delay check (2026-11-05)
+
+The AUv2 delay, rebuilt with the current editor (`bundle-au.py --plugin delay
+--validate`: in-process checks pass; installed as
+`~/Library/Audio/Plug-Ins/Components/RAVET Delay.component`; `auval -v aufx QFKS
+TYDS` succeeds), was loaded by the owner in Logic Pro on macOS 27 arm64 at 48 kHz
+and 150 BPM, with values typed into the editor (Time 100 ms, Mix 50 %). The
+bounces (48 kHz, 24-bit) also contain Logic's metronome (a click on every beat
+from frame 0), so the strict checker reports the clicks; the delay was measured
+at the exact sample positions instead:
+
+- Fixed (sync off, feedback 0, mix 100): echoes at frames 28,800 and 100,800
+  (+4,800 samples, 100 ms), exactly 0.5 / −0.25, no dry signal, and no other
+  signal within ±200 samples of each echo.
+- Synced (sync on, 1/8, feedback 0, mix 50): dry at 24,000 and echoes at 33,600
+  and 105,600 (+9,600 samples, an eighth note at 150 BPM), exactly
+  0.25 / −0.125. At frame 96,000 a metronome click starts on the same sample
+  as the second impulse; the samples there equal the click plus the dry signal
+  exactly (0.071013 + 0.25 = 0.321013).
+
+Typed values worked in Logic. This is a manual single-host check.
