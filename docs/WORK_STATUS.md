@@ -8010,3 +8010,22 @@ MusicDevice StartNote/StopNote, factory-program catalogue, zero-audio MIDI
 processor, DAW/device, x86_64, sandbox, production signing or callback-deadline
 support is established. The existing C table was sufficient; the coordinator
 needs no header change.
+
+### Integration: all four native adapters merged (2026-11-05)
+
+`release/0.1.0` now contains the generic VST3 and AUv2 adapters as well as AAX
+and LV2. The AUv2 decision record, numbered 0283 on its branch, was renumbered
+0284 because the LV2 record had taken 0283. Conflicts were documentation only.
+Checks on the merged branch (macOS 27 arm64):
+
+- `bundle-vst3.py --plugin delay` with the external Steinberg VST3 SDK 3.8.1:
+  the SDK validator reports 47 tests passed, 0 failed.
+- `bundle-au.py --plugin delay --validate` with the external AudioUnitSDK
+  1.4.0: the in-process delay checks pass (120 BPM repeat at sample 2,000,
+  state, bypass, offset-16 automation, three retained-view cycles). The delay
+  component (`aufx QFKS TYDS`), copied temporarily into
+  `~/Library/Audio/Plug-Ins/Components`, passes `auval -v aufx QFKS TYDS`
+  (exit 0, `AU VALIDATION SUCCEEDED.`); the copy was then removed.
+- AAX and LV2 delay checks as recorded in the previous integration entry.
+
+No DAW has loaded any of these bundles yet, and none has been built on Windows.
