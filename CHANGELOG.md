@@ -31,7 +31,8 @@ and [release criteria](docs/releases/0.1.0.md) for remaining work.
 
 - A generic [plug-in export layer](docs/plugin-export.md): one product
   description supplies identities, parameters, state migration/import hooks,
-  automation and bypass policies, and a macOS web editor. Native table
+  automation and bypass policies, and a web editor (macOS, Windows and Linux;
+  Windows/Linux evidence is REAPER-only). Native table
   adapters export [VST3](docs/vst3.md), [AUv2](docs/audio-unit.md),
   [AAX](docs/aax.md) and [LV2](docs/lv2.md), alongside generic CLAP.
 - A [tempo-synced Delay example](docs/examples.md#tempo-synced-delay-plug-in)
@@ -41,6 +42,11 @@ and [release criteria](docs/releases/0.1.0.md) for remaining work.
   for plug-in bundles, and a disposable
   [REAPER delay harness](docs/host-validation.md#scripted-ravet-delay-check-any-format-macoslinuxwindows)
   for parameter readback, saved-session recall and checked renders.
+- [Editor assets](docs/plugin-export.md#editor-assets): products embed images,
+  fonts, scripts and styles served to the editor from a local origin, beyond
+  the 1 MiB page and 64 KiB message limits.
+- A [REAPER editor harness](docs/support-matrix.md#editor-runs-on-windows-and-linux)
+  and an X11 probe for Windows/Linux editor runs.
 - A [support matrix](docs/support-matrix.md) separating named host runs from
   validators, and [hosted CI configuration](docs/runtime-validation.md)
   for portable crates and the Delay CLAP bundle on macOS and Windows.

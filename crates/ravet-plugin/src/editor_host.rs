@@ -1,5 +1,6 @@
-//! The product's web editor in a RAVET web view (macOS), shared by the CLAP GUI
-//! extension and the native table's `editor_*` functions.
+//! The product's web editor in a RAVET web view (Cocoa/WebKit on macOS,
+//! Win32/WebView2 on Windows, GTK/WebKitGTK on X11 Linux), shared by the CLAP
+//! GUI extension and the native table's `editor_*` functions.
 //!
 //! The view speaks the [editor protocol](crate::editor): it sends `info` and
 //! snapshots of the parameter cache, and turns the page's edits into
@@ -9,7 +10,7 @@ use crate::{
     editor::{self, EditorMessage, Gestures},
     export::{Edit, EditQueue, ParameterCache},
 };
-use ravet_webview::{Callbacks, WebView};
+use ravet_webview::{Asset, Callbacks, WebView};
 use std::{collections::VecDeque, ffi::c_void, ptr::NonNull};
 
 /// Largest size, as a multiple of the product's editor size, for resizable editors.
@@ -49,15 +50,26 @@ impl<'a> EditorHost<'a> {
     /// size. `None` when the product has no editor, off the main thread, or
     /// when the web view cannot be created.
     pub(crate) fn create(target: impl EditorTarget + 'a) -> Option<Self> {
-        let editor = target.product().product().editor()?;
+        let description = target.product().product();
+        let editor = description.editor()?;
         let html = editor::page(editor.html);
+        let assets: Vec<Asset<'static>> = description
+            .editor_assets()
+            .iter()
+            .map(|asset| Asset {
+                path: asset.path,
+                mime: asset.mime,
+                data: asset.data,
+            })
+            .collect();
         let bridge = Bridge::new(target);
-        let view = WebView::from_html(
-            &html,
-            f64::from(editor.width),
-            f64::from(editor.height),
-            bridge,
-        )
+        let (width, height) = (f64::from(editor.width), f64::from(editor.height));
+        // Products without assets keep the inline page (no asset origin).
+        let view = if assets.is_empty() {
+            WebView::from_html(&html, width, height, bridge)
+        } else {
+            WebView::from_html_with_assets(&html, &assets, width, height, bridge)
+        }
         .ok()?;
         view.set_visible(false);
         Some(Self {
@@ -69,8 +81,9 @@ impl<'a> EditorHost<'a> {
     /// Attach to a host view.
     ///
     /// # Safety
-    /// `parent` must be a live `NSView` on the main thread that stays alive
-    /// until this editor is dropped.
+    /// `parent` must be a live `NSView` (macOS), `HWND` (Windows) or X11
+    /// Window ID cast to a pointer (Linux), used on the main thread, that stays
+    /// alive until this editor is dropped.
     #[allow(unsafe_code)]
     pub(crate) unsafe fn attach(&mut self, parent: NonNull<c_void>) {
         // SAFETY: forwarded from the caller's contract.
@@ -80,6 +93,11 @@ impl<'a> EditorHost<'a> {
     #[cfg_attr(not(feature = "clap"), allow(dead_code))]
     pub(crate) fn is_attached(&self) -> bool {
         self.attached
+    }
+    /// Main-thread housekeeping from the host's idle or timer callback: on
+    /// Linux, dispatch the web view's pending GTK work.
+    pub(crate) fn idle(&self) {
+        ravet_webview::pump();
     }
     pub(crate) fn set_visible(&self, visible: bool) {
         self.view.set_visible(visible);

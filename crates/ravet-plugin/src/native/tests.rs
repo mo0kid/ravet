@@ -694,7 +694,10 @@ fn processing_and_reset_allocate_nothing() {
     destroy(instance);
 }
 
-#[cfg(all(feature = "editor", target_os = "macos"))]
+#[cfg(all(
+    feature = "editor",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 #[test]
 fn editor_edits_flow_to_take_edits_and_the_processor() {
     use ravet_webview::Callbacks;
@@ -751,16 +754,15 @@ fn editor_open_rejects_unsupported_views() {
     // SAFETY: the view kinds are rejected before the parent is used.
     unsafe {
         let parent = (&mut parent as *mut u8).cast();
+        // Only the platform's own view kind is accepted (and only with the
+        // editor feature); the others, unknown kinds and null parents are not.
+        for kind in [view_kind::COCOA, view_kind::WIN32, view_kind::X11, 0, 4] {
+            if kind != PLATFORM_VIEW_KIND {
+                assert_eq!((table.editor_open)(instance, kind, parent, 300, 200), 1);
+            }
+        }
         assert_eq!(
-            (table.editor_open)(instance, view_kind::WIN32, parent, 300, 200),
-            1
-        );
-        assert_eq!(
-            (table.editor_open)(instance, view_kind::X11, parent, 300, 200),
-            1
-        );
-        assert_eq!(
-            (table.editor_open)(instance, view_kind::COCOA, ptr::null_mut(), 300, 200),
+            (table.editor_open)(instance, PLATFORM_VIEW_KIND, ptr::null_mut(), 300, 200),
             1
         );
         assert_eq!((table.editor_resize)(instance, 300, 200), 1, "not open");

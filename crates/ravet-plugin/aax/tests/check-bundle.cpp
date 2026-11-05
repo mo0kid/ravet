@@ -6,12 +6,16 @@
 //
 //   ravet_aax_check <path/to/Name.aaxplugin> [--editor]
 //
-// --editor (macOS) also opens each effect's editor through its AAX_IEffectGUI in
-// a real, off-screen NSView, runs the GUI timer, and closes it.
+// --editor also opens each effect's editor through its AAX_IEffectGUI in a real
+// parent (an off-screen NSView on macOS, a visible top-level HWND on Windows),
+// runs the GUI timer, and closes it. RAVET_AAX_EDITOR_HOLD=<seconds> keeps it
+// open that long first (for a screenshot).
 #include "FakeHost.hpp"
 #include "AAX_CString.h"
 #include "AAX_IEffectGUI.h"
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -26,6 +30,31 @@
 extern "C" void *ravet_check_make_view(double width, double height);
 extern "C" unsigned ravet_check_subviews(void *view);
 extern "C" void ravet_check_pump(double seconds);
+#elif defined(_WIN32)
+// A visible top-level window (WebView2 needs one), the message pump, and the
+// number of descendant windows (the editor's, then WebView2's).
+static void *ravet_check_make_view(double width, double height) {
+    RECT rect{0, 0, LONG(width), LONG(height)};
+    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+    HWND window = CreateWindowExW(0, L"STATIC", L"RAVET AAX editor check", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 40, 40,
+                                  rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr,
+                                  GetModuleHandleW(nullptr), nullptr);
+    return window;
+}
+static unsigned ravet_check_subviews(void *view) {
+    unsigned count = 0;
+    EnumChildWindows(static_cast<HWND>(view), [](HWND, LPARAM data) { ++*reinterpret_cast<unsigned *>(data); return TRUE; },
+                     reinterpret_cast<LPARAM>(&count));
+    return count;
+}
+static void ravet_check_pump(double seconds) {
+    const ULONGLONG end = GetTickCount64() + ULONGLONG(seconds * 1000);
+    do {
+        MSG message;
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+        Sleep(5);
+    } while (GetTickCount64() < end);
+}
 #endif
 
 using fake::require;
@@ -181,7 +210,7 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
     require(model->SetChunk(chunkId, chunk) != AAX_SUCCESS, id + ": corrupt chunk rejected");
     std::cout << "  state chunk " << fourcc(chunkId) << " " << size << " bytes: save/compare/load ok, corrupt rejected\n";
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     if (openEditors && descriptor.createGui) {
         using Create = AAX_IEffectGUI *(AAX_CALLBACK *)();
         std::unique_ptr<AAX_IEffectGUI> gui(reinterpret_cast<Create>(descriptor.createGui)());
@@ -190,19 +219,33 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
         AAX_Point size(0, 0);
         require(gui->GetViewSize(&size) == AAX_SUCCESS && size.horz > 0 && size.vert > 0, id + ": GUI size");
         void *parent = ravet_check_make_view(size.horz, size.vert);
-        fake::ViewContainer view(AAX_eViewContainer_Type_NSView, parent);
+#if defined(_WIN32)
+        const AAX_EViewContainer_Type type = AAX_eViewContainer_Type_HWND;
+        const char *kind = "an HWND";
+#else
+        const AAX_EViewContainer_Type type = AAX_eViewContainer_Type_NSView;
+        const char *kind = "an NSView";
+#endif
+        fake::ViewContainer view(type, parent);
         require(gui->SetViewContainer(&view) == AAX_SUCCESS, id + ": SetViewContainer");
         const unsigned attached = ravet_check_subviews(parent);
-        for (int tick = 0; tick < 10; ++tick) {
+        const char *hold = std::getenv("RAVET_AAX_EDITOR_HOLD");
+        const int ticks = 10 + (hold ? int(std::atof(hold) * 20) : 0);
+        unsigned loaded = attached;
+        for (int tick = 0; tick < ticks; ++tick) {
             ravet_check_pump(0.05);
             gui->TimerWakeup();
             model->TimerWakeup();
+            loaded = (std::max)(loaded, ravet_check_subviews(parent));
         }
-        require(attached > 0, id + ": editor_open attached a view to the host NSView");
+        require(attached > 0, id + ": editor_open attached a view to the host parent");
         require(gui->SetViewContainer(nullptr) == AAX_SUCCESS && gui->Uninitialize() == AAX_SUCCESS, id + ": GUI close");
         ravet_check_pump(0.05);
-        std::cout << "  editor " << size.horz << "x" << size.vert << " opened in an NSView (" << attached
-                  << " subview), 10 timer ticks, closed\n";
+        std::cout << "  editor " << size.horz << "x" << size.vert << " opened in " << kind << " (" << attached
+                  << " child view, " << loaded << " descendants while open), " << ticks << " timer ticks, closed\n";
+#if defined(_WIN32)
+        DestroyWindow(static_cast<HWND>(parent));
+#endif
     }
 #endif
     require(model->Uninitialize() == AAX_SUCCESS, id + ": Uninitialize");

@@ -9,8 +9,9 @@ exist in `ravet-plugin` (umbrella features `plugin`, `plugin-clap` and
 that table exist as prototypes for
 [VST3](vst3.md#generic-product-adapter-010-prototype),
 [AUv2](audio-unit.md), [AAX](aax.md#generic-aax-adapter-010) and
-[LV2](lv2.md#generic-lv2-export). Windows and Linux editors and the bundle tool
-follow.
+[LV2](lv2.md#generic-lv2-export). Product web editors open on macOS, Windows
+and Linux ([decision 0293](decisions/0293-cross-platform-plugin-editors-and-asset-origin.md)),
+and the [unified bundle tool](bundle-plugin.md) builds every format.
 
 ## Product description
 
@@ -177,8 +178,10 @@ The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 - Every processing call runs inside the product's
   [policies](#automation-and-bypass-policies) and the
   [denormal guard](#denormal-guard).
-- On macOS, a product with an editor gets the CLAP GUI extension when the
-  `editor` feature is on; see [editors](#editors).
+- A product with an editor gets the CLAP GUI extension when the `editor`
+  feature is on: embedded `cocoa` views on macOS, `win32` on Windows and `x11`
+  on Linux. On Linux the editor also registers a 10 ms host timer
+  (timer-support) to pump GTK while it exists; see [editors](#editors).
 - A block carries at most 1,024 events, counting queued editor values. A
   block with more host events is rejected: its outputs are silenced and its
   values are not applied, as in the [native table](#native-table). Editor
@@ -191,9 +194,8 @@ Limits for now:
 - Only the first declared layout is used (no audio-port configurations).
 - Processing is f32.
 - Product extra state is not exported.
-- The editor runs on macOS only; Windows and Linux editors follow. Linux and
-  Windows bundles build and validate without one; see
-  [Linux and Windows builds](#linux-and-windows-builds).
+- Floating editor windows are not offered, and the CLAP `set_scale` hint is
+  accepted but not applied (see [editors](#editors) for the Windows DPI limit).
 - The automation reflection racing a concurrent state load can keep the
   automated value for that parameter.
 
@@ -235,16 +237,16 @@ the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
   `process` (silencing its outputs), `reset` and `timing` return 2 until the next
   successful `prepare`, which recreates the processor; parameter, state and
   editor calls keep working.
-- **Editor.** On macOS, `editor_open` with `RAVET_PLUGIN_VIEW_COCOA` attaches the
-  product's web editor to the host's `NSView`, using the same editor host as
-  the CLAP GUI extension. Resizable editors accept one to four times the
+- **Editor.** `editor_open` attaches the product's web editor, using the same
+  editor host as the CLAP GUI extension, to the platform's view kind:
+  `RAVET_PLUGIN_VIEW_COCOA` (`NSView`) on macOS, `RAVET_PLUGIN_VIEW_WIN32`
+  (`HWND`) on Windows and `RAVET_PLUGIN_VIEW_X11` (X11 Window ID) on Linux;
+  other kinds return 1. Resizable editors accept one to four times the
   product's size. `take_edits` returns the editor's begin/value/end edits for
-  the adapter to report to the host. Win32 and X11 views, and every view on
-  Windows and Linux, return 1 in this release. The macOS web view polls the
-  cache itself, so `editor_idle` currently does nothing.
+  the adapter to report to the host. The web view polls the cache itself;
+  `editor_idle` pumps GTK on Linux and does nothing elsewhere.
 
-Limits for now: main bus only; product extra state is not saved; no Windows or
-Linux editor. Named-host runs of the Delay through the native adapters are
+Limits for now: main bus only; product extra state is not saved. Named-host runs of the Delay through the native adapters are
 recorded separately in the [support matrix](support-matrix.md); those runs do
 not qualify arbitrary products. The table's own unit tests drive every function through the
 table (including a C99 compile of the header that checks every record offset
@@ -289,9 +291,12 @@ python3 scripts/bundle-lv2.py --plugin delay --sdk /path/to/lv2
 ```
 
 The CLAP bundle on Linux and Windows is the product library itself, renamed to
-`<Name>.clap`. Editors do not open on Linux or Windows in this release (the
-table hosts Cocoa views only); the bundles build and pass their validators
-without one.
+`<Name>.clap`. Editor products need GTK 3, WebKitGTK 4.1 and JSON-GLib
+development packages on Linux, and on Windows the WebView2 SDK at build time
+(`RAVET_WEBVIEW2_SDK`, an extracted `Microsoft.Web.WebView2` NuGet package; see
+[bundle tool](bundle-plugin.md)) and the WebView2 Runtime on the user's
+machine. MSVC builds link the SDK's static loader, so no `WebView2Loader.dll`
+ships in any bundle.
 
 ### Windows cross-builds
 
@@ -406,7 +411,7 @@ the editor closes. Several parameters may have gestures open at once.
 `sequence` increases with each snapshot or change message, so editors can drop
 stale updates.
 
-The macOS transport and injected JavaScript client are described below.
+The transport and injected JavaScript client are described below.
 
 ## Editors
 
@@ -425,6 +430,63 @@ Without it, `clap` and `native` build no web view: the CLAP export offers no
 GUI extension and the native table reports a 0 × 0 editor, so adapters show
 none. Products without an editor leave the feature off and link no WebKit or
 Cocoa bindings. The delay and gain examples turn it on.
+
+The editor opens in every format that has an embedded editor on the platform
+([decision 0293](decisions/0293-cross-platform-plugin-editors-and-asset-origin.md)):
+
+| Platform | Web view | CLAP | VST3 | LV2 | AAX | AUv2 |
+|---|---|---|---|---|---|---|
+| macOS | Cocoa/WebKit | `cocoa` | `NSView` | `CocoaUI` | `NSView` | Cocoa view |
+| Windows | Win32/WebView2 | `win32` | `HWND` | `WindowsUI` | `HWND` | — |
+| Linux | GTK 3/WebKitGTK 4.1 on X11 or XWayland | `x11` | `X11EmbedWindowID` | `X11UI` | — | — |
+
+Windows needs the WebView2 Runtime installed (Windows 11 ships it); editor
+sizes there are the host's physical pixels, and WebView2 scales page content by
+the monitor's DPI, so above 100 % display scaling a fixed-size page has fewer
+CSS pixels than its declared size. Keep layouts responsive; content-scale
+negotiation is open work. On Linux the parent is an X11 window, which need not
+be an XEmbed socket: the editor's GtkPlug is mapped inside plain host windows
+such as REAPER's. GTK work is pumped by `editor_idle` (VST3 `IRunLoop` timer,
+LV2 idle interface) or a CLAP host timer; hosts already running GTK on Wayland,
+or built on GTK 2/GTK 4, are refused. Keyboard input in Windows and Linux
+editors is not validated yet. Evidence and hosts are listed in the
+[support matrix](support-matrix.md) and [work status](WORK_STATUS.md).
+
+### Editor assets
+
+Images, fonts, scripts and styles need not be inlined into the 1 MiB page or
+sent through 64 KiB messages. Declare them as `EditorAsset`s and refer to them
+by relative URL:
+
+```rust,ignore
+use ravet_plugin::{Editor, EditorAsset};
+
+const ASSETS: &[EditorAsset] = &[
+    EditorAsset::new("app.js", include_bytes!("../editor/app.js")),
+    EditorAsset::new("img/knob.png", include_bytes!("../editor/img/knob.png")),
+    // An explicit content type when the extension does not give one.
+    EditorAsset { path: "data/curve.bin", mime: "application/octet-stream", data: include_bytes!("../editor/curve.bin") },
+];
+// Product::new(…).with_editor(Editor { … }).with_editor_assets(ASSETS)
+```
+
+```html
+<link rel="stylesheet" href="style.css"><script src="app.js"></script><img src="img/knob.png">
+```
+
+With assets, the page itself is served as `index.html` from a local asset
+origin that also serves them: `ravet://editor/` on macOS,
+`ravet-<id>://editor/` on Linux and `https://editor.ravet.invalid/` on Windows.
+Requests are answered from the binary's memory (GET only, 404 for unknown
+paths); nothing is read from disk and nothing reaches the network. Products
+without assets keep the inline page. Limits, checked by `Product::resolve`
+(`ProductError::InvalidEditorAsset`): at most 4,096 assets, 64 MiB each and
+256 MiB in total; paths of at most 512 bytes from ASCII letters, digits and
+`._-/`, with no `.`, `..` or empty segment; `index.html` is reserved. An empty
+`mime` infers the type from the extension (HTML, CSS, JavaScript, JSON, SVG,
+PNG, JPEG, GIF, WebP, ICO, WOFF/WOFF2, TTF/OTF, WASM, WAV, MP3, text), else
+`application/octet-stream`. Each request copies the asset once. The Gain
+example ships `asset.css` this way.
 
 RAVET injects its editor client into the page's `<head>`. The client speaks the
 [editor protocol](#editor-protocol) and exposes `window.ravetPlugin`:
@@ -454,11 +516,12 @@ later in the block still wins. A complete edit is queued all at once or not at
 all. If the queue is full, the edit is dropped and the page keeps showing the
 host's value. Closing the editor ends every gesture the page left open.
 
-On macOS the web view asks the plug-in for its next message 20 times a second.
+The web view asks the plug-in for its next message 20 times a second.
 Queued messages (`info`, product replies) go first, then a snapshot, which is
 rebuilt only when a value changes. Messages are limited to 64 KiB. A product with
-so many parameters that `info` exceeds this receives no `info`; larger editor
-assets and products are open work.
+so many parameters that `info` exceeds this receives no `info`. Static data
+belongs in [editor assets](#editor-assets); larger dynamic data still has to be
+split by the product.
 
 ## Build and distribute the product
 

@@ -39,13 +39,17 @@
 
 #[cfg(feature = "clap")]
 pub mod clap;
-#[cfg(all(feature = "clap", feature = "editor", target_os = "macos"))]
+#[cfg(all(
+    feature = "clap",
+    feature = "editor",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 mod clap_gui;
 pub mod editor;
 #[cfg(all(
     any(feature = "clap", feature = "native"),
     feature = "editor",
-    target_os = "macos"
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
 ))]
 mod editor_host;
 pub mod export;
@@ -59,9 +63,10 @@ pub use export::{Edit, EditQueue, FnHooks, ParameterCache, PluginExport};
 pub use identity::{Identities, IdentityOverrides};
 pub use policy::{AutomationPolicy, BypassPolicy, PolicyProcessor};
 pub use product::{
-    Category, Editor, MAXIMUM_EDITOR_HTML_BYTES, MAXIMUM_KEY_BYTES, MAXIMUM_PARAMETERS, NotePorts,
-    Parameter, ParameterRole, Precision, Product, ProductError, ResolvedProduct, StateFormat,
-    derive_parameter_id,
+    Category, Editor, EditorAsset, MAXIMUM_EDITOR_ASSET_BYTES, MAXIMUM_EDITOR_ASSETS,
+    MAXIMUM_EDITOR_ASSETS_TOTAL_BYTES, MAXIMUM_EDITOR_HTML_BYTES, MAXIMUM_KEY_BYTES,
+    MAXIMUM_PARAMETERS, NotePorts, Parameter, ParameterRole, Precision, Product, ProductError,
+    ResolvedProduct, StateFormat, derive_parameter_id,
 };
 
 #[cfg(feature = "native")]

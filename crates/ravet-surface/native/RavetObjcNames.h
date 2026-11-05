@@ -11,6 +11,7 @@
 #define RavetWebBridge RAVET_OBJC_CLASS(RavetWebBridge)
 #define RavetEditorWebView RAVET_OBJC_CLASS(RavetEditorWebView)
 #define RavetWebContainer RAVET_OBJC_CLASS(RavetWebContainer)
+#define RavetAssetHandler RAVET_OBJC_CLASS(RavetAssetHandler)
 #define RavetAccessibilityElement RAVET_OBJC_CLASS(RavetAccessibilityElement)
 #define RavetAccessibilityButton RAVET_OBJC_CLASS(RavetAccessibilityButton)
 #define RavetAccessibilitySlider RAVET_OBJC_CLASS(RavetAccessibilitySlider)

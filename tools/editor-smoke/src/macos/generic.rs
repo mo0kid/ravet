@@ -99,7 +99,9 @@ pub fn run(path: PathBuf, screenshot: Option<PathBuf>) -> Result<(), Box<dyn std
         parent.wait_for(
             "window.ravetPlugin?.info?.product?.name==='RAVET Gain (generic)'&&\
              ravetPlugin.info.parameters.length===2&&ravetPlugin.value('gain')===1&&\
-             document.getElementById('status').textContent==='Ready'",
+             document.getElementById('status').textContent==='Ready'&&\
+             location.href==='ravet://editor/index.html'&&\
+             getComputedStyle(document.documentElement).getPropertyValue('--ravet-asset').trim()==='loaded'",
         );
 
         // A complete edit: cached at once, then begin/value/end to the host.

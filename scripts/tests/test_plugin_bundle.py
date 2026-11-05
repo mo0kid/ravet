@@ -280,6 +280,20 @@ class BundleTests(unittest.TestCase):
             self.assertIn(expected, au.call_args.args[1].cmake_options)
             self.assertIn("-DRAVET_LV2_LILV=OFF", lv2.call_args.kwargs["cmake_options"])
 
+    def test_webview2_sdk_notices_are_copied(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sdk = root / "sdk"
+            sdk.mkdir()
+            (sdk / "LICENSE.txt").write_text("BSD")
+            (sdk / "NOTICE.txt").write_text("notice")
+            copied = bundle.webview2_notices(root / "notices", sdk)
+            self.assertEqual([p.name for p in copied], ["WEBVIEW2-SDK-LICENSE.txt", "WEBVIEW2-SDK-NOTICE.txt"])
+            self.assertEqual((root / "notices/WEBVIEW2-SDK-LICENSE.txt").read_text(), "BSD")
+            with self.assertRaises(ValueError):
+                bundle.webview2_notices(root / "other", root / "missing")
+            self.assertIn("webview2", sdks.ENVIRON)
+
     def test_clap_metadata_and_cross_platform_replacement(self):
         import plistlib
         with tempfile.TemporaryDirectory() as temporary:

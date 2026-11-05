@@ -5,7 +5,9 @@ import sys
 import tomllib
 
 ENVIRON = {"vst3": "RAVET_VST3_SDK", "audio_unit": "RAVET_AUDIO_UNIT_SDK",
-           "aax": "RAVET_AAX_SDK", "lv2": "RAVET_LV2_SDK"}
+           "aax": "RAVET_AAX_SDK", "lv2": "RAVET_LV2_SDK",
+           # Windows web editors (ravet-webview): the extracted WebView2 NuGet package.
+           "webview2": "RAVET_WEBVIEW2_SDK"}
 
 
 def user_settings(environment=None, platform=None):
