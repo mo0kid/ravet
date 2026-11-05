@@ -19,7 +19,9 @@ be an Apple source checkout with `include/AudioUnitSDK` and `src/AudioUnitSDK`
 (1.4.0 was exercised), rather than JUCE's flattened SDK snapshot. Nothing is
 vendored or installed automatically. CMake, Xcode's command-line tools and
 Python 3.11 or later are required. The default build architecture is the current
-machine's architecture; recorded execution is macOS arm64 only.
+machine's architecture; recorded execution is macOS arm64 only. The
+[support matrix](support-matrix.md) separates the component/validator receipts
+from the manual Delay run in Logic Pro (version not recorded).
 
 For a separate consumer, pass `--manifest-path /path/to/product/Cargo.toml`.
 Its `cdylib` must use `export_plugin!` with `ravet-plugin` feature `native`

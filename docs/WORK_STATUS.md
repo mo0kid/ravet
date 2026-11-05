@@ -6,6 +6,84 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="release-010-docs-ci"></a>
+
+## 0.1.0 release documentation, checklist audit and hosted CI — 5 November 2026
+
+Branch `release/docs-ci`, based on `release/0.1.0` at `628af5d`. Added the root
+[unreleased changelog](../CHANGELOG.md), [draft release notes](releases/0.1.0-notes.md)
+and an [evidence-only support matrix](support-matrix.md). The matrix is
+hand-maintained because receipts qualify manual observations, missing host
+versions and partial checks; feature status alone cannot generate those claims.
+It links stable anchors added to the earlier receipts without rewriting their
+historical observations. Host runs and validators remain separate. Windows AAX
+stays provisional by the recorded owner decision; generic Windows/Linux editors
+and Pro Tools keyboard typing remain unsupported.
+
+Audited every open item in release-plan sections 1–4 and 6. Newly checked:
+section 2 stable/explicit parameter IDs, automation policies, frozen/direct
+bypass, main-thread changes reaching saved state, and state-import/identity
+hooks, with source/test/receipt links; section 6 changelog and support matrix.
+Every remaining item has a short gap note. The full MIDI criterion stays open
+(CLAP note output absent; AAX SDK 2.8 has no native tail property). The denormal
+criterion stays open: Rust scope and default export guards exist, but no
+separate C scoped-guard entry point is exposed. Assigned standalone, editor/FIR,
+SDK-discovery and robustness/notice work was not marked complete. The combined
+release-notes/version/tag item stays open. No workspace version or tag changed.
+Corrected stale current-guide/catalogue claims of no DAW evidence and the
+blanket strict-sample-check claim: Pro Tools has amplitude/normalized-precision
+qualifications; Logic bounces contain the metronome.
+
+The new [portable release workflow](../.github/workflows/portable-release.yml)
+uses GitHub-hosted `macos-latest`/`windows-latest` on every `main` push, PRs and
+manual dispatch. Read-only contents permission, no persisted checkout
+credentials, no secrets and no self-hosted runners; maintainer approval for
+outside PR workflow runs remains required in repository settings. It builds/
+tests the explicit portable default-feature package list, optional data crypto
+and the native DSP processor guard, all `ravet-plugin` features and Delay,
+bundles release Delay CLAP and validates it. External VST3/AUv2/AAX SDK jobs
+and LV2 are outside this workflow. Existing broader runtime jobs are unchanged.
+
+The [download helper](../scripts/fetch-clap-validator.py) pins clap-validator
+0.4.1 (`152b982`) universal macOS/Windows ZIP URLs and SHA-256 digests, verifies
+before unpacking and copies only the executable. Downloaded both official
+release assets; both hashes match GitHub's release API digests. The universal
+ZIP's nested tarball is labelled 0.3.2 upstream, but its executable reports
+0.4.1. No downloaded source or binary was added to the repository.
+
+Local validation on macOS 27.0.1 (26A434), arm64, rustc 1.99.1 and Python 3.14.7:
+
+- `python3 scripts/check-docs.py --write`, then `python3 scripts/check-docs.py`:
+  pass; catalogue regenerated from stable feature records. The checker still
+  validates local file links, not support semantics or anchors. Independently
+  checked every matrix WORK_STATUS anchor and staged all new release pages
+  with `scripts/docs/site.py`; pass.
+- `actionlint .github/workflows/portable-release.yml` (1.7.12): pass.
+- `python3 -m unittest discover -s scripts/tests -v`: 105 pass, including three
+  downloader tests (both archive layouts, corrupt checksum refusal before any
+  extraction/write, unsupported platform refusal; synthetic fixtures only).
+- `cargo test --locked -p ravet-plugin --all-features -p ravet-delay-plugin`:
+  57 unit/integration tests and one doctest pass; two illustrative doc snippets
+  remain ignored.
+- `cargo test --locked --all-targets` for the workflow's 13 portable/default
+  packages: 770 pass. `cargo test --locked -p ravet-data --all-features`: six
+  pass. `cargo test --locked -p ravet-native-dsp --all-features`: 65 pass.
+- `python3 scripts/bundle-clap.py --plugin delay --profile release`: pass in
+  this worktree; the freshly fetched macOS clap-validator 0.4.1 on that bundle
+  reports 44 run, 33 passed, 0 failed, 0 warnings, 11 skipped.
+- Verified both real pinned archives through the helper's checksum/layout
+  reader; executed only the macOS executable (`--version` and validation).
+- `git diff --check`: pass.
+
+Not run: either GitHub-hosted job, Windows binaries/native packaging, Linux
+commands, any new DAW/editor/device session, or the broader workspace lint/API
+build. Rust APIs and example code were unchanged. Local commands are not a
+hosted-CI pass: the section 5 every-main-push CI criterion remains unchecked
+until execution after merge. No push, tag, outside contribution or modification
+of either protected checkout was made.
+
+<a id="release-010-reaper-win-linux"></a>
+
 ## REAPER delay check on Windows and Linux VST3 — 5 November 2026
 
 Ran the scripted REAPER delay check
@@ -91,6 +169,8 @@ the `verchk=0` ini entry and a log line there), VST3 on macOS, AU, and any live 
 device, deadline, editor or automation check. The Windows evaluation "About
 REAPER" window appeared on screen during runs but did not block them.
 
+<a id="release-010-reaper-delay"></a>
+
 ## Scripted REAPER delay check — 5 November 2026
 
 Added an unattended REAPER check for the RAVET Delay product
@@ -153,6 +233,8 @@ unconfirmed), VST3 and AU (accepted by format name; their adapters are on other
 branches). Live playback, audio devices, deadlines, the editor and automation
 are outside this check. `python3 -m unittest tools/reaper-validation/test_delay.py
 tools/reaper-validation/test_checks.py`: 11 tests pass.
+
+<a id="release-010-lv2-adapter"></a>
 
 ## Generic LV2 adapter over the plug-in table — 5 November 2026
 
@@ -7796,6 +7878,8 @@ JavaScript self-test. A clean build of committed HEAD `e1c712c` in a temporary
 worktree fails the same way, so it predates this work. The likely cause is the
 WebKit in macOS 27.0.1; it is open.
 
+<a id="release-010-delay-example"></a>
+
 ### Tempo-synced delay plug-in example (2026-11-05)
 
 New example `examples/delay-plugin` (`ravet-delay-plugin`) replaces gain as the
@@ -7827,6 +7911,8 @@ Local macOS 27 arm64 validation:
   opened in a plug-in host.
 
 No DAW, Windows or Linux run.
+
+<a id="release-010-native-table"></a>
 
 ### Export layer: native table, automation and bypass policies (2026-11-05)
 
@@ -7892,6 +7978,8 @@ Local macOS 27 arm64 validation:
 
 No adapter or host has loaded the table yet, the editor was not opened through
 it in a host, and there is no Windows or Linux run.
+
+<a id="release-010-aax-adapter"></a>
 
 ### Generic AAX adapter (2026-11-05)
 
@@ -8004,6 +8092,8 @@ This evidence does not establish their runtime support, f64 processing, arbitrar
 speaker identities, SysEx/UMP, real-time deadlines or production signing.
 Actual Rust-product integration is recorded separately when executed.
 
+<a id="release-010-vst3-products"></a>
+
 ## 5 November 2026: Generic VST3 adapter — actual Rust Gain and Delay integration
 
 Merged `plugin/native-table` through `f4b1082` into `adapter/vst3` to validate the
@@ -8064,6 +8154,8 @@ pull requests from authors who are not the owner, members or collaborators. The
 job uses `pull_request_target` with only `pull-requests: write` and never checks
 out or runs pull-request code. It has not run yet: it takes effect once merged
 to `main`.
+
+<a id="release-010-auv2-adapter"></a>
 
 ### Generic native AUv2 product adapter (2026-11-05)
 
@@ -8159,6 +8251,8 @@ processor, DAW/device, x86_64, sandbox, production signing or callback-deadline
 support is established. The existing C table was sufficient; the coordinator
 needs no header change.
 
+<a id="release-010-adapter-integration"></a>
+
 ### Integration: all four native adapters merged (2026-11-05)
 
 `release/0.1.0` now contains the generic VST3 and AUv2 adapters as well as AAX
@@ -8177,6 +8271,8 @@ Checks on the merged branch (macOS 27 arm64):
 - AAX and LV2 delay checks as recorded in the previous integration entry.
 
 No DAW has loaded any of these bundles yet, and none has been built on Windows.
+
+<a id="release-010-platform-builds"></a>
 
 ## 5 November 2026: Plug-in exports on Linux and Windows
 
@@ -8242,6 +8338,8 @@ Windows denormal warning was not reproduced on Linux (0 of 7 runs); the
 x86-64 denormal guard has no OS-specific code, and the VM's timing noise is
 the likely cause, but this is not established.
 
+<a id="release-010-live-delay"></a>
+
 ### Ableton Live 12 VST3 delay check, and value text (2026-11-05)
 
 The owner loaded the VST3 delay (installed in `~/Library/Audio/Plug-Ins/VST3`)
@@ -8283,6 +8381,8 @@ feedback 0 %, mix 50 %, project tempo 150 BPM), 48 kHz, 24-bit: the checker
 with the fixed case, both delay renders match the REAPER harness results
 sample for sample.
 
+<a id="release-010-pro-tools-delay"></a>
+
 ### Pro Tools 26.4 AAX delay check (2026-11-05)
 
 The owner supplied a PACE wrap configuration, and the macOS arm64 delay
@@ -8309,6 +8409,8 @@ were not set exactly; echo positions and tempo sync are exact. Keyboard entry
 into the web editor does not work in Pro Tools, which keeps key input for its
 own shortcuts; mouse editing works. This is a manual single-host check.
 
+<a id="release-010-logic-delay"></a>
+
 ### Logic Pro AUv2 delay check (2026-11-05)
 
 The AUv2 delay, rebuilt with the current editor (`bundle-au.py --plugin delay
@@ -8332,6 +8434,8 @@ at the exact sample positions instead:
 Typed values worked in Logic. The owner reports that closing and reopening the
 plug-in window, and saving, closing and reopening the project, kept the editor
 working and the settings intact. This is a manual single-host check.
+
+<a id="release-010-host-integration"></a>
 
 ### Integration: Windows and Linux REAPER evidence merged (2026-11-05)
 

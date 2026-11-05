@@ -8,10 +8,14 @@ for audio plug-ins and standalone audio applications.
 Version **0.0.1** is an early source preview with provisional APIs and scoped
 validation. See the [release notes](docs/releases/0.0.1.md) for capabilities,
 checks and publication limits.
+The [0.1.0 notes](docs/releases/0.1.0-notes.md) are a draft; the
+[changelog](CHANGELOG.md) and [support matrix](docs/support-matrix.md) describe
+the unreleased work and its recorded host/platform scope.
 
 The [tempo-synced delay plug-in](docs/examples.md#tempo-synced-delay-plug-in)
 shows a complete effect: one portable processor, a product description and a web
-editor, exported as CLAP through the generic plug-in layer. The portable
+editor, exported as CLAP, VST3, AUv2, AAX and LV2 through the prototype generic
+plug-in layer. The portable
 mono/stereo gain processor remains the minimal reference, with sample-timed
 automation, linear smoothing and deterministic offline tests.
 A loadable CLAP gain prototype is now implemented and tested on macOS arm64.
@@ -38,7 +42,8 @@ cargo run -p ravet-clap-smoke --locked -- --delay "target/clap/release/RAVET Del
 This builds an ad hoc signed `RAVET Delay.clap` into Cargo's target directory
 on macOS and checks it in the development smoke host. It is not installed into a
 plug-in folder. Copy it to `~/Library/Audio/Plug-Ins/CLAP` to try it in a CLAP
-host; no DAW run has been recorded yet. Its source is in
+host. Named-host Delay runs and their limits are recorded in the
+[support matrix](docs/support-matrix.md). Its source is in
 [`examples/delay-plugin`](examples/delay-plugin/src/lib.rs).
 
 ## Run the minimal example
@@ -69,7 +74,8 @@ The bundle command requires Python 3.11+ and builds an optimized plug-in into
 Cargo's target directory. On macOS it creates an ad hoc signed `.clap` bundle.
 `--profile debug` selects a debug build. It does not install the plug-in into a
 system or user plug-in folder. The printed path reflects `CARGO_TARGET_DIR`.
-Windows/Linux packaging paths exist but have not been exercised.
+Delay packaging and host runs on Windows/Linux are recorded in the
+[support matrix](docs/support-matrix.md); generic editors remain macOS-only.
 
 The smoke host loads the built bundle and checks mono/stereo ports, gain
 parameter metadata/text, sample-timed automation, inactive/active parameter
@@ -159,11 +165,12 @@ counter replaces the allocator only in the test binary that uses it;
 preparation and assertions happen outside measured callbacks.
 
 Tested development environment: Rust/Cargo 1.99.0 on macOS 27.0.1, arm64.
-This is an observed toolchain, not a tested minimum Rust version or a platform
-support promise. CLAP is exercised in the official validator and the RAVET
-smoke host, with scoped macOS REAPER gain validation. A silent UMC1820 output
+This is an observed toolchain; the declared minimum Rust version is 1.88.
+The [support matrix](docs/support-matrix.md) separates actual Delay host runs
+from format validators on macOS arm64, Windows 11 x64 and Arch Linux x86_64.
+A silent UMC1820 output
 probe exercised standalone callbacks; audible output and deadlines remain
-unvalidated. Other operating systems lack equivalent runtime evidence.
+unvalidated by that probe. Hosted CI configuration alone supplies no runtime evidence.
 Offline tests do not establish real-time deadlines.
 
 ## Project direction

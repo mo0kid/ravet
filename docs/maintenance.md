@@ -15,6 +15,8 @@ examples, and support claims match the resulting behavior.
 | Crate boundaries and ownership | [Architecture](architecture.md) | Decision and API links |
 | Significant choices and rationale | [Decision records](decisions/README.md) | Architecture and feature references |
 | Executed validation and work packages | [WORK_STATUS.md](WORK_STATUS.md) | Links from guides |
+| Host/platform scope and validator summaries | Dated receipts in [WORK_STATUS.md](WORK_STATUS.md) | Hand-maintained [support matrix](support-matrix.md); keep dates, versions, scope and receipt links |
+| Release changes and upgrade steps | [CHANGELOG.md](../CHANGELOG.md) and [release notes](releases/0.1.0-notes.md) | [Release-plan audit](releases/0.1.0.md) |
 | Licence policy | [LICENSING.md](../LICENSING.md) and [LICENSE](../LICENSE) | README summary and distribution decision |
 
 The root README remains a short project entry point. The handoff preserves
@@ -107,6 +109,14 @@ required checks. The [live portal](documentation-site.md) builds the guides and 
 combined static artifact, with strict link validation and a local preview watcher.
 Public deployment remains unconfigured. CI configuration alone is not platform support
 evidence or an executed validation result.
+
+The [hosted portable release workflow](../.github/workflows/portable-release.yml)
+runs on every push to `main`, pull requests and manual dispatch, using only
+GitHub-hosted `macos-latest` and `windows-latest` runners. It needs no secrets
+or external format SDKs. It builds/tests portable defaults and the generic
+export layer, packages Delay CLAP and verifies a pinned clap-validator download
+before running it. See [runtime validation](runtime-validation.md) for the exact
+scope and the distinction between configured jobs and executed evidence.
 
 Verbatim upstream licence and notice files under `crates/*/third-party/` retain
 their original whitespace. `.gitattributes` exempts these files from Git

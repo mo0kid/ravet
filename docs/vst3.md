@@ -133,8 +133,10 @@ need the Visual C++ Redistributable on the machine that loads them; configure
 with `-DSMTG_USE_STATIC_CRT=ON` (and build the product with
 `-C target-feature=+crt-static`) to avoid that. The native Windows path has not
 been run; the cross-build has. Evidence (Linux x86_64 and Windows 11 x64:
-Delay and mock 47 passed, 0 failed) is in [work status](WORK_STATUS.md). No DAW
-has loaded these bundles on either platform, and editors do not open there.
+Delay and mock 47 passed, 0 failed) is in [work status](WORK_STATUS.md).
+Subsequent REAPER 7.82 Delay runs on both platforms and Live 12 on macOS are
+scoped in the [support matrix](support-matrix.md). Editors do not open on
+Windows or Linux.
 
 ## Legacy 0.0.1 gain reference
 
