@@ -145,6 +145,7 @@ pub struct ClapShared {
     hooks: FnHooks,
     /// Editor edits waiting to be delivered to the host and processor.
     edits: EditQueue,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     editor_message: fn(&serde_json::Value) -> Option<serde_json::Value>,
     /// Latency of the active processor.
     latency: AtomicU32,
@@ -162,9 +163,11 @@ impl ClapShared {
     pub fn parameters(&self) -> &ParameterCache {
         &self.parameters
     }
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn edit_queue(&self) -> &EditQueue {
         &self.edits
     }
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn handle_editor_message(
         &self,
         data: &serde_json::Value,
@@ -216,6 +219,7 @@ impl ClapShared {
 pub struct ClapMain<'a> {
     host: HostMainThreadHandle<'a>,
     shared: &'a ClapShared,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     params: Option<HostParams>,
     #[cfg(target_os = "macos")]
     gui: std::cell::RefCell<Option<crate::clap_gui::GuiState<'a>>>,
@@ -232,6 +236,7 @@ impl<'a> PluginMainThread<'a, ClapShared> for ClapMain<'a> {
 }
 
 impl<'a> ClapMain<'a> {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn shared(&self) -> &'a ClapShared {
         self.shared
     }
@@ -248,6 +253,7 @@ impl<'a> ClapMain<'a> {
         &self.gui
     }
     /// Ask the host to deliver queued editor edits.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn request_flush(host: &HostMainThreadHandle<'_>, params: Option<HostParams>) {
         match params {
             Some(params) => params.request_flush(host),
