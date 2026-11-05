@@ -90,7 +90,9 @@ def static_library(target, crate, platform):
     return target / "release" / (f"{stem}.lib" if platform == "win32" else f"lib{stem}.a")
 
 
-def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None):
+def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None,
+          product_library=None, link_libraries="", target_directory=None,
+          profile="release", validate=True, version=None):
     platform = platform or sys.platform
     if cross not in (None, "windows"):
         raise ValueError("--target accepts only windows")
@@ -99,19 +101,26 @@ def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None
     root = Path(root).resolve()
     aax = check_sdk(aax)
     runner = runner or Runner(root)
-    metadata = json.loads(runner.run(["cargo", "metadata", "--no-deps", "--locked", "--format-version", "1"], capture=True))
+    metadata = ({"target_directory": str(target_directory)} if target_directory else
+                json.loads(runner.run(["cargo", "metadata", "--no-deps", "--locked", "--format-version", "1"], capture=True)))
     target = Path(metadata["target_directory"])
-    version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    version = version or tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    config = "Release" if profile == "release" else "Debug"
     build_dir = target / "aax-plugin" / (f"windows-{selected.key}" if cross else selected.key)
     toolchain, release, cargo = [], target, ["cargo", "rustc"]
     if cross:
         toolchain = windows_cross.prepare(runner, target, platform=platform) + \
-            ["-DCMAKE_BUILD_TYPE=Release", "-DRAVET_AAX_STATIC_CRT=ON"]
+            [f"-DCMAKE_BUILD_TYPE={config}", "-DRAVET_AAX_STATIC_CRT=ON"]
         platform, release, cargo = "win32", target / windows_cross.TRIPLE, windows_cross.cargo("rustc")
+    if target_directory:
+        build_dir /= profile
     configure = ["cmake", "-S", root / "crates/ravet-plugin/aax", "-B", build_dir,
                  f"-DRAVET_AAX_SDK={aax}", f"-DRAVET_AAX_NAME={selected.name}",
                  f"-DRAVET_AAX_BUNDLE_ID={selected.identifier}", f"-DRAVET_AAX_VERSION={version}"]
-    if selected.crate:
+    if product_library:
+        configure += [f"-DRAVET_PLUGIN_LIBRARY={product_library}",
+                      f"-DRAVET_PLUGIN_LINK_LIBRARIES={link_libraries}"]
+    elif selected.crate:
         notes = runner.run([*cargo, "-p", selected.crate, "--lib", "--release", "--locked",
                             "--crate-type", "staticlib", "--", "--print", "native-static-libs"], capture_errors=True)
         library = static_library(release, selected.crate, platform)
@@ -119,11 +128,11 @@ def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None
     if cross:
         configure += toolchain
     else:
-        configure += ["-A", "x64"] if platform == "win32" else ["-DCMAKE_BUILD_TYPE=Release"]
+        configure += ["-A", "x64"] if platform == "win32" else [f"-DCMAKE_BUILD_TYPE={config}"]
     runner.run(configure)
-    runner.run(["cmake", "--build", build_dir, "--config", "Release", "--parallel", str(jobs)])
-    if not cross or windows_cross.emulator_available(toolchain):
-        runner.run(["ctest", "--test-dir", build_dir, "-C", "Release", "--output-on-failure"])
+    runner.run(["cmake", "--build", build_dir, "--config", config, "--parallel", str(jobs)])
+    if validate and (not cross or windows_cross.emulator_available(toolchain)):
+        runner.run(["ctest", "--test-dir", build_dir, "-C", config, "--output-on-failure"])
     artifact = build_dir / f"{selected.name}.aaxplugin"
     notices = artifact / "Contents" / "Resources" / "notices"
     notices.mkdir(parents=True, exist_ok=True)

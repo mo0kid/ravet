@@ -33,7 +33,7 @@ fn cli(args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         Some("--help" | "help") => {
             println!(
-                "RAVET Foundry\n\nNo arguments: graphical application (macOS; native CMake launcher on Windows/Linux).\nnew <directory> <package-name> <offline|standalone|plugin> <licence> [--framework <checkout>] [--framework-source path|tag] [--type effect|instrument] [--formats clap,vst3,au,auv3,aax,lv2]\nopen <directory-or-ravet-project.toml>\nregenerate <directory>\nbuild <directory> [--release] [--offline] [--bundle] [--format <format>]\nedit <directory> <editor-executable>\ndoctor\n--ui-test <screenshot-directory> (macOS hidden native fixture)\n\nGenerated source remains consumer-owned. Builds execute trusted consumer Cargo scripts."
+                "RAVET Foundry\n\nNo arguments: graphical application (macOS; native CMake launcher on Windows/Linux).\nnew <directory> <package-name> <offline|standalone|plugin> <licence> [--framework <checkout>] [--framework-source path|tag] [--type effect|instrument] [--formats clap,vst3,au,aax,lv2]\nopen <directory-or-ravet-project.toml>\nregenerate <directory>\nbuild <directory> [--release] [--offline] [--bundle] [--format <format>]\nedit <directory> <editor-executable>\ndoctor\n--ui-test <screenshot-directory> (macOS hidden native fixture)\n\nGenerated source remains consumer-owned. Builds execute trusted consumer Cargo scripts."
             );
             Ok(())
         }
@@ -52,7 +52,7 @@ fn cli(args: &[String]) -> Result<()> {
                 }
                 match option[0].as_str() {
                     "--framework" => project.framework_path = PathBuf::from(&option[1]),
-                    "--framework-source" => {
+                    "--framework-source" | "--ravet-source" => {
                         project.framework_source = match option[1].as_str() {
                             "path" => FrameworkSource::Path,
                             "tag" => FrameworkSource::Tag,

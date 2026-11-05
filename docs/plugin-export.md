@@ -386,3 +386,12 @@ Queued messages (`info`, product replies) go first, then a snapshot, which is
 rebuilt only when a value changes. Messages are limited to 64 KiB. A product with
 so many parameters that `info` exceeds this receives no `info`; larger editor
 assets and products are open work.
+
+## Build and distribute the product
+
+Use the [unified bundle tool](bundle-plugin.md) to build one product crate and
+assemble CLAP, VST3, native AUv2, AAX and LV2 bundles. That guide documents SDK
+settings/environment precedence, external manifests, output paths, vendor signing
+hooks and optional format validators. [Foundry](foundry.md) generates consumer-owned
+PluginExport projects and calls the same tool. Shipping, production signing and
+host validation remain product responsibilities.

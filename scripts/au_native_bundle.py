@@ -50,7 +50,9 @@ def component_plist(product):
     }
 
 
-def build(root, args):
+def build(root, args, *, runner=None, sign=True, profile="release"):
+    run = (lambda *args, capture=False: runner.run(args, capture=capture)) if runner else globals()["run"]
+    config = "Release" if profile == "release" else "Debug"
     if sys.platform != "darwin":
         raise ValueError("AUv2 builds require macOS and Xcode")
     sdk = args.audio_unit_sdk.expanduser().resolve()
@@ -74,7 +76,7 @@ def build(root, args):
         library = None
     build_dir = (args.build_dir or root / "target/au-native" / ("mock-" + args.mock if args.mock else args.plugin)).resolve()
     source = root / "adapters/auv2"
-    common = ["cmake", "-S", source, "-B", build_dir, "-DCMAKE_BUILD_TYPE=Release"]
+    common = ["cmake", "-S", source, "-B", build_dir, f"-DCMAKE_BUILD_TYPE={config}"]
     run(*common, "-DRAVET_PRODUCT_LIBRARY=")
     targets = ["ravet_au_metadata", "ravet_au_plugin_contracts"]
     if args.validate:
@@ -107,7 +109,8 @@ def build(root, args):
     notices.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / "LICENSE", notices / "RAVET-LICENSE.txt")
     shutil.copy2(sdk / "LICENSE.txt", notices / "Apple-AudioUnitSDK-LICENSE.txt")
-    run("codesign", "--force", "--sign", "-", component)
+    if sign:
+        run("codesign", "--force", "--sign", "-", component)
     if args.validate:
         run(build_dir / "ravet_au_plugin_contracts", component, *([] if args.mock else ["real"]))
         if product["plugin_id"] == "org.ravet.delay":

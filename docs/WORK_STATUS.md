@@ -6,6 +6,101 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+
+## Unified product bundler and generic Foundry — 5 November 2026
+
+Implemented decision [0286](decisions/0286-unified-product-bundling-and-foundry.md)
+on `tools/bundle-foundry`, based on `release/0.1.0` at `628af5d`. The
+[bundle command](bundle-plugin.md) compiles the selected product once (cdylib
+and staticlib together for AAX), reads its native table, calls importable format
+builders, collects selected bundles, signs and optionally validates final copies.
+SDK discovery uses explicit flags, environment, nearest project TOML and user
+TOML in that order, with no probes into other products. Vendor signing hooks are
+argument arrays; credentials/configuration stay with the vendor. The existing
+CLAP reference command shares the prebuilt packaging function and its explicit
+SDK-based companion commands remain available.
+
+Foundry now creates consumer-owned `Processor` + `PluginExport` projects for
+effect and monophonic sine roles, with no copied reference wrappers. Its Build
+calls the same command and checks SDKs before dependency resolution. DSP/editor
+source remains untouched by regeneration; historical wrapper projects require
+explicit migration. AUv3 has no generic adapter and is rejected. Local dependency
+paths remain the default; GUI/CLI share one default constant, and the starter has
+its own one-line default constant, ready for the release-time tag switch.
+Only the SDK discovery/build-integration release item was ticked; no tag or
+release-default switch was made.
+
+macOS evidence: arm64, macOS 27.0.1 (26A434), Rust/Cargo 1.99.1, Python 3.14.7,
+CMake 4.4.3, Xcode macOS 27.0 SDK. External VST3, AudioUnitSDK, AAX and Homebrew
+LV2 SDK paths were supplied through `/tmp/ravet-bundle-sdks.toml`, never source
+constants. An existing clap-validator was supplied on PATH. Ran:
+
+```sh
+python3 scripts/bundle-plugin.py --package ravet-delay-plugin \
+  --formats clap,vst3,au,aax,lv2 --settings /tmp/ravet-bundle-sdks.toml \
+  --release --validate
+```
+
+All five final bundles are under `target/plugins/release/` with Cargo package
+filenames. Final results: clap-validator 0.3.2, 44 tests, **33 passed, 0 failed,
+0 warnings, 11 skipped**; Steinberg validator **47 passed, 0 failed**; native AU
+metadata/render/editor lifetime contracts (three retained-view cycles), Delay
+8 kHz sample-2000 repeat/state/bypass/offset-16 automation contracts and
+**auval 1.10.0 succeeded** (`aufx/QFKS/TYDS`); AAX SDK version 0x20801345980,
+CTest **1/1** plus final synthetic check **PASS** (mono/stereo, eight parameters,
+state rejection/recall); LV2 CTest **4/4** (mock contracts, mock lilv, product smoke,
+product lilv), `lv2_validate` **0 errors among 84 files, 2064 restrictions**.
+AU validation used the tool's exclusive temporary component destination and
+confirmed no `ravet-validation-*` components remained afterwards. macOS output
+images/bundles used default ad hoc signing. A real fake vendor Python command
+was also exercised by unit tests, including argument boundaries, format/path
+environment, exactly-once invocation and failure propagation; no production
+signing credentials were configured or tested.
+
+External Foundry scratch workspace `/tmp/ravet-generic-foundry.iWwydq`: generated
+`foundry-generic-effect` with all five formats, generated its offline lockfile,
+and built all five with the bundle command using `--manifest-path`, shared
+`CARGO_TARGET_DIR` and the SDK settings above. Its final VST3 separately passed
+**47/0** after the filename fix below. Generated `foundry-generic-instrument`
+and built its CLAP through `ravet-foundry build <scratch>/instrument --offline
+--bundle`; the reported artifact was in its own `target/plugins/debug/`.
+`python3 scripts/check-foundry.py` and `--build` both **PASS**, including disposable
+offline, standalone hidden UI/audio and effect/instrument CLAP workflows.
+
+Optional Linux/Windows evidence: synced this source, excluding `.git` and
+`target`, into the new `~/ravet-bundle-foundry-1793853311` on `comfy-omarchy`
+(Arch Linux x86_64, cargo-xwin 0.23.1, clang 23.1.3, CMake 4.4.4, Wine 11.20).
+SDKs were supplied by `RAVET_VST3_SDK`, `RAVET_AAX_SDK`, `RAVET_LV2_SDK`.
+Native `--formats clap,vst3,lv2 --release` built all three. Native
+`--formats vst3,lv2 --release --validate` passed Steinberg **47/0**, LV2 CTest
+**4/4** and `lv2_validate` **0 errors, 84 files, 2056 restrictions**.
+`--target windows --formats clap,vst3,aax,lv2 --release` built all four with one
+Rust product invocation, including the Wine metadata reader and Turtle generator.
+Subsequent Windows VST3 validation under Wine passed **47/0**; AAX/LV2
+`--target windows --formats aax,lv2 --release --validate` passed AAX CTest **1/1**
+and the final synthetic bundle **PASS**, LV2 CTest **2/2** and Turtle validation
+**0 errors, 84 files, 2056 restrictions**. No CLAP validator was available on
+that Linux machine for native or Windows CLAP checks. The CLI accepts a
+Windows validator through `--clap-validator`; its Wine command path has unit
+coverage, but was not exercised with a Windows CLAP validator here.
+
+The optional validation caught final-bundle naming requirements on Linux VST3
+and Windows AAX. Builders now emit the final Cargo package name internally as
+well as externally, rather than renaming only the enclosing directory; regression
+tests cover the names. The reruns above passed. No Windows VM or DAW run was
+performed for this change. AAX evidence is a synthetic host, not Avid validation
+or Pro Tools; neither these checks nor prior history implies production signing,
+editor, platform or real-time deadline support.
+
+Repository verification: Python script suite **115 passed**; Foundry integration
+suite **13 passed**; `cargo fmt --all -- --check`,
+`cargo clippy -p ravet-foundry --all-targets --locked --jobs 2 -- -D warnings`,
+`cargo test --workspace --doc --locked --jobs 2`,
+`RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --jobs 2`,
+and documentation generation/check **passed**. Only needed build packages plus
+the mandated workspace Rustdoc checks were built. No push, release tag, main
+checkout or protected release checkout write was performed.
+
 ## REAPER delay check on Windows and Linux VST3 — 5 November 2026
 
 Ran the scripted REAPER delay check

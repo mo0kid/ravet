@@ -70,28 +70,35 @@ fn default_formats() -> Vec<Format> {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sdks {
-    /// External Steinberg VST3 SDK, also needed for AU/AAX wrapper builds.
+    /// External Steinberg VST3 SDK for the generic VST3 adapter.
     pub vst3: Option<PathBuf>,
     /// External Apple AudioUnitSDK source for AUv2.
     pub audio_unit: Option<PathBuf>,
     /// External Avid AAX SDK source; no SDK redistribution.
     pub aax: Option<PathBuf>,
-    /// External LV2 source SDK with include/lv2 and COPYING.
+    /// External LV2 SDK with include/lv2 (or flat lv2) headers and COPYING.
     pub lv2: Option<PathBuf>,
 }
 
 /// Where generated Cargo manifests find RAVET. Native CMake builds and copied
 /// templates always use the local checkout in `framework_path`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FrameworkSource {
     /// Absolute paths into `framework_path`; works offline and before a release.
-    #[default]
     Path,
     /// The public Git repository at the release tag matching the checkout's
     /// workspace version, for example `v0.1.0`. The tag must exist and be
     /// fetchable.
     Tag,
+}
+
+/// Default for both the CLI and GUI; change this one line to `Tag` at release.
+pub const DEFAULT_FRAMEWORK_SOURCE: FrameworkSource = FrameworkSource::Path;
+impl Default for FrameworkSource {
+    fn default() -> Self {
+        DEFAULT_FRAMEWORK_SOURCE
+    }
 }
 
 /// Version-one human-readable project settings. Unknown fields are rejected.
@@ -121,12 +128,12 @@ pub struct Project {
     /// Cargo dependency source for RAVET packages; defaults to `path`.
     #[serde(default)]
     pub framework_source: FrameworkSource,
-    /// Optional macOS effect editor for CLAP/VST3/AU; other editors are format-owned.
+    /// Optional product web editor; the generic editor is currently macOS-only.
     pub native_editor: bool,
-    /// Effect or instrument reference. Immutable after creation.
+    /// Initial consumer DSP role. Immutable after creation.
     #[serde(default)]
     pub plugin_type: PluginType,
-    /// Selected exports; all adapters are copied once so this can be changed safely.
+    /// Selected generic exports; adapters are provided by the framework checkout.
     #[serde(default = "default_formats")]
     pub formats: Vec<Format>,
     /// Consumer SDK locations. Missing SDKs reject the requested build before Cargo.
@@ -156,7 +163,7 @@ impl Project {
             plugin_id: format!("com.example.{}", name.replace('_', "-")),
             kind,
             framework_path: framework_root(),
-            framework_source: FrameworkSource::Path,
+            framework_source: FrameworkSource::default(),
             native_editor: true,
             plugin_type: PluginType::Effect,
             formats: default_formats(),
@@ -173,15 +180,8 @@ impl Project {
             if self.formats.is_empty() || unique.len() != self.formats.len() {
                 return Err("Select at least one distinct plug-in format".into());
             }
-            if self.plugin_type == PluginType::Instrument
-                && self
-                    .formats
-                    .iter()
-                    .any(|f| matches!(f, Format::Aax | Format::Auv3))
-            {
-                return Err(
-                    "Instrument starter adapters are available for CLAP, VST3, AU and LV2".into(),
-                );
+            if self.formats.contains(&Format::Auv3) {
+                return Err("Generic Foundry products support CLAP, VST3, AUv2, AAX and LV2; AUv3 is not available".into());
             }
         }
         let mut chars = self.name.bytes();
@@ -386,6 +386,9 @@ pub fn regenerate(root: &Path, mut project: Project) -> Result<()> {
         || project.plugin_type != previous.project.plugin_type
     {
         return Err("Package name and template cannot change after creation".into());
+    }
+    if project.kind == Kind::Plugin && !root.join(".foundry/product.rs").is_file() {
+        return Err("This project uses the historical Foundry wrappers; create a generic project and port its DSP/editor explicitly".into());
     }
     let next = templates::metadata(&project)?;
     // Iterate only trusted engine paths, never paths supplied by metadata.
