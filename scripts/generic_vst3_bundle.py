@@ -5,14 +5,21 @@ import shutil
 import sys
 from pathlib import Path
 from vst3_bundle import CommandRunner
+import windows_cross
 
 
 def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
-                  manifest_path=None, package=None, runner=None, platform=None):
-    """Build only the selected product; package locally and run SDK validation."""
+                  manifest_path=None, package=None, runner=None, platform=None, cross=None):
+    """Build only the selected product; package locally and run SDK validation.
+
+    cross="windows" cross-compiles for x86_64 Windows (see windows_cross); the
+    SDK validator and moduleinfotool are then built for Windows but not run.
+    """
     root, sdk = Path(root).resolve(), Path(sdk).resolve()
     platform = platform or sys.platform
     runner = runner or CommandRunner(root)
+    if cross not in (None, "windows"):
+        raise ValueError("--target accepts only windows")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", plugin):
         raise ValueError("plugin must be a simple product name")
     if profile not in ("debug", "release") or platform not in ("darwin", "linux", "win32"):
@@ -28,6 +35,10 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
     config = "Release" if profile == "release" else "Debug"
     name = "ravet_mock_vst3" if mock else f"ravet_{plugin}_vst3"
     build = target / "vst3/generic" / ("mock" if mock else plugin) / profile
+    toolchain = []
+    if cross:
+        toolchain = windows_cross.prepare(runner, target, platform=platform) + ["-DSMTG_USE_STATIC_CRT=ON"]
+        platform, build = "win32", build.with_name(f"windows-{profile}")
     product_library = None
     if not mock:
         package = package or f"ravet-{plugin}-plugin"
@@ -37,7 +48,7 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
         libraries = [t for t in matches[0]["targets"] if "cdylib" in t["crate_types"]]
         if len(libraries) != 1:
             raise ValueError("product must declare exactly one cdylib target")
-        cargo = ["cargo", "build", "--locked", "-p", package]
+        cargo = (windows_cross.cargo("build") if cross else ["cargo", "build"]) + ["--locked", "-p", package]
         if manifest_path:
             cargo += ["--manifest-path", Path(manifest_path).resolve()]
         if profile == "release":
@@ -45,14 +56,15 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
         runner.run(cargo)
         libname = libraries[0]["name"].replace("-", "_")
         filename = libname + ".dll" if platform == "win32" else "lib" + libname + (".dylib" if platform == "darwin" else ".so")
-        product_library = target / profile / filename
+        product_library = (windows_cross.output_directory(target, profile) if cross else target / profile) / filename
     runner.run(["cmake", "-S", root / "crates/ravet-plugin/adapters/vst3", "-B", build,
                 f"-DCMAKE_BUILD_TYPE={config}", f"-DRAVET_VST3_SDK={sdk}",
                 f"-DRAVET_VST3_NAME={name}", f"-DRAVET_VST3_MOCK={'ON' if mock else 'OFF'}",
-                f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}"])
-    targets = [name, "validator"] + (["ravet_generic_vst3_contracts"] if mock else [])
+                f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}", *toolchain])
+    targets = [name, "validator"] + (["moduleinfotool"] if cross else []) + \
+        (["ravet_generic_vst3_contracts"] if mock else [])
     runner.run(["cmake", "--build", build, "--config", config, "--target", *targets, "--parallel", "2"])
-    if mock:
+    if mock and (not cross or windows_cross.emulator_available(toolchain)):
         runner.run(["ctest", "--test-dir", build, "-C", config, "--output-on-failure", "-R", "^ravet_generic_vst3_contracts$"])
     artifacts = sorted(p for p in build.rglob(name + ".vst3") if p.is_dir())
     if not artifacts:
@@ -67,6 +79,10 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
             if product_library:
                 runner.run(["codesign", "--force", "--sign", "-", artifact / "Contents/MacOS" / product_library.name])
             runner.run(["codesign", "--force", "--sign", "-", artifact])
+        if cross:
+            # Single-configuration cross builds put the SDK tools in bin/.
+            print(f"cross-built; run on Windows: {build / 'bin/validator.exe'} <bundle>", file=sys.stderr)
+            continue
         validator = build / "bin" / config / ("validator.exe" if platform == "win32" else "validator")
         runner.run([validator, artifact])
     return artifacts

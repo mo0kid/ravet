@@ -8092,3 +8092,67 @@ Checks on the merged branch (macOS 27 arm64):
 - AAX and LV2 delay checks as recorded in the previous integration entry.
 
 No DAW has loaded any of these bundles yet, and none has been built on Windows.
+
+## 5 November 2026: Plug-in exports on Linux and Windows
+
+Branch `platform/linux-windows` from `release/0.1.0` (`db4a493`). The RAVET
+Delay (`examples/delay-plugin`) was built as CLAP, VST3 and LV2 natively on
+Linux x86_64, and as CLAP, VST3, LV2 and AAX for Windows x64 by cross-compiling
+on that Linux machine; each format's checks ran on its platform
+([decision 0285](decisions/0285-linux-windows-plugin-builds.md)).
+
+Machines and tools: Linux is Arch Linux x86_64 (kernel 7.2.11), rustc 1.99.1,
+GCC 16.2.1, clang/clang-cl 23.1.3, CMake 4.4.4 (Makefiles), cargo-xwin 0.23.1
+(Microsoft CRT/SDK from its download), Wine 11.20, sord 0.16.22
+(`lv2_validate`), lilv 0.28.0. Windows is a Windows 11 x64 VM (NT 10.0.26100)
+with no compilers and no Visual C++ Redistributable. External SDKs: Steinberg
+VST3 3.8.1, LV2 1.18.10, AAX SDK 2.8 (`AAX_SDK_VERSION 0x0208`). clap-validator
+0.4.1 (commit `152b982`): the official Linux release binary; for Windows the
+same commit built from source with `cargo xwin` and a static CRT, because the
+official Windows binary needs `VCRUNTIME140.dll`.
+
+| Format | Platform | Build | Checks |
+|---|---|---|---|
+| CLAP | Linux x86_64 | `bundle-clap.py --plugin delay` | clap-validator: 44 run, 33 passed, 0 failed, 0 warnings, 11 skipped (6 further runs identical) |
+| CLAP | Windows 11 x64 | `bundle-clap.py --plugin delay --target windows` | clap-validator on Windows: 44 run, 32 passed, 0 failed, 12 skipped; `process-audio-denormals` warned (2.1–2.8× slower with denormal input) in 3 of 7 runs and passed in 4. The extra skip is `scan-rtld-now` (Linux only). |
+| VST3 | Linux x86_64 | `bundle-vst3.py --plugin delay --sdk …` | Steinberg validator: 47 passed, 0 failed (Delay and `--mock`); mock contracts CTest 1/1 |
+| VST3 | Windows 11 x64 | `bundle-vst3.py --plugin delay --sdk … --target windows` | Cross-built `validator.exe` on Windows: 47 passed, 0 failed (Delay and mock); `moduleinfotool.exe -create` exit 0; mock contracts CTest 1/1 under Wine |
+| LV2 | Linux x86_64 | `bundle-lv2.py --plugin delay --sdk …` | CTest 4/4: mock contracts 100 checks, mock lilv 12, delay smoke 32, delay lilv 8, 0 failures; `lv2_validate` 0 errors among 84 files |
+| LV2 | Windows 11 x64 | `bundle-lv2.py --plugin delay --sdk … --target windows` | `ravet_lv2_contracts.exe` on Windows: mock 100 checks, delay smoke 32 checks, 0 failures; CTest 2/2 under Wine; `lv2_validate` of the Windows Turtle 0 errors |
+| AAX | Windows 11 x64 | `bundle-aax.py --plugin delay --aax-sdk … --target windows` | `ravet_aax_check.exe` on Windows: PASS (2×2 and 1×1 effects, 8 parameters, 8 blocks + empty block, state chunk round trip and corrupt chunk rejected); mock `ravet_aax_adapter_tests.exe` PASS; CTest under Wine 1/1 (delay), 2/2 (mock). Not Avid's validator; unsigned. |
+
+The Windows bundles and tools import only system DLLs (`KERNEL32`, `USER32`,
+`ole32`, `SHELL32`, `ntdll`, `api-ms-win-core-synch`, `bcryptprimitives`), as
+`llvm-objdump -p` shows. The Windows Delay Turtle equals the Linux Turtle
+apart from the binary name and CRLF line endings.
+
+Fixes found by these builds:
+
+- VST3: the SDK's hosting examples were turned on, pulling gtkmm into Linux
+  builds; they are now off (the validator is built regardless). The adapter now
+  pins the MSVC runtime to the SDK's (clang-cl defaulted to `/MT` against the
+  SDK's `/MD`), and lists `CMAKE_CONFIGURATION_TYPES` so single-configuration
+  generators put the Windows module in `Contents/x86_64-win`.
+- LV2: the Turtle generator is called by target name so a cross-compiling
+  emulator applies; the build machine's lilv is not used when cross-compiling.
+- AAX: rustc's `/defaultlib:libcmt` note is passed as `-defaultlib:libcmt`;
+  CMake on Linux read the slash form as a file path.
+- AAX tests: `FakeHost.hpp` gave the adapter 1,024-frame host buffers while the
+  test runs a 2,048-frame block that the adapter (correctly) silences in full.
+  On Windows this was a heap overrun (`0xC0000374`; Wine's heap check located
+  it); macOS allocation slack had hidden it. The buffers now hold 2,048 frames
+  and larger test blocks are refused.
+
+New: `--target windows` on the four bundle scripts, `scripts/windows_cross.py`
+and `scripts/cmake/windows-xwin.cmake`, with 7 new helper tests and cross-build
+tests in the VST3, LV2 and AAX script suites (all script suites pass). After
+the changes, macOS arm64 still passes: VST3 Delay 47/0, LV2 Delay CTest 4/4 and
+`lv2_validate` 0 errors, AAX mock CTest 2/2.
+
+Limits: no DAW (REAPER or other), Pro Tools, Avid validator or lv2lint run on
+either platform; editors do not open on Linux or Windows; native MSVC Windows
+builds and the AAX/VST3 native Windows commands remain unrun; the AAX GUI is
+still registered on Windows and would show an empty view. The intermittent
+Windows denormal warning was not reproduced on Linux (0 of 7 runs); the
+x86-64 denormal guard has no OS-specific code, and the VM's timing noise is
+the likely cause, but this is not established.

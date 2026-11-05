@@ -22,6 +22,8 @@ def main():
     parser.add_argument("--name", help="bundle name for --package (default: the crate name)")
     parser.add_argument("--aax-sdk", type=Path, required=True, help="external Avid AAX SDK root")
     parser.add_argument("--vst3-sdk", type=Path, help="external VST3 SDK (0.0.1 references only)")
+    parser.add_argument("--target", choices=["windows"],
+                        help="generic products: cross-compile the Windows .aaxplugin (cargo-xwin, clang-cl)")
     parser.add_argument("--internal-precision", type=int, choices=(32, 64), default=32,
                         help="0.0.1 references: native DSP precision behind float32 AAX audio")
     parser.add_argument("--editor", action="store_true", help="0.0.1 Gain reference: macOS native editor")
@@ -33,12 +35,14 @@ def main():
     if args.package or (args.plugin in aax_plugin.PRODUCTS):
         try:
             selected = aax_plugin.product(args.plugin, package=args.package, name=args.name)
-            built = aax_plugin.build(root, args.aax_sdk, selected)
+            built = aax_plugin.build(root, args.aax_sdk, selected, cross=args.target)
         except ValueError as error:
             parser.error(str(error))
         print(built.artifact)
         return
 
+    if args.target:
+        parser.error("--target windows applies to generic products only")
     if not args.vst3_sdk:
         parser.error("the 0.0.1 AAX references need --vst3-sdk")
     try:

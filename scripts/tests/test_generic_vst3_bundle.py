@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from generic_vst3_bundle import build_generic
@@ -13,6 +14,7 @@ from generic_vst3_bundle import build_generic
 class Runner:
     def __init__(self, target, *, fail_validator=False):
         self.target = target
+        self.environment = {"PATH": "/usr/bin"}
         self.commands = []
         self.fail_validator = fail_validator
 
@@ -85,6 +87,33 @@ class GenericBundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_bundle(package="missing", platform="linux")
         self.assertFalse(any(c[:2] == ["cargo", "build"] for c in self.runner.commands))
+
+    def test_windows_cross_build(self):
+        with mock.patch("shutil.which", return_value=None):
+            artifacts = self.run_bundle(platform="linux", cross="windows")
+        cargo = next(c for c in self.runner.commands if c[:3] == ["cargo", "xwin", "build"])
+        self.assertIn("x86_64-pc-windows-msvc", cargo)
+        configure = next(c for c in self.runner.commands if c[:2] == ["cmake", "-S"])
+        library = self.root / "target/x86_64-pc-windows-msvc/release/ravet_delay_plugin.dll"
+        self.assertIn(f"-DRAVET_PRODUCT_LIBRARY={library}", configure)
+        self.assertIn("-DSMTG_USE_STATIC_CRT=ON", configure)
+        self.assertTrue(any(c.startswith("-DCMAKE_TOOLCHAIN_FILE=") for c in configure))
+        self.assertEqual(Path(configure[configure.index("-B") + 1]).name, "windows-release")
+        build = next(c for c in self.runner.commands if c[:2] == ["cmake", "--build"])
+        self.assertIn("moduleinfotool", build)
+        self.assertFalse(any(Path(c[0]).name.startswith("validator") for c in self.runner.commands),
+                         "the Windows validator runs on Windows")
+        self.assertFalse(any(c[0] == "codesign" for c in self.runner.commands))
+        self.assertEqual(len(artifacts), 1)
+
+    def test_windows_cross_mock_contracts_need_an_emulator(self):
+        with mock.patch("shutil.which", return_value=None):
+            self.run_bundle(mock=True, platform="linux", cross="windows")
+        self.assertFalse(any(c[0] == "ctest" for c in self.runner.commands))
+        self.runner = Runner(self.root / "target2")
+        with mock.patch("shutil.which", return_value="/usr/bin/wine"):
+            self.run_bundle(mock=True, platform="linux", cross="windows")
+        self.assertTrue(any(c[0] == "ctest" for c in self.runner.commands))
 
     def test_validator_failure_propagates(self):
         self.runner.fail_validator = True
