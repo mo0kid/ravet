@@ -25,7 +25,10 @@
  *    library's lifetime, unless stated otherwise.
  *
  * Return codes: 0 success, 1 rejected (invalid argument or state), 2 the
- * product panicked; the instance is then faulted until the next prepare.
+ * product panicked; the instance is then faulted until the next prepare:
+ * process, reset and timing return 2 (process silences its outputs) until a
+ * successful prepare, which recreates the processor. Parameter, state and
+ * editor functions keep working.
  */
 #include <stddef.h>
 #include <stdint.h>
@@ -117,7 +120,9 @@ typedef struct RavetPluginEntryV1 {
     int32_t (*parameter)(uint32_t index, RavetPluginParameterV1 *out);
     /* Index for a host ID, or -1. */
     int32_t (*parameter_index)(uint32_t id);
-    /* Text uses the product's formatting and unit; capacity includes the NUL. */
+    /* Text uses the product's formatting and unit; capacity includes the NUL.
+       Text that does not fit is truncated at a character boundary, still
+       NUL-terminated, and value_to_text returns 1. */
     int32_t (*value_to_text)(uint32_t index, double physical, char *text, uint32_t capacity);
     int32_t (*text_to_value)(uint32_t index, const char *text, double *physical);
     /* 0..1 mapping honouring scale and steps; results are clamped and snapped. */
@@ -133,7 +138,7 @@ typedef struct RavetPluginEntryV1 {
        inside process); it updates the cache at once, so state saved afterwards
        includes it, and reaches the processor at the start of the next block.
        Values are clamped and snapped; set_value returns 1 for an unknown index
-       or a nonfinite value. */
+       or a nonfinite value, and get_value returns NaN for an unknown index. */
     double (*get_value)(const void *instance, uint32_t index);
     int32_t (*set_value)(void *instance, uint32_t index, double physical);
 
@@ -149,11 +154,15 @@ typedef struct RavetPluginEntryV1 {
     /* ---- Processing ----
        prepare (MAIN): config as RavetNativeProcessorConfigV1, main bus only for
        now (bus_count 1). The layout must be one of product->layouts.
-       process (AUDIO): bus 0 is the main bus. Input events carry host
-       automation (RAVET_NATIVE_PARAMETER_VALUE with the parameter's host ID and
-       a physical value; the adapter converts normalized host values first) and
-       notes/MIDI. The table adds cached host-side changes and editor edits at
-       offset 0, applies the product's automation and bypass policies, and
+       process (AUDIO): bus 0 is the main bus; samples are 32-bit float. Input
+       events carry host automation (RAVET_NATIVE_PARAMETER_VALUE with the
+       parameter's host ID and a physical value; the adapter converts normalized
+       host values first; the value need not be exactly representable as float)
+       and notes/MIDI. Parameter values are clamped, snapped and written to the
+       cache; unknown IDs and nonfinite values are dropped. The table adds cached
+       host-side changes and editor edits at offset 0 (at most 1024 events in
+       total reach the processor; changes that do not fit wait for the next
+       block), applies the product's automation and bypass policies, and
        flushes denormals. Output events: notes/MIDI the product generates.
        process returns the RavetNativeProcessorEntryV1 codes and fills result. */
     int32_t (*prepare)(void *instance, const RavetNativeProcessorConfigV1 *config);
@@ -180,12 +189,16 @@ typedef struct RavetPluginEntryV1 {
        editor_open attaches the product's web editor to a host native view of
        the given kind and size in logical pixels. RAVET injects the editor
        client and runs the editor protocol. One editor per instance. A view
-       kind the platform cannot host returns 1. */
+       kind the platform cannot host returns 1; this release hosts
+       RAVET_PLUGIN_VIEW_COCOA on macOS only. Resizable editors accept one to
+       four times the product's editor size (editor_open clamps to that range;
+       editor_resize returns 1 outside it); other editors keep their size. */
     int32_t (*editor_open)(void *instance, uint32_t view_kind, void *parent, uint32_t width, uint32_t height);
     int32_t (*editor_resize)(void *instance, uint32_t width, uint32_t height);
     void (*editor_close)(void *instance);
     /* Bring the editor up to date with the cache: call periodically on MAIN
-       (e.g. from a 30 Hz timer) while the editor is open. */
+       (e.g. from a 30 Hz timer) while the editor is open. (The macOS web view
+       currently polls the cache itself, so this does nothing there.) */
     void (*editor_idle)(void *instance);
 } RavetPluginEntryV1;
 

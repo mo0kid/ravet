@@ -77,6 +77,7 @@ impl<'a> EditorHost<'a> {
         unsafe { self.view.attach(parent) };
         self.attached = true;
     }
+    #[cfg_attr(not(feature = "clap"), allow(dead_code))]
     pub(crate) fn is_attached(&self) -> bool {
         self.attached
     }
@@ -110,7 +111,7 @@ struct Bridge<T: EditorTarget> {
 }
 
 /// The editor-protocol side of an editor without a web view, for tests.
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 pub(crate) fn bridge(target: impl EditorTarget) -> impl Callbacks {
     Bridge::new(target)
 }
