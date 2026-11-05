@@ -281,26 +281,94 @@ python3 tools/reaper-validation/delay.py --format lv2 \
     --bundle target/lv2/ravet_delay.lv2 --reaper /usr/bin/reaper
 ```
 
-```bat
-rem Windows (not yet run)
-py -3 scripts\bundle-clap.py --plugin delay --profile release
-py -3 tools\reaper-validation\delay.py --format clap --bundle "target\clap\release\RAVET Delay.clap" --reaper C:\REAPER\reaper.exe
-py -3 scripts\bundle-lv2.py --plugin delay --sdk C:\path\to\lv2-1.18.10
-py -3 tools\reaper-validation\delay.py --format lv2 --bundle target\lv2\ravet_delay.lv2 --reaper C:\REAPER\reaper.exe
-```
-
-The Windows plug-in path ini keys are not yet confirmed on a Windows host. The
-driver writes several candidates (`clap_path_win64`, `clap_path_windows-x86_64`,
-`clap_path_win-x86_64`; `lv2path_win64`, `lv2path_win`); if the log shows
-`Installed RAVET Delay candidates: none`, add the right key with
-`--ini KEY=VALUE`, or pass `--env-path` to also export `CLAP_PATH`/`LV2_PATH`.
-`--env-path` is off by default because the variable reaches any REAPER process
-started from that environment.
+If the log shows `Installed RAVET Delay candidates: none`, add the right
+plug-in path key with `--ini KEY=VALUE`, or pass `--env-path` to also export
+`CLAP_PATH`/`LV2_PATH`. `--env-path` is off by default because the variable
+reaches any REAPER process started from that environment.
 
 VST3 and AUv2 runs use the same driver: `--format vst3 --bundle <path>.vst3`
 (the startup VST scan then runs, including the system VST3 folders), and
 `--format au` for an AU component already installed in a system Components
-folder, since REAPER scans AUs only there. Neither has been run yet.
+folder, since REAPER scans AUs only there. VST3 has run on Linux and Windows;
+AU has not been run.
+
+```sh
+# Linux VST3
+python3 scripts/bundle-vst3.py --plugin delay --sdk /path/to/vst3sdk --profile release
+python3 tools/reaper-validation/delay.py --format vst3 \
+    --bundle target/vst3/generic/delay/release/VST3/Release/ravet_delay_vst3.vst3 --reaper /usr/bin/reaper
+```
+
+The ReaScript also logs REAPER's audio system (`Audio system JACK`,
+`Audio system WaveOut`); the checks need one that is running.
+
+### Windows
+
+On Windows the driver writes `clap_path_win64`, `lv2path_win64` and
+`vstpath64` (the keys REAPER 7.82 x64 names in `reaper.exe` and kept in the
+disposable ini after a run) and `[audioconfig] mode=2` (WaveOut). Without an
+audio setting, a fresh configuration stops at "You have not yet selected an
+audio device". With no audio system running (`mode=5` on the tested VM), CLAP
+parameter edits never reached the plug-in, because REAPER flushes them from
+the audio thread. `verchk=0` (written on every platform) turns off the online
+version check, whose "New Version Notification" dialog stopped three Windows
+runs mid-script.
+
+Windows bundles are cross-built on Linux with `--target windows`
+([decision 0285](decisions/0285-linux-windows-plugin-builds.md)):
+
+```sh
+python3 scripts/bundle-clap.py --plugin delay --profile release --target windows
+python3 scripts/bundle-vst3.py --plugin delay --sdk /path/to/vst3sdk --profile release --target windows
+python3 scripts/bundle-lv2.py --plugin delay --sdk /path/to/lv2-1.18.10 --target windows
+# → target/clap/windows/release/RAVET Delay.clap
+#   target/vst3/generic/delay/windows-release/VST3/Release/ravet_delay_vst3.vst3
+#   target/lv2/windows/ravet_delay.lv2
+```
+
+With Python on the Windows machine, the driver command is the same as
+elsewhere (`py -3 tools\reaper-validation\delay.py --format clap --bundle
+"…\RAVET Delay.clap" --reaper C:\REAPER\reaper.exe`). That form has not been
+run: the tested Windows 11 VM has no Python. For such a machine, prepare on
+another computer, run the generated PowerShell script on Windows, and check
+on the first computer:
+
+```sh
+# 1. Prepare (Linux/macOS). Paths in the ini and script name the Windows copy.
+python3 tools/reaper-validation/delay.py --format vst3 \
+    --bundle target/vst3/generic/delay/windows-release/VST3/Release/ravet_delay_vst3.vst3 \
+    --windows-root 'C:\Users\me\ravet-reaper' --work target/reaper-delay/win-vst3-1
+# 2. Copy the work directory over (here with OpenSSH).
+scp -r target/reaper-delay/win-vst3-1 me@vm:C:/Users/me/ravet-reaper/
+# 3. Run it in the logged-on user's desktop session as a scheduled task, poll
+#    for run-windows.done, then delete the task.
+ssh me@vm "schtasks /create /tn ravet-reaper /tr 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Users\me\ravet-reaper\win-vst3-1\run-windows.ps1' /sc once /st 23:59 /it /f; schtasks /run /tn ravet-reaper"
+ssh me@vm "Test-Path C:\Users\me\ravet-reaper\win-vst3-1\run-windows.done"
+ssh me@vm "schtasks /delete /tn ravet-reaper /f"
+# 4. Copy back and check renders, host log and guard snapshots.
+scp -r me@vm:C:/Users/me/ravet-reaper/win-vst3-1 target/reaper-delay/win-vst3-1.back
+python3 tools/reaper-validation/delay.py --check-only target/reaper-delay/win-vst3-1.back
+```
+
+`--windows-root` only prepares. `--reaper` then names the Windows executable
+(default `C:\REAPER\reaper.exe`), and `--timeout`/`--quit-grace` are written
+into `run-windows.ps1`. That script records the user, session and REAPER
+version in `run-windows.log`; writes `guard-before.tsv` and `guard-after.tsv`
+(size, modification time and SHA-256 of each top-level file in
+`%APPDATA%\REAPER` and in REAPER's program directory, where a portable install
+keeps its configuration); launches the driver's command; stops at the same
+`ABORT`, `DONE` + quit grace and timeout conditions; and kills only the REAPER
+process it started (`taskkill /T`). `--check-only` runs the render checks and
+fails if any guarded file changed.
+
+The run must be in the interactive desktop session. Started directly from a
+Windows OpenSSH login (session 0, not interactive), REAPER wrote no host log
+in 120 s. A task created with `/it` by the logged-on user runs in that user's
+console session (session 1, interactive) and works. On the tested VM REAPER
+takes about 20 s to reach the script; runs took 28–36 s. If a run times out,
+look at the screen (on a QEMU VM, the monitor's `screendump` command) and set
+the blocking dialog's preference with `--ini` (`[SECTION]KEY=VALUE` writes
+outside `[REAPER]`).
 
 Executed results are recorded in [work status](WORK_STATUS.md). A pass covers
 the tested REAPER version, OS, format and offline render path only: no live

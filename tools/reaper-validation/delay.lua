@@ -179,6 +179,8 @@ local function run()
   note('Resource ' .. reaper.GetResourcePath())
   note('REAPER ' .. reaper.GetAppVersion())
   note('Platform ' .. reaper.GetOS())
+  local _, audio = reaper.GetAudioDeviceInfo('MODE', '')
+  note('Audio system ' .. tostring(audio))
   note('Format ' .. C.format .. ' requested ' .. C.fx_name)
   check(reaper.CountTracks(0) == 0, 'fresh empty project')
 

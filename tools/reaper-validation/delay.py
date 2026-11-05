@@ -15,6 +15,13 @@ Example (macOS):
 Formats are selected by name; new formats need only an entry in FORMATS. AU
 components cannot be pointed at a private directory: REAPER scans the system
 component folders, so --format au requires a bundle already installed there.
+
+Windows hosts without Python: --windows-root C:\\dir prepares the work
+directory on this machine with every path rewritten for <root>\\<work name>
+and adds run-windows.ps1, which snapshots the normal REAPER directories,
+launches REAPER, waits, stops only that process and snapshots again. Copy the
+work directory there, run the script, copy it back and pass it to
+--check-only, which runs the render checks and compares the snapshots.
 """
 from __future__ import annotations
 
@@ -27,7 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -45,20 +52,21 @@ def platform_key() -> str:
 
 
 # Format name → REAPER FX name prefix, ini plug-in path keys per platform, and
-# the conventional search-path environment variable. Windows key names are not
-# yet verified on a Windows host; extra keys are harmless and --ini overrides.
+# the conventional search-path environment variable. Extra keys are harmless
+# and --ini overrides. The Windows keys are the ones REAPER 7.82 x64 names in
+# reaper.exe and kept in its ini after a Windows run.
 FORMATS = {
     'clap': {
         'prefix': 'CLAP: RAVET Delay',
         'keys': {'mac-arm64': ['clap_path_macos-aarch64'], 'mac-x86_64': ['clap_path_macos-x86_64'],
                  'linux': ['clap_path_linux-x86_64'],
-                 'windows': ['clap_path_win64', 'clap_path_windows-x86_64', 'clap_path_win-x86_64']},
+                 'windows': ['clap_path_win64']},
         'env': 'CLAP_PATH',
     },
     'lv2': {
         'prefix': 'LV2: RAVET Delay',
         'keys': {'mac-arm64': ['lv2path_mac'], 'mac-x86_64': ['lv2path_mac'], 'linux': ['lv2path_linux'],
-                 'windows': ['lv2path_win64', 'lv2path_win']},
+                 'windows': ['lv2path_win64']},
         'env': 'LV2_PATH',
     },
     'vst3': {
@@ -198,8 +206,18 @@ def lua_value(value) -> str:
 
 
 def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after: bool,
-            extra_ini: list[str], env_path: bool = False) -> tuple[Path, Path, dict]:
+            extra_ini: list[str], env_path: bool = False,
+            windows_work: PureWindowsPath | None = None) -> tuple[Path, Path, dict]:
+    """Write the work directory. With `windows_work`, every path written into
+    the ini and the script names that Windows location instead (the directory
+    is copied there and run with run-windows.ps1)."""
     spec = FORMATS[fmt]
+    key_platform = 'windows' if windows_work is not None else platform_key()
+
+    def host(path: Path) -> str:
+        if windows_work is None:
+            return str(path)
+        return str(windows_work.joinpath(*path.relative_to(work).parts))
     work.mkdir(parents=True, exist_ok=False)
     resource = work / 'resource'
     output = work / 'output'
@@ -210,6 +228,9 @@ def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after:
         # Keep the disposable instance quiet: no autosave or last-project
         # reload; render dialogs close when done.
         'autosaveint': '0', 'autosavemode': '0', 'loadlastproj': '0', 'renderclosewhendone': '1',
+        # No online version check: its "New Version Notification" dialog
+        # stopped Windows runs mid-script.
+        'verchk': '0',
         # Skip REAPER's startup VST scan (CLAP and LV2 are still scanned): the
         # default VST path always includes the system VST3 folders, where one
         # unresponsive third-party plug-in can stall startup. VST3 runs need it.
@@ -219,8 +240,8 @@ def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after:
     # test (REAPER still appends the system VST3 folders).
     empty = work / 'plugins' / 'empty'
     empty.mkdir(parents=True)
-    for key in FORMATS['vst3']['keys'].get(platform_key(), []):
-        ini[key] = str(empty)
+    for key in FORMATS['vst3']['keys'].get(key_platform, []):
+        ini[key] = host(empty)
     if spec.get('system_installed'):
         if bundle is not None:
             print(f'note: {fmt} is scanned from the system plug-in folders; --bundle {bundle} is only recorded')
@@ -234,17 +255,30 @@ def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after:
             shutil.copytree(bundle, destination, symlinks=True)
         else:
             shutil.copy2(bundle, destination)
-        keys = spec['keys'].get(platform_key(), [])
+        keys = spec['keys'].get(key_platform, [])
         for key in keys:
-            ini[key] = str(plugins)
+            ini[key] = host(plugins)
         if spec['env'] and env_path:
             # Off by default: the variable also reaches any REAPER started with
             # another configuration, which would then scan this bundle too.
             env[spec['env']] = str(plugins)
+    sections: dict[str, dict[str, str]] = {'REAPER': ini}
+    if key_platform == 'windows':
+        # A fresh Windows configuration asks for an audio device at startup.
+        # WaveOut (mode 2) opens without a dialog and keeps REAPER's audio
+        # thread running, which CLAP parameter flushes need; with no audio
+        # system, host edits never reached the plug-in.
+        sections['audioconfig'] = {'mode': '2'}
     for item in extra_ini:
+        # KEY=VALUE goes to [REAPER]; [SECTION]KEY=VALUE to another section.
+        section = 'REAPER'
+        if item.startswith('[') and ']' in item:
+            section, _, item = item[1:].partition(']')
         key, _, value = item.partition('=')
-        ini[key] = value
-    lines = ['[REAPER]'] + [f'{k}={v}' for k, v in ini.items()]
+        sections.setdefault(section, {})[key] = value
+    lines = []
+    for section, entries in sections.items():
+        lines += [f'[{section}]'] + [f'{k}={v}' for k, v in entries.items()]
     (resource / 'reaper.ini').write_text('\n'.join(lines) + '\n')
     delay_checks.write_input(output / 'input.wav', RATE)
     config = {
@@ -252,8 +286,12 @@ def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after:
         'length': delay_checks.LENGTH_SECONDS, 'bundle': str(bundle) if bundle else None,
         'cases': cases(),
     }
+    if windows_work is not None:
+        config['windows_work'] = str(windows_work)
     (output / 'cases.json').write_text(json.dumps(config, indent=2) + '\n')
-    lua_config = {'root': output.as_posix(), 'resource': resource.as_posix(), 'format': fmt, 'fx_name': fx_name, 'rate': RATE,
+    root = host(output) if windows_work is not None else output.as_posix()
+    resource_name = host(resource) if windows_work is not None else resource.as_posix()
+    lua_config = {'root': root, 'resource': resource_name, 'format': fmt, 'fx_name': fx_name, 'rate': RATE,
                   'tempo': TEMPO, 'length': delay_checks.LENGTH_SECONDS, 'quit': quit_after,
                   'cases': config['cases']}
     script = output / 'ravet-delay-check.lua'
@@ -261,14 +299,145 @@ def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after:
     return resource / 'reaper.ini', script, env
 
 
+# PowerShell runner for a Windows host without Python. It mirrors run(): the
+# same command, timeout and quit grace, the ABORT guard, and before/after
+# snapshots (size, modification time, SHA-256) of the top-level files in the
+# normal REAPER resource directory and in REAPER's own program directory, which
+# a portable install uses for its configuration. It stops only the process it
+# started (and that process's children).
+WINDOWS_RUNNER = r'''# Generated by tools/reaper-validation/delay.py --windows-root; do not edit.
+param([double]$Timeout = __TIMEOUT__, [double]$QuitGrace = __GRACE__)
+$ErrorActionPreference = 'Stop'
+$work = Split-Path -Parent $MyInvocation.MyCommand.Path
+$reaper = '__REAPER__'
+$guarded = @((Join-Path $env:APPDATA 'REAPER'), (Split-Path -Parent $reaper))
+$output = Join-Path $work 'output'
+$hostLog = Join-Path $output 'delay-host.log'
+$runLog = Join-Path $work 'run-windows.log'
+function Note([string]$text) { Add-Content -LiteralPath $runLog -Value $text; Write-Output $text }
+function Snapshot([string]$path) {
+  $lines = foreach ($directory in $guarded) {
+    if (Test-Path -LiteralPath $directory) {
+      Get-ChildItem -LiteralPath $directory -File -Force | Sort-Object FullName | ForEach-Object {
+        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        "{0}`t{1}`t{2}`t{3}" -f $_.FullName, $_.Length, $_.LastWriteTimeUtc.Ticks, $hash
+      }
+    } else { "{0}`tmissing" -f $directory }
+  }
+  Set-Content -LiteralPath $path -Value $lines -Encoding UTF8
+}
+Remove-Item -LiteralPath $runLog, (Join-Path $work 'run-windows.done') -ErrorAction SilentlyContinue
+Note ('user {0}\{1} session {2} interactive {3}' -f $env:USERDOMAIN, $env:USERNAME,
+  (Get-Process -Id $PID).SessionId, [Environment]::UserInteractive)
+Note ('reaper {0} version {1}' -f $reaper, (Get-Item -LiteralPath $reaper).VersionInfo.ProductVersion)
+Snapshot (Join-Path $work 'guard-before.tsv')
+$arguments = '-cfgfile "__INI__" -nosplash -ignoreerrors -newinst "__SCRIPT__"'
+Note ('command: "{0}" {1}' -f $reaper, $arguments)
+$started = Get-Date
+$process = Start-Process -FilePath $reaper -ArgumentList $arguments -PassThru `
+  -RedirectStandardOutput (Join-Path $work 'reaper-stdout.log') -RedirectStandardError (Join-Path $work 'reaper-stderr.log')
+$null = $process.Handle  # keep the handle so ExitCode is available after exit
+Note ('started pid {0}' -f $process.Id)
+$finished = $null
+$outcome = 'exited'
+while (-not $process.HasExited) {
+  $elapsed = ((Get-Date) - $started).TotalSeconds
+  $text = if (Test-Path -LiteralPath $hostLog) { Get-Content -LiteralPath $hostLog -Raw -ErrorAction SilentlyContinue } else { '' }
+  if ($text -match 'ABORT ') { $outcome = 'abort'; break }
+  if ($text -match 'DONE ' -and $null -eq $finished) { $finished = Get-Date }
+  if ($null -ne $finished -and ((Get-Date) - $finished).TotalSeconds -gt $QuitGrace) { $outcome = 'quit-grace'; break }
+  if ($elapsed -gt $Timeout) { $outcome = 'timeout'; break }
+  Start-Sleep -Milliseconds 500
+}
+if (-not $process.HasExited) {
+  Note ('stopping pid {0} ({1}); host log so far:' -f $process.Id, $outcome)
+  if (Test-Path -LiteralPath $hostLog) { Note (Get-Content -LiteralPath $hostLog -Raw) } else { Note '(none)' }
+  & taskkill.exe /T /F /PID $process.Id | Out-Null
+  $process.WaitForExit(15000) | Out-Null
+}
+Note ('outcome {0}; REAPER exited with {1} after {2:N1} s' -f $outcome, $process.ExitCode, ((Get-Date) - $started).TotalSeconds)
+Snapshot (Join-Path $work 'guard-after.tsv')
+Set-Content -LiteralPath (Join-Path $work 'run-windows.done') -Value $outcome
+'''
+
+
+def windows_runner(work: Path, windows_work: PureWindowsPath, reaper: PureWindowsPath, timeout: float,
+                   grace: float) -> Path:
+    for value in (str(windows_work), str(reaper)):
+        if "'" in value or '"' in value:
+            raise SystemExit(f'error: quotes are not supported in Windows paths: {value}')
+    text = (WINDOWS_RUNNER.replace('__TIMEOUT__', f'{timeout:g}').replace('__GRACE__', f'{grace:g}')
+            .replace('__REAPER__', str(reaper))
+            .replace('__INI__', str(windows_work / 'resource' / 'reaper.ini'))
+            .replace('__SCRIPT__', str(windows_work / 'output' / 'ravet-delay-check.lua')))
+    path = work / 'run-windows.ps1'
+    # CRLF and a BOM: Windows PowerShell 5.1 reads BOM-less scripts as ANSI.
+    path.write_bytes(b'\xef\xbb\xbf' + text.replace('\n', '\r\n').encode('utf-8'))
+    return path
+
+
+def read_snapshot(path: Path) -> dict[str, str]:
+    entries = {}
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        if line.strip():
+            name, _, rest = line.partition('\t')
+            entries[name] = rest
+    return entries
+
+
+def compare_snapshots(work: Path) -> tuple[bool, list[str]]:
+    """Compare guard-before.tsv and guard-after.tsv written by run-windows.ps1."""
+    before_path, after_path = work / 'guard-before.tsv', work / 'guard-after.tsv'
+    if not before_path.exists() or not after_path.exists():
+        return False, [f'FAIL guard snapshots missing in {work} (run-windows.ps1 did not finish)']
+    before, after = read_snapshot(before_path), read_snapshot(after_path)
+    if not before:
+        return False, ['FAIL guard snapshot is empty']
+    changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
+    if changed:
+        return False, [f'FAIL normal REAPER files changed during the run: {", ".join(changed)}']
+    directories = sorted({str(PureWindowsPath(name).parent) for name in before if not before[name] == 'missing'})
+    return True, [f'PASS normal REAPER files unchanged ({len(before)} files: size, mtime, SHA-256) in '
+                  + ', '.join(directories)]
+
+
+def check_only(work: Path) -> int:
+    """Check a work directory run elsewhere (for example with run-windows.ps1)."""
+    output = work / 'output'
+    ok, lines = delay_checks.check_directory(output)
+    if (work / 'run-windows.ps1').exists():
+        guard_ok, guard_lines = compare_snapshots(work)
+        ok = ok and guard_ok
+        lines += guard_lines
+        run_log = work / 'run-windows.log'
+        if run_log.exists():
+            print(run_log.read_text(encoding='utf-8-sig', errors='replace'), end='')
+    lines.append('RESULT PASS' if ok else 'RESULT FAIL')
+    (output / 'render-check.log').write_text('\n'.join(lines) + '\n')
+    host_log = output / 'delay-host.log'
+    if host_log.exists():
+        print(host_log.read_text(errors='replace'), end='')
+    print('\n'.join(lines))
+    return 0 if ok else 1
+
+
 def run(arguments: argparse.Namespace) -> int:
     fmt = arguments.format
     fx_name = arguments.fx_name or FORMATS[fmt]['prefix']
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     work = (arguments.work or ROOT / 'target' / 'reaper-delay' / f'{fmt}-{stamp}').resolve()
+    windows_work = PureWindowsPath(arguments.windows_root) / work.name if arguments.windows_root else None
     ini, script, env = prepare(work, fmt, arguments.bundle.resolve() if arguments.bundle else None, fx_name,
-                               not arguments.no_quit, arguments.ini, arguments.env_path)
+                               not arguments.no_quit, arguments.ini, arguments.env_path, windows_work)
     output = script.parent
+    if windows_work is not None:
+        reaper = PureWindowsPath(str(arguments.reaper) if arguments.reaper else r'C:\REAPER\reaper.exe')
+        runner = windows_runner(work, windows_work, reaper, arguments.timeout, arguments.quit_grace)
+        print('work directory:', work)
+        print('copy it to:', windows_work)
+        print('then run there: powershell -NoProfile -ExecutionPolicy Bypass -File', windows_work / runner.name)
+        print('copy it back and check: python3 tools/reaper-validation/delay.py --check-only', work)
+        return 0
     reaper = arguments.reaper or default_reaper()
     if reaper is None:
         raise SystemExit('error: REAPER not found; pass --reaper')
@@ -336,22 +505,33 @@ def run(arguments: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--format', required=True, choices=sorted(FORMATS))
+    parser.add_argument('--format', choices=sorted(FORMATS), help='plug-in format (required unless --check-only)')
     parser.add_argument('--bundle', type=Path, help='built bundle (.clap, .lv2, .vst3 directory or file)')
     parser.add_argument('--reaper', type=Path, help='REAPER executable or REAPER.app (default: platform search)')
     parser.add_argument('--work', type=Path, help='new work directory (default: target/reaper-delay/<format>-<time>)')
     parser.add_argument('--fx-name', help='REAPER FX name prefix to insert (default: per format)')
     parser.add_argument('--timeout', type=float, default=240.0, help='seconds before REAPER is terminated')
     parser.add_argument('--quit-grace', type=float, default=20.0, help='seconds to wait for quit after the script')
-    parser.add_argument('--ini', action='append', default=[], metavar='KEY=VALUE',
-                        help='extra [REAPER] ini entry for the disposable configuration')
+    parser.add_argument('--ini', action='append', default=[], metavar='[SECTION]KEY=VALUE',
+                        help='extra ini entry for the disposable configuration ([REAPER] unless a section is given)')
     parser.add_argument('--no-isolate', action='store_true',
                         help='macOS: run REAPER.app itself instead of a private copy with its own bundle ID')
     parser.add_argument('--env-path', action='store_true',
                         help='also export CLAP_PATH/LV2_PATH for the format (off by default)')
     parser.add_argument('--no-quit', action='store_true', help='leave REAPER open after the script')
     parser.add_argument('--dry-run', action='store_true', help='prepare the work directory and print the command')
-    return run(parser.parse_args(argv))
+    parser.add_argument('--windows-root', metavar='WINDOWS_DIR',
+                        help='prepare only, for a Windows host without Python: paths name WINDOWS_DIR\\<work name>, '
+                             'run-windows.ps1 runs REAPER there; --reaper is then the Windows path '
+                             '(default C:\\REAPER\\reaper.exe)')
+    parser.add_argument('--check-only', type=Path, metavar='WORK',
+                        help='check an existing work directory (renders, host log, Windows guard snapshots)')
+    arguments = parser.parse_args(argv)
+    if arguments.check_only:
+        return check_only(arguments.check_only.resolve())
+    if not arguments.format:
+        parser.error('--format is required')
+    return run(arguments)
 
 
 if __name__ == '__main__':
