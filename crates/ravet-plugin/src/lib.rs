@@ -42,11 +42,14 @@ mod clap_gui;
 pub mod editor;
 pub mod export;
 pub mod identity;
+pub mod policy;
 pub mod product;
 pub mod state;
+pub mod text;
 
-pub use export::{Edit, EditQueue, ParameterCache, PluginExport};
+pub use export::{Edit, EditQueue, FnHooks, ParameterCache, PluginExport};
 pub use identity::{Identities, IdentityOverrides};
+pub use policy::{AutomationPolicy, BypassPolicy, PolicyProcessor};
 pub use product::{
     Category, Editor, MAXIMUM_EDITOR_HTML_BYTES, MAXIMUM_KEY_BYTES, MAXIMUM_PARAMETERS, NotePorts,
     Parameter, ParameterRole, Precision, Product, ProductError, ResolvedProduct, StateFormat,
