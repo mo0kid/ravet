@@ -22,6 +22,16 @@ unsafe extern "C" {
         message: extern "C" fn(*mut c_void, *const c_char),
         snapshot: extern "C" fn(*mut c_void, *mut c_char, usize) -> usize,
     ) -> *mut c_void;
+    fn ravet_web_create_assets(
+        html: *const c_char,
+        assets: *const NativeAsset,
+        count: usize,
+        width: f64,
+        height: f64,
+        context: *mut c_void,
+        message: extern "C" fn(*mut c_void, *const c_char),
+        snapshot: extern "C" fn(*mut c_void, *mut c_char, usize) -> usize,
+    ) -> *mut c_void;
     fn ravet_web_set_background(view: *mut c_void, r: f64, g: f64, b: f64) -> bool;
     fn ravet_web_attach(view: *mut c_void, parent: *mut c_void);
     fn ravet_web_detach(view: *mut c_void);
@@ -41,6 +51,106 @@ unsafe extern "C" {
         revision: *mut u64,
     ) -> u32;
 }
+#[repr(C)]
+struct NativeAsset {
+    path: *const c_char,
+    mime: *const c_char,
+    data: *const c_void,
+    size: usize,
+}
+
+/// A file served to a page created with [`WebView::from_html_with_assets`].
+///
+/// The page loads from a local asset origin (`ravet://editor/` on macOS,
+/// `ravet-<id>://editor/` on Linux, `https://editor.ravet.invalid/` on
+/// Windows) and refers to assets by relative URL, for example
+/// `<img src="img/knob.png">`. Requests are answered from memory, with no file
+/// system or network access.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Asset<'a> {
+    /// Relative path: ASCII letters, digits and `._-/`, at most 512 bytes, no
+    /// `.` or `..` segment, no empty segment or leading or trailing `/`.
+    /// `index.html` is reserved for the page.
+    pub path: &'a str,
+    /// Content type, such as `image/png`. Empty infers it from the extension
+    /// (see [`Asset::content_type`]).
+    pub mime: &'a str,
+    pub data: &'a [u8],
+}
+
+/// Most assets per view.
+pub const MAXIMUM_ASSETS: usize = 4096;
+/// Largest single asset.
+pub const MAXIMUM_ASSET_BYTES: usize = 64 << 20;
+/// Largest total of all assets of one view.
+pub const MAXIMUM_TOTAL_ASSET_BYTES: usize = 256 << 20;
+
+impl Asset<'_> {
+    /// Whether the path, content type and size are accepted.
+    pub fn is_valid(&self) -> bool {
+        let path = self.path;
+        let segments_ok = path
+            .split('/')
+            .all(|s| !s.is_empty() && s != "." && s != "..");
+        !path.is_empty()
+            && path.len() <= 512
+            && path != "index.html"
+            && segments_ok
+            && path
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/'))
+            && self.mime.len() <= 127
+            && self.mime.bytes().all(|b| (0x20..=0x7e).contains(&b))
+            && self.data.len() <= MAXIMUM_ASSET_BYTES
+    }
+    /// The content type served: `mime`, or one inferred from the extension
+    /// (HTML, CSS, JavaScript, JSON, SVG, PNG, JPEG, GIF, WebP, ICO, WOFF/WOFF2,
+    /// TTF/OTF, WASM, WAV, MP3, text), else `application/octet-stream`.
+    pub fn content_type(&self) -> &str {
+        if !self.mime.is_empty() {
+            return self.mime;
+        }
+        let extension = self.path.rsplit_once('.').map_or("", |(_, e)| e);
+        match extension.to_ascii_lowercase().as_str() {
+            "html" | "htm" => "text/html; charset=utf-8",
+            "css" => "text/css; charset=utf-8",
+            "js" | "mjs" => "text/javascript; charset=utf-8",
+            "json" | "map" => "application/json",
+            "svg" => "image/svg+xml",
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "ico" => "image/x-icon",
+            "woff" => "font/woff",
+            "woff2" => "font/woff2",
+            "ttf" => "font/ttf",
+            "otf" => "font/otf",
+            "wasm" => "application/wasm",
+            "wav" => "audio/wav",
+            "mp3" => "audio/mpeg",
+            "txt" => "text/plain; charset=utf-8",
+            _ => "application/octet-stream",
+        }
+    }
+}
+
+/// Check a whole asset set: every asset valid, unique paths, and the count and
+/// total size within [`MAXIMUM_ASSETS`] and [`MAXIMUM_TOTAL_ASSET_BYTES`].
+pub fn assets_valid(assets: &[Asset<'_>]) -> bool {
+    if assets.len() > MAXIMUM_ASSETS || !assets.iter().all(Asset::is_valid) {
+        return false;
+    }
+    let total = assets.iter().try_fold(0_usize, |total, asset| {
+        total
+            .checked_add(asset.data.len())
+            .filter(|total| *total <= MAXIMUM_TOTAL_ASSET_BYTES)
+    });
+    let mut paths: Vec<&str> = assets.iter().map(|asset| asset.path).collect();
+    paths.sort_unstable();
+    total.is_some() && paths.windows(2).all(|pair| pair[0] != pair[1])
+}
+
 /// Dispatch pending GTK work for embedded Linux editors. Plug-in hosts call this
 /// from their UI run loop (for example a 10 ms timer) while an editor is open.
 /// It handles at most 32 ready GLib iterations and is a no-op on macOS/Windows.
@@ -216,6 +326,77 @@ impl<'a> WebView<'a> {
         let view = NonNull::new(unsafe {
             ravet_web_create_html(
                 html.as_ptr(),
+                width,
+                height,
+                Rc::as_ptr(&context).cast_mut().cast(),
+                message,
+                snapshot,
+            )
+        })
+        .ok_or(WebViewError::CreationFailed)?;
+        Ok(Self {
+            view,
+            _context: context,
+            _main_thread: PhantomData,
+        })
+    }
+    /// Like [`WebView::from_html`], but the page loads from a local asset origin
+    /// that also serves `assets`, so editors can ship images, fonts, scripts
+    /// and styles of any size up to the [asset limits](MAXIMUM_ASSET_BYTES)
+    /// without inlining or chunking them. Asset data is not copied when the
+    /// view is created (it is copied per request), so it borrows for `'a`; the
+    /// slice itself is only read during creation.
+    pub fn from_html_with_assets(
+        html: &str,
+        assets: &[Asset<'a>],
+        width: f64,
+        height: f64,
+        callbacks: impl Callbacks + 'a,
+    ) -> Result<Self, WebViewError> {
+        if !is_main_thread() {
+            return Err(WebViewError::WrongThread);
+        }
+        if !width.is_finite()
+            || !height.is_finite()
+            || width <= 0.0
+            || height <= 0.0
+            || html.is_empty()
+            || html.len() > 1_048_576
+            || !assets_valid(assets)
+        {
+            return Err(WebViewError::InvalidInput);
+        }
+        let html = CString::new(html).map_err(|_| WebViewError::InvalidInput)?;
+        let strings = assets
+            .iter()
+            .map(|asset| {
+                Ok((
+                    CString::new(asset.path).map_err(|_| WebViewError::InvalidInput)?,
+                    CString::new(asset.content_type()).map_err(|_| WebViewError::InvalidInput)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, WebViewError>>()?;
+        let native: Vec<NativeAsset> = assets
+            .iter()
+            .zip(&strings)
+            .map(|(asset, (path, mime))| NativeAsset {
+                path: path.as_ptr(),
+                mime: mime.as_ptr(),
+                data: asset.data.as_ptr().cast(),
+                size: asset.data.len(),
+            })
+            .collect();
+        let context = Rc::new(Context {
+            callbacks: RefCell::new(Box::new(callbacks)),
+        });
+        // SAFETY: HTML, descriptors and strings live through creation and the
+        // backend copies them; asset data borrows for 'a, which outlives the
+        // view. Context remains owned until native teardown removes callbacks.
+        let view = NonNull::new(unsafe {
+            ravet_web_create_assets(
+                html.as_ptr(),
+                native.as_ptr(),
+                native.len(),
                 width,
                 height,
                 Rc::as_ptr(&context).cast_mut().cast(),
@@ -546,6 +727,49 @@ mod tests {
             0
         );
         assert_eq!(destination, [7; 64]);
+    }
+    #[test]
+    fn asset_paths_types_and_limits() {
+        fn asset<'a>(path: &'a str, mime: &'a str, data: &'a [u8]) -> Asset<'a> {
+            Asset { path, mime, data }
+        }
+        assert!(asset("img/knob.png", "", b"x").is_valid());
+        assert_eq!(asset("img/knob.png", "", b"").content_type(), "image/png");
+        assert_eq!(
+            asset("a.FONT", "", b"").content_type(),
+            "application/octet-stream"
+        );
+        assert_eq!(asset("a.woff2", "", b"").content_type(), "font/woff2");
+        assert_eq!(asset("a.bin", "x/y", b"").content_type(), "x/y");
+        for path in [
+            "",
+            "/a",
+            "a/",
+            "a//b",
+            "../a",
+            "a/../b",
+            "./a",
+            "index.html",
+            "a b",
+            "a?b",
+            "ü",
+        ] {
+            assert!(!asset(path, "", b"").is_valid(), "{path:?}");
+        }
+        assert!(!asset(&"a".repeat(513), "", b"").is_valid());
+        assert!(!asset("a", "text/\n", b"").is_valid());
+        assert!(!asset("a", "bad\u{7f}", b"").is_valid());
+        let big = vec![0_u8; MAXIMUM_ASSET_BYTES + 1];
+        assert!(!asset("big", "", &big).is_valid());
+        assert!(assets_valid(&[asset("a", "", b""), asset("b", "", b"")]));
+        assert!(!assets_valid(&[asset("a", "", b""), asset("a", "", b"")]));
+        let half = vec![0_u8; MAXIMUM_ASSET_BYTES];
+        let many: Vec<_> = ["1", "2", "3", "4", "5"]
+            .iter()
+            .map(|p| asset(p, "", &half))
+            .collect();
+        assert!(!assets_valid(&many));
+        assert!(assets_valid(&many[..4]));
     }
     // Windows/Linux adopt the first creating thread as their UI thread.
     #[cfg(target_os = "macos")]

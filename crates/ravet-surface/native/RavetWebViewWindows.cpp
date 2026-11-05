@@ -1,4 +1,5 @@
 #include "RavetWebView.h"
+#include "RavetWebAssets.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -58,12 +59,40 @@ struct State {
     bool expectHtml=false;
     std::wstring path,root,html;
     std::string delivered;
+    // ravet_web_create_assets: the page and assets served at assetOrigin.
+    bool assets=false;
+    std::string page;
+    ravet_web_assets::Table table;
+    ICoreWebView2Environment* environment=nullptr;
     COLORREF background=RGB(255,255,255);
-    EventRegistrationToken messageToken{},navigationToken{},loadToken{},popupToken{};
-    ~State() { if(web) web->Release(); if(controller) controller->Release(); if(loader) FreeLibrary(loader); if(com) CoUninitialize(); }
+    EventRegistrationToken messageToken{},navigationToken{},loadToken{},popupToken{},resourceToken{};
+    ~State() { if(environment) environment->Release(); if(web) web->Release(); if(controller) controller->Release(); if(loader) FreeLibrary(loader); if(com) CoUninitialize(); }
 };
 using Owner=std::shared_ptr<State>;
 using Weak=std::weak_ptr<State>;
+// A reserved (.invalid) host intercepted by WebResourceRequested: requests to
+// it never reach DNS or the network, whether or not they are served.
+constexpr const char* assetOrigin="https://editor.ravet.invalid/";
+constexpr const wchar_t* assetFilter=L"https://editor.ravet.invalid/*";
+// Answer one intercepted request from the view's page and assets (404 otherwise).
+void serve(State& s,ICoreWebView2WebResourceRequestedEventArgs* args) {
+    ICoreWebView2WebResourceRequest* request=nullptr; if(FAILED(args->get_Request(&request))||!request) return;
+    LPWSTR uri=nullptr,method=nullptr; request->get_Uri(&uri); request->get_Method(&method);
+    auto path=ravet_web_assets::pathOf(utf8(uri),assetOrigin); if(path.empty()) path="index.html";
+    bool get=!method||!wcscmp(method,L"GET"); CoTaskMemFree(uri); CoTaskMemFree(method); request->Release();
+    const void* data=nullptr; size_t size=0; std::string mime;
+    if(get&&path=="index.html") { data=s.page.data(); size=s.page.size(); mime="text/html; charset=utf-8"; }
+    else if(auto found=s.table.find(path);get&&found!=s.table.end()) { data=found->second.data; size=found->second.size; mime=found->second.mime; }
+    IStream* stream=nullptr;
+    if(!mime.empty()) { stream=SHCreateMemStream(static_cast<const BYTE*>(data),UINT(size)); if(!stream) mime.clear(); }
+    auto headers=wide(mime.empty()?std::string("Content-Type: text/plain"):"Content-Type: "+mime+"\r\nCache-Control: no-cache");
+    ICoreWebView2WebResourceResponse* response=nullptr;
+    if(SUCCEEDED(s.environment->CreateWebResourceResponse(stream,mime.empty()?404:200,mime.empty()?L"Not Found":L"OK",headers.c_str(),&response))&&response) {
+        args->put_Response(response); response->Release();
+    }
+    if(stream) stream->Release();
+    trace("asset %s %s",path.substr(0,80).c_str(),mime.empty()?"404":"200");
+}
 std::wstring quote(const char* text) {
     std::string out="\""; const char* hex="0123456789abcdef";
     for(const unsigned char* p=reinterpret_cast<const unsigned char*>(text);*p;++p) {
@@ -110,6 +139,7 @@ void initialize(Owner owner) {
     auto* environmentHandler=new Handler<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,HRESULT,ICoreWebView2Environment*>(L"{4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d}",[weak](HRESULT error,ICoreWebView2Environment* environment) {
         trace("environment hr=0x%08lx",long(error));
         auto s=weak.lock(); if(!s||s->closed||FAILED(error)||!environment) return S_OK;
+        environment->AddRef(); s->environment=environment;
         auto* handler=new Handler<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,HRESULT,ICoreWebView2Controller*>(L"{6c4819f3-c9b7-4260-8127-c9f5bde7f68c}",[weak](HRESULT error,ICoreWebView2Controller* controller) {
             trace("controller hr=0x%08lx",long(error));
             auto s=weak.lock(); if(!s||s->closed||FAILED(error)||!controller) return S_OK;
@@ -123,6 +153,7 @@ void initialize(Owner owner) {
                 auto s=weak.lock(); if(!s||s->closed) { args->put_Cancel(TRUE); return S_OK; }
                 LPWSTR uri=nullptr; args->get_Uri(&uri); bool allowed=uri&&!wcscmp(uri,L"about:blank");
                 if(!allowed&&uri&&s->expectHtml&&!wcsncmp(uri,L"data:text/html",14)) { allowed=true; s->expectHtml=false; }
+                if(!allowed&&uri&&s->assets&&!wcsncmp(uri,assetFilter,wcslen(assetFilter)-1)) allowed=true;
                 wchar_t path[32768]; DWORD length=32768;
                 if(uri&&SUCCEEDED(PathCreateFromUrlW(uri,path,&length,0))&&!s->root.empty()) { std::error_code error; auto file=std::filesystem::canonical(path,error).wstring(); allowed=!error&&file.rfind(s->root+L"\\",0)==0; }
                 trace("navigation %s allowed=%d",utf8(uri).substr(0,80).c_str(),int(allowed));
@@ -137,6 +168,14 @@ void initialize(Owner owner) {
             auto* script=new Handler<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,HRESULT,LPCWSTR>(L"{b99369f3-9b11-47b5-bc6f-8e7895fcea17}",[weak](HRESULT error,LPCWSTR) {
                 if(auto s=weak.lock();s&&!s->closed&&SUCCEEDED(error)) {
                     if(!s->path.empty()) { wchar_t uri[32768]; DWORD length=32768; if(SUCCEEDED(UrlCreateFromPathW(s->path.c_str(),uri,&length,0))) s->web->Navigate(uri); }
+                    else if(s->assets) {
+                        auto* resources=new Handler<ICoreWebView2WebResourceRequestedEventHandler,ICoreWebView2*,ICoreWebView2WebResourceRequestedEventArgs*>(L"{ab00b74c-15f1-4646-80e8-e76341d25d71}",[weak](ICoreWebView2*,ICoreWebView2WebResourceRequestedEventArgs* args) {
+                            if(auto s=weak.lock();s&&!s->closed&&s->environment) serve(*s,args); return S_OK;
+                        });
+                        s->web->add_WebResourceRequested(resources,&s->resourceToken); resources->Release();
+                        s->web->AddWebResourceRequestedFilter(assetFilter,COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                        s->web->Navigate(wide(std::string(assetOrigin)+"index.html").c_str());
+                    }
                     else { s->expectHtml=true; s->web->NavigateToString(s->html.c_str()); }
                 } return S_OK;
             });
@@ -144,8 +183,12 @@ void initialize(Owner owner) {
             return S_OK;
         }); environment->CreateCoreWebView2Controller(s->window,handler); handler->Release(); return S_OK;
     });
+#if RAVET_WEBVIEW2_STATIC_LOADER
+    auto create=&CreateCoreWebView2EnvironmentWithOptions;
+#else
     using Create=HRESULT(STDAPICALLTYPE*)(PCWSTR,PCWSTR,ICoreWebView2EnvironmentOptions*,ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*);
     auto create=reinterpret_cast<Create>(GetProcAddress(owner->loader,"CreateCoreWebView2EnvironmentWithOptions"));
+#endif
     wchar_t local[MAX_PATH]{}; SHGetFolderPathW(nullptr,CSIDL_LOCAL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,local);
     auto profile=(std::filesystem::path(local)/L"RAVET/WebView2").wstring();
     HRESULT started=create?create(nullptr,profile.c_str(),nullptr,environmentHandler):E_NOINTERFACE; environmentHandler->Release();
@@ -156,12 +199,22 @@ Owner create(double w,double h,void* context,RavetWebMessage message,RavetWebSna
     uiThread=GetCurrentThreadId();
     auto s=std::make_shared<State>(); auto hr=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED); if(FAILED(hr)) return {}; s->com=true;
     HMODULE module=nullptr; GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&ravet_web_create),&module);
+    // WebView2 holds completion handlers (vtables in this module) and the window
+    // class after the last view is destroyed; a host that unloads the plug-in
+    // DLL then would call into unmapped code. Keep the module loaded.
+    HMODULE pinned=nullptr; GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,reinterpret_cast<LPCWSTR>(&ravet_web_create),&pinned);
+#if RAVET_WEBVIEW2_STATIC_LOADER
+    // WebView2LoaderStatic.lib is linked in: nothing to ship beside the module.
+    auto version=&GetAvailableCoreWebView2BrowserVersionString;
+#else
     wchar_t path[32768]{}; if(!GetModuleFileNameW(module,path,32768)) return {};
     auto loader=std::filesystem::path(path).parent_path()/L"WebView2Loader.dll";
     s->loader=LoadLibraryExW(loader.c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_DEFAULT_DIRS); if(!s->loader) return {};
     using Version=HRESULT(STDAPICALLTYPE*)(PCWSTR,LPWSTR*);
     auto version=reinterpret_cast<Version>(GetProcAddress(s->loader,"GetAvailableCoreWebView2BrowserVersionString"));
-    LPWSTR installed=nullptr; auto available=version?version(nullptr,&installed):E_FAIL; CoTaskMemFree(installed); if(FAILED(available)) return {};
+#endif
+    LPWSTR installed=nullptr; auto available=version?version(nullptr,&installed):E_FAIL;
+    trace("runtime hr=0x%08lx version=%s",long(available),utf8(installed).c_str()); CoTaskMemFree(installed); if(FAILED(available)) return {};
     WNDCLASSW cls{}; cls.lpfnWndProc=windowProc; cls.hInstance=module; cls.lpszClassName=L"RavetWebEditor"; cls.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));
     RegisterClassW(&cls);
     s->window=CreateWindowExW(0,cls.lpszClassName,L"",WS_POPUP,0,0,int(w),int(h),nullptr,nullptr,module,nullptr); if(!s->window) return {};
@@ -179,6 +232,12 @@ extern "C" void* ravet_web_create_html(const char* html,double w,double h,void* 
     if(!html||strnlen(html,1048577)>1048576) return nullptr; auto page=wide(html); if(page.empty()) return nullptr;
     auto s=create(w,h,context,message,nullptr,snapshot); if(!s) return nullptr; s->html=page; return finish(s);
 }
+extern "C" void* ravet_web_create_assets(const char* html,const RavetWebAsset* assets,size_t count,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshotBuffer snapshot) {
+    if(!html||strnlen(html,1048577)>1048576) return nullptr;
+    ravet_web_assets::Table table; if(!ravet_web_assets::build(assets,count,table)) return nullptr;
+    auto s=create(w,h,context,message,nullptr,snapshot); if(!s) return nullptr;
+    s->assets=true; s->page=html; s->table=std::move(table); return finish(s);
+}
 extern "C" bool ravet_web_set_background(void* view,double r,double g,double b) {
     if(!view||!std::isfinite(r)||!std::isfinite(g)||!std::isfinite(b)) return false;
     auto& s=**static_cast<Owner*>(view); s.background=RGB(int(std::clamp(r,0.0,1.0)*255),int(std::clamp(g,0.0,1.0)*255),int(std::clamp(b,0.0,1.0)*255)); colour(s); InvalidateRect(s.window,nullptr,TRUE); return true;
@@ -191,7 +250,7 @@ extern "C" void ravet_web_detach(void* view) { if(view) { auto& s=**static_cast<
 extern "C" void ravet_web_set_visible(void* view,bool visible) { if(view) ShowWindow((**static_cast<Owner*>(view)).window,visible?SW_SHOW:SW_HIDE); }
 extern "C" void ravet_web_destroy(void* view) {
     if(!view) return; auto s=*static_cast<Owner*>(view); s->closed=true; s->context=nullptr; s->message=nullptr; s->snapshot=nullptr; s->bufferSnapshot=nullptr; KillTimer(s->window,1);
-    if(s->web) { s->web->remove_WebMessageReceived(s->messageToken); s->web->remove_NavigationStarting(s->navigationToken); s->web->remove_NavigationCompleted(s->loadToken); s->web->remove_NewWindowRequested(s->popupToken); s->web->Stop(); }
+    if(s->web) { s->web->remove_WebMessageReceived(s->messageToken); s->web->remove_NavigationStarting(s->navigationToken); s->web->remove_NavigationCompleted(s->loadToken); s->web->remove_NewWindowRequested(s->popupToken); if(s->assets) s->web->remove_WebResourceRequested(s->resourceToken); s->web->Stop(); }
     if(s->controller) s->controller->Close(); SetWindowLongPtrW(s->window,GWLP_USERDATA,0); DestroyWindow(s->window);
     HMODULE module=nullptr; GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&ravet_web_create),&module);
     UnregisterClassW(L"RavetWebEditor",module); delete static_cast<Owner*>(view);

@@ -25,10 +25,11 @@ clap = ["dep:ravet-clap", "dep:ravet-native-dsp", "dep:clack-plugin", "dep:clack
 # The generic C table (`include/RavetPlugin.h`, `ravet_plugin_v1`) used by the
 # VST3, AUv2, AAX and LV2 adapters.
 native = ["dep:ravet-native", "dep:ravet-native-dsp"]
-# The product's web editor in the CLAP export and the native table (macOS
-# Cocoa views in this release). Without it no editor is offered: the CLAP GUI
-# extension is absent and the table reports a 0 x 0 editor. Adds ravet-webview
-# (WebKit/Cocoa and a compiled Objective-C++ archive on macOS).
+# The product's web editor in the CLAP export and the native table: Cocoa
+# views on macOS, HWNDs on Windows and X11 windows on Linux. Without it no
+# editor is offered: the CLAP GUI extension is absent and the table reports a
+# 0 x 0 editor. Adds ravet-webview (WebKit/Cocoa on macOS; WebView2, needing
+# RAVET_WEBVIEW2_SDK, on Windows; GTK 3/WebKitGTK 4.1 on Linux).
 editor = ["dep:ravet-webview"]
 
 [dependencies]
@@ -37,7 +38,7 @@ ravet-clap = { workspace = true, optional = true }
 ravet-native = { workspace = true, optional = true }
 ravet-native-dsp = { workspace = true, optional = true, features = ["std", "processor"] }
 clack-plugin = { workspace = true, optional = true }
-clack-extensions = { workspace = true, optional = true, features = ["clack-plugin", "audio-ports", "note-ports", "params", "state", "tail", "latency", "gui"] }
+clack-extensions = { workspace = true, optional = true, features = ["clack-plugin", "audio-ports", "note-ports", "params", "state", "tail", "latency", "gui", "timer"] }
 ravet-webview = { workspace = true, optional = true }
 serde_json = "=1.0.151"
 sha2 = "=0.10.9"
