@@ -129,7 +129,11 @@ into `Contents/Resources/notices`, and installs nothing into host folders.
   `editor_open`/`editor_idle`/`editor_close`, stereo and layout refusal.
 
 Neither is Avid's validator (DSH/`aaxval`, distributed to AAX developers under
-NDA) and neither is a Pro Tools run. Where the validator is installed, run its
+NDA) and neither is a Pro Tools run. A vendor-signed delay build has been run in
+Pro Tools 26.4 on macOS arm64; see [work status](WORK_STATUS.md). Known
+limitation from that run: Pro Tools keeps keyboard input for its own shortcuts,
+so text fields in a web editor (such as the delay's typed values) cannot be
+typed into; mouse editing works. Where the validator is installed, run its
 standard test suite on the built bundle as its own documentation describes, and
 record the validator version and results with the build.
 
