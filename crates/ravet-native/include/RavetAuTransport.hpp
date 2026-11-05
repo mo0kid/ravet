@@ -12,6 +12,19 @@ namespace transport_detail {
 // discard a floating NaN initializer even though the host receives its address.
 inline void invalidate(double &value) { const uint64_t bits = UINT64_C(0x7ff8000000000000); std::memcpy(&value, &bits, sizeof(value)); }
 inline void invalidate(float &value) { const uint32_t bits = UINT32_C(0x7fc00000); std::memcpy(&value, &bits, sizeof(value)); }
+// Hosts can derive the sample position from seconds x rate in Float64, leaving
+// rounding residue: REAPER 7 reports 3584.0000000000005 and 13823.999999999998
+// for whole block starts. Canonicalize values within 2^-40 of the magnitude
+// (at least 2^-20, at most 2^-10 samples) to the nearest integer; positions
+// further from an integer, such as 0.5, remain fractional and reject. Values of
+// 2^52 and above are always integral and unchanged. Requires a finite input.
+inline bool wholeSample(double &samples) {
+    const double whole = std::round(samples);
+    const double tolerance = std::fmin(0x1p-10, std::fmax(std::fabs(whole), 0x1p20) * 0x1p-40);
+    if (!(std::fabs(samples - whole) <= tolerance)) return false;
+    samples = whole;
+    return true;
+}
 } // namespace transport_detail
 enum NativeAuTransportCallback : uint32_t {
     BeatAndTempo = 1, Signature = 2, LegacyTransport = 4, Transport2 = 8
@@ -39,7 +52,8 @@ private:
 // Missing/error tuples remain unavailable; successful independent tuples
 // survive. Successful incomplete/malformed tuples reject atomically. This
 // helper allocates no storage; arbitrary host callbacks may allocate or block.
-// Sample conversion inherits Float64 precision, never rounds fractional data.
+// Sample positions within Float64 residue of an integer canonicalize to it;
+// fractional positions reject rather than being rounded.
 // No inferred clock/bar number, extrapolation, state reset or deadline promise.
 inline bool nativeTransport(const HostCallbackInfo &host,
                             NativeAuTransportSnapshot &output) {
@@ -83,8 +97,8 @@ inline bool nativeTransport(const HostCallbackInfo &host,
             // testing against INT64_MAX converted to double would accept it.
             constexpr double limit = 0x1p63;
             if (playing > 1 || changed > 1 || cycling > 1 || (modern && recording > 1) ||
-                !finite(samples) || samples < -limit || samples >= limit ||
-                std::trunc(samples) != samples) return false;
+                !finite(samples) || !transport_detail::wholeSample(samples) ||
+                samples < -limit || samples >= limit) return false;
             if (cycling && (!finite(start) || !finite(end) || start >= end)) return false;
             candidate.callbacks_ |= modern ? Transport2 : LegacyTransport;
             t.present |= RAVET_TRANSPORT_PLAYING | RAVET_TRANSPORT_SAMPLES | RAVET_TRANSPORT_DETAILS;

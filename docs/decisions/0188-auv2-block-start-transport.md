@@ -1,7 +1,9 @@
 # 0188: AUv2 block-start host transport preflight
 
 Status: prototype; direct collector/projection, authoritative native processing
-and normal self-contained reference-component contracts pass locally.
+and normal self-contained reference-component contracts pass locally. The
+exact-integral sample rule is amended by [decision 0293](0293-au-transport-sample-residue.md):
+Float64 residue within a small tolerance of an integer canonicalizes to it.
 
 The stock wrapper narrows floating host sample coordinates and signature
 numerators without scalar preflight and can pass a zero nonnull context when

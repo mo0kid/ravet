@@ -23,8 +23,10 @@ static OSStatus input(void *, AudioUnitRenderActionFlags *, const AudioTimeStamp
 }
 static void pump(double seconds) { [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]]; }
 static OSStatus beat(void *, Float64 *position, Float64 *tempo) { *position = 5; *tempo = 123; return noErr; }
+// Like REAPER 7, report the whole sample 456 with one ulp of Float64 residue;
+// products (and the mock's transport check) must receive exactly 456.
 static OSStatus transport(void *, Boolean *playing, Boolean *changed, Float64 *samples, Boolean *cycling, Float64 *start, Float64 *end) {
-    *playing = true; *changed = false; *samples = 456; *cycling = false; *start = 0; *end = 0; return noErr;
+    *playing = true; *changed = false; *samples = std::nextafter(456., 1e300); *cycling = false; *start = 0; *end = 0; return noErr;
 }
 struct Events { uint32_t begin = 0, value = 0, end = 0, latency = 0, midi = 0; };
 static void event(void *data, void *, const AudioUnitEvent *e, UInt64, AudioUnitParameterValue) {

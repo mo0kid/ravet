@@ -522,3 +522,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0290](0290-stereo-block-dsp-kernels.md) | Stereo block FIR and oversampling kernels | Implemented; FIR and matched external oversampler cost evidence on one Apple M4 Pro, x86_64 under Rosetta 2 only |
 | [0291](0291-instrument-midi-and-c-denormal-scope.md) | Generic instrument MIDI/timing evidence and synchronous C denormal scope | Implemented in prototype exports; scoped validator and Linux REAPER evidence |
 | [0292](0292-webview-robustness-and-system-notices.md) | Web view robustness and system-component notices | Implemented for ravet-webview, the native web views and the standalone window; macOS runtime, Linux CTest, Windows compile-only evidence |
+| [0293](0293-au-transport-sample-residue.md) | Canonicalize Float64 residue in AU transport sample positions | Implemented; REAPER 7.82 macOS arm64 and Rosetta AU delay renders exact, synthetic and component contracts |
