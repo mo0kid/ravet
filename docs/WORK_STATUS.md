@@ -8399,3 +8399,15 @@ views and standalone windows) and `fix/aax-keyboard` (macOS web editors take key
 status while a text field has focus, decision 0286). The rebuilt macOS AAX delay
 passes its bundle check; a vendor-signed copy is installed for a Pro Tools
 keyboard test.
+
+### Standalone runner deferred (owner decision, 2026-11-05)
+
+The owner moved release-plan §3 (generic standalone runner: device-inventory
+provider, MIDI outputs in the popup, engine handoff across stream rebuilds,
+MIDI timestamps to sample offsets, headless operation, state on quit /
+fixed-size window / product name in the menu, file dialogs) to after 0.1.0.
+A review of the DW-303 standalone application found that it performs each of
+these in product code (device listing via `ravet_device::output_devices`, its
+own stream lifecycle and state file, MIDI delivered at offset 0), so none is
+yet a RAVET framework feature. A standalone-runner agent started earlier was
+cancelled before producing changes.
