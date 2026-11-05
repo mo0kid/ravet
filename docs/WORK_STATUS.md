@@ -8180,3 +8180,12 @@ values (click the value). The rebuilt VST3 delay passes the Steinberg
 validator (47 passed, 0 failed) and replaced the installed copy. This is a
 manual, single-host check; Live's editor, parameter list and session recall
 answers are pending from the owner.
+
+Repeat of the fixed case in Ableton Live 12 Suite (macOS 27 arm64) with the
+rebuilt VST3 delay (typed value entry), the clip unwarped and Time typed as
+100 ms (sync off, feedback 0 %, mix 100 %), exported at 48 kHz, 24-bit: the
+REAPER render checker (`delay_checks.check_case`, 100 ms, mix 1.0) passes. Echoes
+are at frames 28,800 and 100,800 (+4,800 frames = 100 ms after the impulses at
+24,000 and 96,000) with amplitudes exactly 0.5 / −0.25, no dry signal, and a
+maximum residual of 0 over all 288,000 frames on both channels. This is a manual
+export checked offline, not a scripted session.
