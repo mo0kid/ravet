@@ -84,7 +84,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [AAX short MIDI input](aax-short-midi.md) | Explicit raw complete short-MIDI instrument input and the MidiSine native32/64 reference |
 | [AAX raw routing](aax-raw-routing.md) | Raw short MIDI for main and multibus effects, both auxiliary directions and one AUDIO admission |
 | [AAX meters](aax-meters.md) | Opt-in prepared host meter taps and the separate Gain meter reference |
-| [LV2 reference](lv2.md) | Mono/stereo descriptors, control ports and actual-binary checks |
+| [LV2](lv2.md) | Generic LV2 export of any product (generated Turtle, state, MIDI, transport, UI), and the 0.0.1 references |
 | [LV2 MIDI output](lv2-output.md) | Prepared short MIDI staging, complete Atom capacity and output fault semantics |
 | [Host validation](host-validation.md) | Disposable REAPER checks, synthetic renders and manual interaction scope |
 | [Runtime validation](runtime-validation.md) | Configured workspace platform matrix and macOS CLAP ABI workflow |
