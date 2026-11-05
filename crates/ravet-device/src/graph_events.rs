@@ -189,26 +189,30 @@ impl GraphEventConsumer {
     /// or explicitly discarding it under its own graph fault/recovery policy.
     pub fn next_batch(&mut self) -> Option<GraphEventBatch<'_>> {
         if self.pending.is_none() {
-            let header = match self.queue.peek().ok()? {
-                Item::Header(header) => *header,
-                _ => unreachable!("private fixed batch header"),
+            // The only producer commits whole fixed-size batches that start with
+            // a header and carry `count <= event_capacity` events, so the
+            // fallbacks below are unreachable. They report "no batch" instead
+            // of panicking on a worker or audio thread.
+            let Item::Header(header) = *self.queue.peek().ok()? else {
+                return None;
             };
-            let chunk = self
-                .queue
-                .read_chunk(self.config.event_capacity + 1)
-                .expect("atomic complete batch");
+            let chunk = self.queue.read_chunk(self.config.event_capacity + 1).ok()?;
             let (first, second) = chunk.as_slices();
             self.events.clear();
             for item in first.iter().chain(second).skip(1).take(header.count) {
-                let Item::Event(event) = item else {
-                    unreachable!("private fixed event payload")
-                };
-                self.events.push(*event);
+                if let Item::Event(event) = item {
+                    // Within the reserved capacity: no reallocation.
+                    self.events.push(*event);
+                }
             }
             chunk.commit_all();
             self.pending = Some(header);
         }
-        Some(GraphEventBatch { consumer: self })
+        let header = self.pending?;
+        Some(GraphEventBatch {
+            consumer: self,
+            header,
+        })
     }
     /// Producer teardown does not discard any retained/queued batches.
     pub fn producer_disconnected(&self) -> bool {
@@ -220,13 +224,14 @@ impl GraphEventConsumer {
 /// tag is caller-owned correlation, not a sample/device-clock identity.
 pub struct GraphEventBatch<'a> {
     consumer: &'a mut GraphEventConsumer,
+    header: Header,
 }
 impl GraphEventBatch<'_> {
     pub fn tag(&self) -> u64 {
-        self.consumer.pending.expect("retained batch").tag
+        self.header.tag
     }
     pub fn transport(&self) -> Transport {
-        self.consumer.pending.expect("retained batch").transport
+        self.header.transport
     }
     pub fn events(&self) -> &[Event] {
         &self.consumer.events
@@ -234,5 +239,40 @@ impl GraphEventBatch<'_> {
     pub fn acknowledge(self) {
         self.consumer.pending = None;
         self.consumer.events.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn corrupt_private_framing_reports_no_batch_instead_of_panicking() {
+        let config = GraphEventQueueConfig {
+            block_frames: 64,
+            event_capacity: 1,
+            queued_batches: 2,
+        };
+        let (mut producer, mut consumer) = graph_event_queue(config).unwrap();
+        // Bypass try_publish: an item that is not a header, then a short batch.
+        producer.queue.push(Item::Unused).unwrap();
+        assert!(consumer.next_batch().is_none());
+        let (_, mut consumer) = graph_event_queue(config).unwrap();
+        let (mut queue, ring) = RingBuffer::new(4);
+        queue
+            .push(Item::Header(Header {
+                tag: 7,
+                transport: Transport::default(),
+                count: 1,
+            }))
+            .unwrap();
+        consumer.queue = ring;
+        assert!(consumer.next_batch().is_none());
+        // A well-formed batch still carries its header through the batch view.
+        let (mut producer, mut consumer) = graph_event_queue(config).unwrap();
+        producer.try_publish(9, Transport::default(), &[]).unwrap();
+        let batch = consumer.next_batch().unwrap();
+        assert_eq!(batch.tag(), 9);
+        batch.acknowledge();
+        assert!(consumer.next_batch().is_none());
     }
 }

@@ -4,6 +4,9 @@
 //! Connect/enumerate/send/close belong to control/worker threads. Timestamp units
 //! are CoreMIDI host-clock ticks (zero output means now), never microseconds or
 //! audio frames. Protocol conversion performed by CoreMIDI remains host policy.
+//! The native shim's C entry points are `noexcept`; the Rust callbacks never
+//! panic, so no unwind crosses CoreMIDI (decision 0295).
+#![deny(clippy::undocumented_unsafe_blocks)]
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

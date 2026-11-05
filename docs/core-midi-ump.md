@@ -46,6 +46,10 @@ Rust ownership and cannot be moved/shared between threads; construct an output
 inside its selected worker. Receive endpoints transfer a separate Send consumer
 to audio/worker code. Closing gates new Rust callbacks, disposes native ports,
 waits for any entered callback, then frees the Rust context on the owner thread.
+Every native C entry point is `noexcept` (an allocation failure inside one
+terminates the process), and the Rust receive/release callbacks contain no panic
+path, so neither a C++ exception nor a Rust unwind crosses CoreMIDI
+([decision 0295](decisions/0295-device-crate-robustness.md)).
 No physical-device, sample-clock, hotplug or real-time deadline claim follows.
 
 Run an explicit synthetic native test without sending to hardware:

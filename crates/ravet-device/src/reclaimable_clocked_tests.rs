@@ -863,3 +863,43 @@ fn direct_owned_duplex_preflight_preserves_raw_queue_and_valid_extraction_deacti
         assert_eq!(deactivates.load(Ordering::Relaxed), 1);
     }
 }
+
+// Decision 0295: both callback guards borrow their owner outside the unwind
+// scope; a missing owner must drop input or silence output, never panic.
+#[test]
+fn callback_guards_without_owners_do_not_panic() {
+    let owner = prepare(Probe::new(0));
+    let statistics = Arc::new(Statistics {
+        input: Arc::clone(&owner.capture.counters),
+        output: Arc::clone(owner.renderer.counters()),
+        clock: Arc::clone(&owner.renderer.clock_counters),
+        capture_panics: AtomicU64::new(0),
+    });
+    let cell = Arc::new(Cell::<Probe> {
+        capture: UnsafeCell::new(None),
+        renderer: UnsafeCell::new(None),
+        statistics: Arc::clone(&statistics),
+        retired: std::array::from_fn(|_| AtomicBool::new(false)),
+    });
+    let mut input = InputData {
+        cell: Arc::clone(&cell),
+        disabled: false,
+    };
+    let mut output = OutputData {
+        cell: Arc::clone(&cell),
+        disabled: false,
+    };
+    let mut pcm = [1.; 8];
+    let counts = allocation_counter::measure(|| {
+        input.capture(&[0.5; 8]);
+        output.render(&mut pcm);
+    });
+    assert_eq!(counts.count_total, 0);
+    assert_eq!(pcm, [0.; 8]);
+    let snapshot = statistics.snapshot();
+    assert_eq!(snapshot.capture_panics, 0);
+    assert_eq!(snapshot.output.callbacks, 1);
+    assert_eq!(snapshot.output.panics, 0);
+    drop((input, output));
+    drop(owner.into_processor());
+}

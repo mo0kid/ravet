@@ -1,4 +1,5 @@
 // CoreMIDI object/block ownership only. Packet framing and queues remain Rust.
+// Every C entry point is noexcept: no C++ exception reaches Rust (decision 0295).
 #include <CoreMIDI/CoreMIDI.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <atomic>
@@ -70,7 +71,7 @@ static OSStatus find(int32_t id,bool input,MIDIEndpointRef* endpoint) {
     if((input&&!source)||(!input&&!dest))return -50;
     *endpoint=object;return 0;
 }
-extern "C" void* ravet_cm_input(const char* client_name,const char* port_name,int32_t protocol,int32_t source_id,int is_virtual,void* context,Receive receive,Release release,int32_t* error) {
+extern "C" void* ravet_cm_input(const char* client_name,const char* port_name,int32_t protocol,int32_t source_id,int is_virtual,void* context,Receive receive,Release release,int32_t* error) noexcept {
     bool transferred=false;
     try {
         auto callback=std::make_shared<Callback>();
@@ -89,7 +90,7 @@ extern "C" void* ravet_cm_input(const char* client_name,const char* port_name,in
         return status?nullptr:handle.release();
     } catch(...) {*error=-108;if(!transferred)release(context);return nullptr;}
 }
-extern "C" void* ravet_cm_output(const char* name,int32_t destination_id,int32_t* error) {
+extern "C" void* ravet_cm_output(const char* name,int32_t destination_id,int32_t* error) noexcept {
     try {
         auto handle=std::make_unique<Port>();
         CFStringRef text=label(name);
@@ -100,7 +101,7 @@ extern "C" void* ravet_cm_output(const char* name,int32_t destination_id,int32_t
         return status?nullptr:handle.release();
     } catch(...) {*error=-108;return nullptr;}
 }
-extern "C" void* ravet_cm_source(const char* client_name,const char* source_name,int32_t protocol,int32_t* error) {
+extern "C" void* ravet_cm_source(const char* client_name,const char* source_name,int32_t protocol,int32_t* error) noexcept {
     try {
         auto handle=std::make_unique<Port>();handle->source=true;
         CFStringRef client_label=label(client_name),source_label=label(source_name);
@@ -110,16 +111,16 @@ extern "C" void* ravet_cm_source(const char* client_name,const char* source_name
         *error=status;return status?nullptr:handle.release();
     } catch(...) {*error=-108;return nullptr;}
 }
-extern "C" void ravet_cm_close(void* handle){delete static_cast<Port*>(handle);}
-extern "C" int32_t ravet_cm_virtual_id(void* opaque,int32_t* id) {
+extern "C" void ravet_cm_close(void* handle) noexcept {delete static_cast<Port*>(handle);}
+extern "C" int32_t ravet_cm_virtual_id(void* opaque,int32_t* id) noexcept {
     auto handle=static_cast<Port*>(opaque);
     return handle->owned?MIDIObjectGetIntegerProperty(handle->owned,kMIDIPropertyUniqueID,id):-50;
 }
-extern "C" uint64_t ravet_cm_overlaps(void* opaque) {
+extern "C" uint64_t ravet_cm_overlaps(void* opaque) noexcept {
     auto callback=static_cast<Port*>(opaque)->callback;
     return callback?callback->overlaps.load(std::memory_order_relaxed):0;
 }
-extern "C" int32_t ravet_cm_send(void* opaque,int32_t protocol,uint64_t timestamp,uint32_t count,const uint32_t* words) {
+extern "C" int32_t ravet_cm_send(void* opaque,int32_t protocol,uint64_t timestamp,uint32_t count,const uint32_t* words) noexcept {
     auto handle=static_cast<Port*>(opaque);
     if((!handle->destination&&!(handle->source&&handle->owned))||count<1||count>4)return -50;
     alignas(8) unsigned char storage[512]{};
@@ -128,8 +129,8 @@ extern "C" int32_t ravet_cm_send(void* opaque,int32_t protocol,uint64_t timestam
     if(!MIDIEventListAdd(list,sizeof(storage),packet,timestamp,count,words))return -50;
     return handle->source?MIDIReceivedEventList(handle->owned,list):MIDISendEventList(handle->port,handle->destination,list);
 }
-extern "C" uint32_t ravet_cm_count(int input){return input?MIDIGetNumberOfSources():MIDIGetNumberOfDestinations();}
-extern "C" int32_t ravet_cm_info(int input,uint32_t index,int32_t* id,char* name,uint32_t capacity) {
+extern "C" uint32_t ravet_cm_count(int input) noexcept {return input?MIDIGetNumberOfSources():MIDIGetNumberOfDestinations();}
+extern "C" int32_t ravet_cm_info(int input,uint32_t index,int32_t* id,char* name,uint32_t capacity) noexcept {
     auto endpoint=input?MIDIGetSource(index):MIDIGetDestination(index);
     if(!endpoint)return -50;
     auto status=MIDIObjectGetIntegerProperty(endpoint,kMIDIPropertyUniqueID,id);

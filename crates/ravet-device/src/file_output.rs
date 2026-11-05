@@ -83,13 +83,12 @@ impl Processor for FilePlaybackOutput {
             return ProcessStatus::Fault(ProcessError::BackendFailure);
         };
         for channel in 0..channels {
-            for (frame, sample) in block
-                .audio
-                .output_mut(channel)
-                .expect("validated channel")
-                .iter_mut()
-                .enumerate()
-            {
+            // Unreachable: the validated layout has `channels` outputs.
+            let Some(output) = block.audio.output_mut(channel) else {
+                block.clear_outputs();
+                return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+            };
+            for (frame, sample) in output.iter_mut().enumerate() {
                 *sample = samples[frame * channels + channel];
             }
         }

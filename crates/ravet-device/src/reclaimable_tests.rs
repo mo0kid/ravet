@@ -591,3 +591,27 @@ fn every_invalid_preparation_shape_returns_owner_before_allocator_or_processor()
         assert_eq!(prepared.load(Ordering::Relaxed), 0);
     }
 }
+
+// Decision 0295: the guard's renderer access is outside the unwind scope, so a
+// missing renderer must silence rather than panic into the backend callback.
+#[test]
+fn data_guard_without_renderer_silences_instead_of_panicking() {
+    let counters: Arc<Counters> = Arc::default();
+    let cell = Arc::new(RetirementCell::<Probe> {
+        renderer: UnsafeCell::new(None),
+        counters: Arc::clone(&counters),
+        data_retired: AtomicBool::new(false),
+        error_retired: AtomicBool::new(false),
+    });
+    let mut guard = DataGuard {
+        cell: Arc::clone(&cell),
+        disabled: false,
+    };
+    let mut output = [1.; 8];
+    let counts = allocation_counter::measure(|| guard.render(&mut output));
+    assert_eq!(counts.count_total, 0);
+    assert_eq!(output, [0.; 8]);
+    assert_eq!(counters.snapshot().callbacks, 1);
+    drop(guard);
+    assert!(cell.data_retired.load(Ordering::Acquire));
+}

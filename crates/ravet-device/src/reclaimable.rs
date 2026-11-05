@@ -217,9 +217,15 @@ impl<P: Processor> DataGuard<P> {
         // SAFETY: the unique non-Clone data guard is called through FnMut, so
         // this is its only live renderer borrow. Worker waits for its Drop and
         // actual Arc disappearance; error guard never accesses this field.
-        let renderer = unsafe { &mut *self.cell.renderer.get() }
-            .as_mut()
-            .expect("live renderer");
+        let renderer = unsafe { &mut *self.cell.renderer.get() }.as_mut();
+        // The renderer is taken only after this guard is dropped, so `None` is
+        // unreachable. This runs outside the unwind scope below, so it must not
+        // panic: silence instead of unwinding into the backend callback.
+        let Some(renderer) = renderer else {
+            self.cell.counters.callbacks.fetch_add(1, Ordering::Relaxed);
+            output.fill(0.0);
+            return;
+        };
         if self.disabled {
             renderer.counters.callbacks.fetch_add(1, Ordering::Relaxed);
             output.fill(0.0);
@@ -286,6 +292,9 @@ fn retire<P: Processor + Send + 'static>(
     // No Weak or future cloning exists; count==1 remains stable. Both guards
     // finished, including Arc field Drop. Safe consuming extraction needs no
     // unsafe move and performs all renderer/scratch/processor disposal here.
+    // Retirement worker (control) thread. Unreachable: sole ownership was just
+    // observed and no Weak or new clone can exist; the renderer is only taken
+    // here. A panic would surface as `WorkerPanicked`, never on a callback.
     let cell = match Arc::try_unwrap(cell) {
         Ok(cell) => cell,
         Err(_) => unreachable!("sole retired owner"),
@@ -334,6 +343,9 @@ fn start_prepared<P: Processor + Send + 'static, S>(
         Err(error) => {
             drop(data);
             drop(errors);
+            // Control thread. Relies on `thread::Builder::spawn` dropping the
+            // unstarted closure (and its cell clone) on failure, as std does;
+            // the guards were dropped above, so this is the sole owner.
             let cell = match Arc::try_unwrap(cell) {
                 Ok(cell) => cell,
                 Err(_) => unreachable!("spawn failure retains no worker"),
@@ -369,6 +381,8 @@ fn start_prepared<P: Processor + Send + 'static, S>(
 /// happen on control. Framework callback capture Drop only publishes atomics and
 /// releases a non-last Arc; native CPAL/OS destruction is a separate backend limit.
 pub struct ReclaimableOutput<P: Processor> {
+    // `Some` until the consuming `stop` (or Drop); the control-thread `expect`s
+    // below are unreachable.
     stream: Option<cpal::Stream>,
     counters: Arc<Counters>,
     retirement: Option<OutputRetirement<P>>,

@@ -92,18 +92,28 @@ impl<S: StreamHandle> Session<S> {
             drop(stream);
         }
     }
+    #[cfg(test)]
     fn service<E>(
         &mut self,
         available: bool,
         open: impl FnOnce() -> Result<S, E>,
     ) -> Result<OutputRecoveryStatus, E> {
+        self.service_selected(available.then_some(()), |()| open())
+    }
+    /// Open only with the selected device(s) that `selection` carries, so the
+    /// opener never re-checks availability (no `expect`/`unreachable!`).
+    fn service_selected<D, E>(
+        &mut self,
+        selection: Option<D>,
+        open: impl FnOnce(D) -> Result<S, E>,
+    ) -> Result<OutputRecoveryStatus, E> {
         if !self.enabled {
             return Ok(OutputRecoveryStatus::Disabled);
         }
-        if !available {
+        let Some(selection) = selection else {
             self.close();
             return Ok(OutputRecoveryStatus::Waiting);
-        }
+        };
         if self
             .stream
             .as_ref()
@@ -112,7 +122,7 @@ impl<S: StreamHandle> Session<S> {
             return Ok(OutputRecoveryStatus::Running);
         }
         self.close();
-        let stream = open()?;
+        let stream = open(selection)?;
         self.generation = self.generation.wrapping_add(1);
         self.stream = Some(stream);
         Ok(OutputRecoveryStatus::Opened {
@@ -209,9 +219,8 @@ impl<P: Processor + Send + 'static, F: FnMut() -> P> RecoveringOutput<P, F> {
         }
         let device = output_device(Some(&self.id))
             .map_err(|error| OutputRecoveryError::Open(OpenError::Backend(error)))?;
-        self.session.service(device.is_some(), || {
-            let device = device.as_ref().expect("available device");
-            let stream = open_output(device, self.config, self.maximum_frames, (self.factory)())
+        self.session.service_selected(device, |device| {
+            let stream = open_output(&device, self.config, self.maximum_frames, (self.factory)())
                 .map_err(OutputRecoveryError::Open)?;
             stream
                 .play()
@@ -335,17 +344,17 @@ impl<P: Processor + Send + 'static, F: FnMut() -> P> RecoveringDuplex<P, F> {
             .map_err(|error| OutputRecoveryError::Open(OpenError::Backend(error)))?;
         // Missing input already requires stopping the pair; do not let a second
         // enumeration failure keep a known-invalid pair running.
-        if input.is_none() {
+        let Some(input) = input else {
             return self
                 .session
-                .service(false, || unreachable!("missing input"));
-        }
+                .service_selected(None, |never: std::convert::Infallible| match never {});
+        };
         let output = output_device(Some(&self.output_id))
             .map_err(|error| OutputRecoveryError::Open(OpenError::Backend(error)))?;
-        self.session.service(output.is_some(), || {
+        self.session.service_selected(output, |output| {
             let stream = crate::open_duplex(
-                input.as_ref().expect("available input"),
-                output.as_ref().expect("available output"),
+                &input,
+                &output,
                 self.input_config,
                 self.output_config,
                 self.maximum_frames,
@@ -477,17 +486,17 @@ impl<P: Processor + Send + 'static, F: FnMut() -> P> RecoveringClockedDuplex<P, 
         }
         let input = crate::input_device(Some(&self.input_id))
             .map_err(ClockedDuplexRecoveryError::Backend)?;
-        if input.is_none() {
+        let Some(input) = input else {
             return self
                 .session
-                .service(false, || unreachable!("missing input"));
-        }
+                .service_selected(None, |never: std::convert::Infallible| match never {});
+        };
         let output =
             output_device(Some(&self.output_id)).map_err(ClockedDuplexRecoveryError::Backend)?;
-        self.session.service(output.is_some(), || {
+        self.session.service_selected(output, |output| {
             let stream = crate::open_clocked_duplex(
-                input.as_ref().expect("available input"),
-                output.as_ref().expect("available output"),
+                &input,
+                &output,
                 self.input_config,
                 self.output_config,
                 self.options.clock.capacity_frames,

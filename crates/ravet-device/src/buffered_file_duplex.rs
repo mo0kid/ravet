@@ -112,6 +112,9 @@ impl BufferedFileDuplexMonitor {
 /// }
 /// ```
 pub struct BufferedFileDuplexProcessor<P: Processor> {
+    // Both are `Some` from construction until the consuming `into_parts`, which
+    // deactivates first so the later Drop touches neither. The `expect`s in the
+    // accessors below are therefore unreachable; audio-path code avoids them.
     playback: Option<BufferedPlayback>,
     processor: Option<P>,
     config: Option<ProcessConfig>,
@@ -203,7 +206,14 @@ impl<P: Processor> BufferedFileDuplexProcessor<P> {
             self.processor.take().expect("owned processor"),
         )
     }
-    fn segment(&mut self, start: usize, end: usize, position: u64, playing: bool) -> ProcessStatus {
+    fn segment(
+        &mut self,
+        outputs: usize,
+        range: std::ops::Range<usize>,
+        position: u64,
+        playing: bool,
+    ) -> ProcessStatus {
+        let (start, end) = (range.start, range.end);
         let input_views: [&[f32]; MAXIMUM_CHANNELS] =
             std::array::from_fn(|c| self.inputs.get(c).map_or(&[] as &[f32], |v| &v[start..end]));
         let mut iter = self.outputs.iter_mut();
@@ -213,13 +223,18 @@ impl<P: Processor> BufferedFileDuplexProcessor<P> {
                 &mut v[start..end]
             })
         });
-        let outputs = self.config.expect("prepared").layout().output_channels();
-        let audio = AudioBuffer::separate(
+        // Unreachable failures (prepared plane lengths, owned child) fault the
+        // block instead of panicking on the device callback.
+        let Some(processor) = self.processor.as_mut() else {
+            return ProcessStatus::Fault(ProcessError::NotPrepared);
+        };
+        let Ok(audio) = AudioBuffer::separate(
             &input_views[..self.inputs.len()],
             &mut output_views[..outputs],
             end - start,
-        )
-        .expect("prepared complete segment");
+        ) else {
+            return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+        };
         let mut block = ProcessBlock::new(
             audio,
             &[],
@@ -232,11 +247,7 @@ impl<P: Processor> BufferedFileDuplexProcessor<P> {
         );
         self.statistics.child_calls = self.statistics.child_calls.wrapping_add(1);
         self.discontinuity = false;
-        let status = self
-            .processor
-            .as_mut()
-            .expect("owned processor")
-            .process(&mut block);
+        let status = processor.process(&mut block);
         if status == ProcessStatus::Silence {
             block.clear_outputs();
         }
@@ -305,10 +316,9 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
             .start_audio()
     }
     fn stop_audio(&mut self) {
-        self.processor
-            .as_mut()
-            .expect("owned processor")
-            .stop_audio();
+        if let Some(processor) = self.processor.as_mut() {
+            processor.stop_audio();
+        }
     }
     fn process(&mut self, block: &mut ProcessBlock<'_, '_, '_>) -> ProcessStatus {
         let Some(config) = self.config else {
@@ -335,16 +345,16 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
             block.clear_outputs();
             return ProcessStatus::Fault(ProcessError::BackendFailure);
         }
-        let file_channels = self.playback().channels();
-        let before = self.playback().position_frames();
+        let Some(playback) = self.playback.as_mut() else {
+            // Unreachable: see the field invariant.
+            block.clear_outputs();
+            return ProcessStatus::Fault(ProcessError::NotPrepared);
+        };
+        let file_channels = playback.channels();
+        let before = playback.position_frames();
         self.discontinuity |= before != self.expected_file_position;
         let samples = &mut self.file[..frames * file_channels];
-        let progress = match self
-            .playback
-            .as_mut()
-            .expect("owned playback")
-            .render(samples)
-        {
+        let progress = match playback.render(samples) {
             Ok(p) => p,
             Err(_) => {
                 self.first_error = Some(ProcessError::BackendFailure);
@@ -353,7 +363,7 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
                 return ProcessStatus::Fault(ProcessError::BackendFailure);
             }
         };
-        self.expected_file_position = self.playback().position_frames();
+        self.expected_file_position = playback.position_frames();
         self.statistics.file_position = self.expected_file_position;
         self.statistics.consumed_file_frames = self
             .statistics
@@ -371,8 +381,10 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
             }
         }
         for channel in 0..config.layout().input_channels() {
-            self.inputs[file_channels + channel][..frames]
-                .copy_from_slice(block.audio.input(channel).expect("validated input"));
+            // The validated block has these inputs, each exactly `frames` long.
+            if let Some(input) = block.audio.input(channel) {
+                self.inputs[file_channels + channel][..frames].copy_from_slice(input);
+            }
         }
         let mut silence = true;
         for (start, end, position, playing) in [
@@ -387,7 +399,12 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
             if start == end {
                 continue;
             }
-            match self.segment(start, end, position, playing) {
+            match self.segment(
+                config.layout().output_channels(),
+                start..end,
+                position,
+                playing,
+            ) {
                 ProcessStatus::Continue => silence = false,
                 ProcessStatus::Silence => {}
                 ProcessStatus::Fault(error) => {
@@ -399,12 +416,11 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
                 }
             }
         }
-        for channel in 0..config.layout().output_channels() {
-            block
-                .audio
-                .output_mut(channel)
-                .expect("validated output")
-                .copy_from_slice(&self.outputs[channel][..frames]);
+        for (channel, source) in self.outputs.iter().enumerate() {
+            // The validated block has these outputs, each exactly `frames` long.
+            if let Some(output) = block.audio.output_mut(channel) {
+                output.copy_from_slice(&source[..frames]);
+            }
         }
         self.monitor.publish(self.statistics);
         if silence {
@@ -436,11 +452,10 @@ impl<P: Processor> Processor for BufferedFileDuplexProcessor<P> {
         }
     }
     fn deactivate(&mut self) {
-        if self.config.take().is_some() {
-            self.processor
-                .as_mut()
-                .expect("owned processor")
-                .deactivate();
+        if self.config.take().is_some()
+            && let Some(processor) = self.processor.as_mut()
+        {
+            processor.deactivate();
         }
     }
     fn latency_samples(&self) -> u32 {

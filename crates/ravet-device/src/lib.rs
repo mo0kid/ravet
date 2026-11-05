@@ -8,6 +8,10 @@
 //! matching-rate mode has no drift correction; an explicit clocked mode combines
 //! bounded FIFO feedback and prepared sinc conversion without sample alignment. Device
 //! availability, callback deadlines and audible output require target validation.
+//!
+//! Callback-path invariants never panic: a violated internal invariant silences
+//! the affected block and counts a processor fault instead (decision 0295).
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ravet_foundation::{
@@ -263,6 +267,8 @@ impl<P: Processor> PreparedOutput<P> {
     /// the calling control thread. Reopening requires explicit preparation; no
     /// reader seek/reset is hidden here. A foreign deactivation panic is exceptional.
     pub fn into_processor(mut self) -> P {
+        // Unreachable: `processor` is `Some` from construction until this
+        // consuming call; Drop then sees `None` and does not deactivate twice.
         let mut processor = self.processor.take().expect("owned prepared processor");
         processor.deactivate();
         processor
@@ -276,7 +282,9 @@ impl<P: Processor> PreparedOutput<P> {
     pub fn render(&mut self, output: &mut [f32]) {
         self.counters.callbacks.fetch_add(1, Ordering::Relaxed);
         let channels = self.scratch.len();
-        if !output.len().is_multiple_of(channels) {
+        // `channels` is at least one (validated layout), so the multiple check
+        // also rules out zero-sized chunks below.
+        if channels == 0 || !output.len().is_multiple_of(channels) {
             output.fill(0.0);
             self.counters
                 .processor_faults
@@ -288,12 +296,23 @@ impl<P: Processor> PreparedOutput<P> {
             let mut iter = self.scratch.iter_mut();
             let mut views: [&mut [f32]; MAXIMUM_CHANNELS] = std::array::from_fn(|_| {
                 iter.next().map_or(&mut [] as &mut [f32], |channel| {
-                    channel[..frames].fill(0.0);
-                    &mut channel[..frames]
+                    let channel = &mut channel[..frames];
+                    channel.fill(0.0);
+                    channel
                 })
             });
-            let audio = AudioBuffer::separate(&[], &mut views[..channels], frames)
-                .expect("prepared channel lengths");
+            // Unreachable failures (prepared scratch lengths, owned processor)
+            // fault the sub-block with silence rather than panic in a callback.
+            let (Ok(audio), Some(processor)) = (
+                AudioBuffer::separate(&[], &mut views[..channels], frames),
+                self.processor.as_mut(),
+            ) else {
+                chunk.fill(0.0);
+                self.counters
+                    .processor_faults
+                    .fetch_add(1, Ordering::Relaxed);
+                continue;
+            };
             let mut block = ProcessBlock::new(
                 audio,
                 &[],
@@ -302,12 +321,7 @@ impl<P: Processor> PreparedOutput<P> {
                     ..Transport::default()
                 },
             );
-            match self
-                .processor
-                .as_mut()
-                .expect("owned prepared processor")
-                .process(&mut block)
-            {
+            match processor.process(&mut block) {
                 ProcessStatus::Continue => {}
                 ProcessStatus::Silence => block.clear_outputs(),
                 ProcessStatus::Fault(_) => {
@@ -317,11 +331,7 @@ impl<P: Processor> PreparedOutput<P> {
                         .fetch_add(1, Ordering::Relaxed);
                 }
             }
-            for (frame, samples) in chunk.chunks_exact_mut(channels).enumerate() {
-                for (channel, sample) in samples.iter_mut().enumerate() {
-                    *sample = block.audio.output(channel).expect("prepared channels")[frame];
-                }
-            }
+            interleave_outputs(&block.audio, chunk, channels);
             self.position = self
                 .position
                 .and_then(|position| position.checked_add(frames as i64));
@@ -338,6 +348,28 @@ impl<P: Processor> Drop for PreparedOutput<P> {
     fn drop(&mut self) {
         if let Some(processor) = self.processor.as_mut() {
             processor.deactivate();
+        }
+    }
+}
+
+/// Copy planar block outputs into an interleaved device chunk without
+/// indexing panics; a missing channel or frame writes silence.
+pub(crate) fn interleave_outputs(
+    audio: &AudioBuffer<'_, '_, f32>,
+    chunk: &mut [f32],
+    channels: usize,
+) {
+    if channels == 0 {
+        chunk.fill(0.0);
+        return;
+    }
+    for (frame, samples) in chunk.chunks_exact_mut(channels).enumerate() {
+        for (channel, sample) in samples.iter_mut().enumerate() {
+            *sample = audio
+                .output(channel)
+                .and_then(|output| output.get(frame))
+                .copied()
+                .unwrap_or(0.0);
         }
     }
 }
@@ -511,6 +543,35 @@ mod callback_tests {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(counters.snapshot().panics, 1);
         assert_eq!(counters.snapshot().callbacks, 2);
+    }
+
+    pub(crate) struct Constant;
+    impl Processor for Constant {
+        fn prepare(&mut self, _: ProcessConfig) -> Result<(), PrepareError> {
+            Ok(())
+        }
+        fn process(&mut self, block: &mut ProcessBlock<'_, '_, '_>) -> ProcessStatus {
+            for channel in 0..block.audio.output_channels() {
+                block.audio.output_mut(channel).unwrap().fill(0.5);
+            }
+            ProcessStatus::Continue
+        }
+        fn reset(&mut self) {}
+        fn deactivate(&mut self) {}
+    }
+
+    // Decision 0295: a broken ownership invariant on a callback path silences
+    // and counts a fault instead of panicking, and allocates nothing.
+    #[test]
+    fn missing_output_owner_faults_with_silence_instead_of_panicking() {
+        let mut renderer = PreparedOutput::new(Constant, 48000, 2, 16).unwrap();
+        renderer.processor = None;
+        let mut output = [1.; 64];
+        let counts = allocation_counter::measure(|| renderer.render(&mut output));
+        assert_eq!(counts.count_total, 0);
+        assert_eq!(output, [0.; 64]);
+        let statistics = renderer.statistics();
+        assert_eq!((statistics.processor_faults, statistics.frames), (2, 0));
     }
 }
 

@@ -51,8 +51,10 @@ extern "C" fn receive(
     count: u32,
     words: *const u32,
 ) {
-    // SAFETY: the native entry gate admits one callback, holds context ownership,
-    // and close waits for this entry to finish before control-thread release.
+    // SAFETY: `context` is the Box this port passed to `ravet_cm_input`; native
+    // code never passes null or another pointer. The entry gate admits one
+    // callback at a time (exclusive borrow), and close waits for this entry to
+    // finish before releasing the Box on the control thread.
     let context = unsafe { &mut *context.cast::<Context>() };
     if native_protocol != protocol(context.protocol)
         || count > 4096
@@ -64,11 +66,13 @@ extern "C" fn receive(
             .fetch_add(1, Ordering::Relaxed);
         return;
     }
-    // SAFETY: CoreMIDI supplies live numeric words for this callback, native
-    // preflight bounds count; empty slices never dereference the native pointer.
     let words = if count == 0 {
+        // Empty slices never dereference the native pointer.
         &[]
     } else {
+        // SAFETY: `words` is non-null (checked above) and CoreMIDI keeps `count`
+        // aligned u32 words live for this callback; native preflight and the
+        // check above bound `count` to 4,096. The slice does not outlive it.
         unsafe { std::slice::from_raw_parts(words, count as usize) }
     };
     let _ = context

@@ -514,7 +514,7 @@ fn known_live_callback_faults_retire_before_failing_selection_and_pending_servic
             ))
         };
         let error = c
-            .service_selected(select, |a| *a, |_, p| no_open(p), no_restore)
+            .service_selected(select, |a| a.then_some(()), |(), p| no_open(p), no_restore)
             .unwrap_err();
         match error {
             ClockedRecoveryFailure::Control(ReclaimableClockedRecoveryError::Open(e)) => {
@@ -526,13 +526,13 @@ fn known_live_callback_faults_retire_before_failing_selection_and_pending_servic
         assert_eq!(c.status(), ReclaimableClockedRecoveryStatus::Running);
         backend.as_ref().unwrap().fault_kind(kind);
         assert_eq!(
-            c.service_selected(select, |a| *a, |_, p| no_open(p), no_restore)
+            c.service_selected(select, |a| a.then_some(()), |(), p| no_open(p), no_restore)
                 .unwrap(),
             ReclaimableClockedRecoveryStatus::Retiring
         );
         for _ in 0..20 {
             assert_eq!(
-                c.service_selected(select, |a| *a, |_, p| no_open(p), no_restore)
+                c.service_selected(select, |a| a.then_some(()), |(), p| no_open(p), no_restore)
                     .unwrap(),
                 ReclaimableClockedRecoveryStatus::Retiring
             );
@@ -542,7 +542,7 @@ fn known_live_callback_faults_retire_before_failing_selection_and_pending_servic
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
             match c
-                .service_selected(select, |a| *a, |_, p| no_open(p), no_restore)
+                .service_selected(select, |a| a.then_some(()), |(), p| no_open(p), no_restore)
                 .unwrap()
             {
                 ReclaimableClockedRecoveryStatus::Reclaimed { .. } => break,
