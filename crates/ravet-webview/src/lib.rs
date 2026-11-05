@@ -1,17 +1,22 @@
-//! Main-thread Cocoa/WebKit ownership for embedded macOS editors.
+//! Main-thread native web views for embedded editors and standalone windows:
+//! Cocoa/WebKit on macOS, Win32/WebView2 on Windows and GTK 3/WebKitGTK 4.1
+//! (X11 or XWayland) on Linux.
 //!
-//! Native code targets macOS 12 or later and requires Xcode command-line tools.
-//! This crate is separate from portable DSP and the umbrella dependency graph.
+//! macOS native code targets macOS 12 or later and requires Xcode command-line
+//! tools. Windows builds need `RAVET_WEBVIEW2_SDK` (an extracted WebView2 NuGet
+//! package) and ship its `WebView2Loader.dll` beside the consuming binary. Linux
+//! builds need the GTK 3, WebKitGTK 4.1 and JSON-GLib development packages, and
+//! hosts must call [`pump`] from their UI loop. This crate is separate from
+//! portable DSP and the umbrella dependency graph.
 //! Browser context menus are disabled in all loaded frames. Right-click events
 //! still reach page controls for reset actions and custom menus.
-//! `ContentConstraints` and checked explicit native semantic models are portable.
-//! The opt-in companion does not inspect HTML or certify assistive technologies.
-//! On other platforms the native API is unavailable. See `docs/native-editor.md`.
-#[cfg(target_os = "macos")]
+//! `ContentConstraints` and checked explicit native semantic models are portable;
+//! the native accessibility companion is macOS only. See `docs/native-editor.md`.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 #[allow(unsafe_code)]
-mod macos;
-#[cfg(target_os = "macos")]
-pub use macos::{Callbacks, WebView, WebViewError, is_main_thread};
+mod native;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub use native::{Callbacks, WebView, WebViewError, is_main_thread, pump};
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod editor_abi;
@@ -19,10 +24,10 @@ mod editor_abi;
 /// Retain this crate and its native editor ABI in a consumer static library.
 pub fn link() {}
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 #[allow(unsafe_code)]
 mod standalone;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub use standalone::{
     StandaloneEditor, StandaloneOptions, StandaloneWindow, StandaloneWindowState,
 };
