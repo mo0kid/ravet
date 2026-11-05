@@ -107,6 +107,13 @@ properties follow the parameter:
 - units map to the LV2 units vocabulary (dB, Hz, kHz, ms, s, %, bpm, semitones,
   cents and others); any other unit string becomes a custom `units:Unit`.
 
+Port **symbols** come from parameter keys and stay stable; port **indices**
+follow declaration order. Inserting, removing or reordering parameters therefore
+changes the indices of later ports, which hosts that store indices instead of
+symbols would misassign. Add parameters at the end, and keep a removed
+parameter as a hidden read-only entry if released sessions must keep loading
+(see the [0.1.0 upgrade notes](releases/0.1.0-upgrade.md#lv2-port-indices)).
+
 A key that is not a valid LV2 symbol, or that clashes with a fixed symbol,
 becomes `p<host ID>`. The same code computes the layout at build time and at
 run time, so Turtle and the module always agree.

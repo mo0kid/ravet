@@ -26,8 +26,13 @@ same-directory temporary-file atomic replacement, content sync and cleanup.
 Parent directory sync/power-loss durability and concurrent directory ownership
 remain outside that contract. No revisions or overwrite prompt are added.
 
-`load_into(name, store)` bounds the selected file read and validates product,
-version and library limits before the destination sees any transaction. The
+`with_schema(schema)` sets the product's current preset schema (default 1).
+`save` writes it into the record. `load_into(name, store)` bounds the selected
+file read and validates product, record format, schema and library limits
+before the destination sees any transaction. Newer schemas reject with
+`UnsupportedSchema`; older ones reject unless loaded with
+`load_into_migrating(name, store, migrate)`, whose hook receives the saved
+schema and decoded tree. Files written by RAVET 0.0.1 load as schema 1. The
 destination's limits also apply. Successful restore is one undoable complete
 edit; malformed/missing/foreign/out-of-bounds records preserve state, revision
 and undo/redo. The caller then publishes processor-specific parameter snapshots
@@ -36,6 +41,7 @@ program indices or CLAP/VST3 preset-discovery extensions.
 
 Filesystem fixtures validate sorting, replacement, complete undoable recall,
 failed-load history preservation, destination bounds, pre-write rejection,
+schema rejection and migration,
 symlink skipping on Unix, name policy and total-entry limits. They use disposable
 synthetic files on macOS. Other runtime platforms, DAW preset registration and
 product migration beyond the observable codec remain unvalidated. See
