@@ -54,6 +54,17 @@ struct Uris {
         timeBeatsPerBar, timeBeatUnit, timeBpm, bufMax, bufNominal, state;
 };
 
+// Host time:Position values are arbitrary finite doubles. Converting one that is
+// out of range to an integer is undefined behaviour in C++, so every
+// host-derived integer goes through this saturating conversion (NaN → 0).
+template <class T> T saturate(double value) {
+    if (!(value == value)) return 0;
+    if (value <= double(std::numeric_limits<T>::min())) return std::numeric_limits<T>::min();
+    // 2^63 and 2^31 are exact doubles; anything at or above them saturates.
+    if (value >= -2.0 * double(std::numeric_limits<T>::min())) return std::numeric_limits<T>::max();
+    return T(value);
+}
+
 // Host transport as last reported by time:Position, advanced between reports.
 struct Clock {
     bool known = false, hasFrame = false, hasSpeed = false, hasBeat = false, hasTempo = false,
@@ -64,7 +75,8 @@ struct Clock {
 
     void advance(uint32_t frames, double rate) {
         if (!known || !hasSpeed || speed == 0.0) return;
-        if (hasFrame) frame += int64_t(std::llround(double(frames) * speed));
+        // Saturating: a host may report any finite speed, and int64 overflow is UB.
+        if (hasFrame) frame = saturate<int64_t>(double(frame) + std::round(double(frames) * speed));
         if (!hasTempo || !(rate > 0)) return;
         const double beats = double(frames) / rate * tempo / 60.0 * speed;
         if (hasBeat) beat += beats;
@@ -73,7 +85,7 @@ struct Clock {
             if (hasBeatsPerBar && beatsPerBar > 0 && barBeat >= beatsPerBar) {
                 const double bars = std::floor(barBeat / beatsPerBar);
                 barBeat -= bars * beatsPerBar;
-                if (hasBar) bar += int64_t(bars);
+                if (hasBar) bar = saturate<int64_t>(double(bar) + bars);
             }
         }
     }
@@ -276,14 +288,14 @@ void applyPosition(const Uris &u, const LV2_Atom_Object *object, Clock &clock) {
     clock.known = true;
     if (frame && (value = number(u, frame, ok), ok)) {
         clock.hasFrame = true;
-        clock.frame = frame->type == u.atomLong ? reinterpret_cast<const LV2_Atom_Long *>(frame)->body : int64_t(value);
+        clock.frame = frame->type == u.atomLong ? reinterpret_cast<const LV2_Atom_Long *>(frame)->body : saturate<int64_t>(value);
     }
     if (speed && (value = number(u, speed, ok), ok) && std::isfinite(value)) { clock.hasSpeed = true; clock.speed = value; }
     if (beat && (value = number(u, beat, ok), ok) && std::isfinite(value)) { clock.hasBeat = true; clock.beat = value; }
-    if (bar && (value = number(u, bar, ok), ok) && std::isfinite(value)) { clock.hasBar = true; clock.bar = int64_t(value); }
+    if (bar && (value = number(u, bar, ok), ok) && std::isfinite(value)) { clock.hasBar = true; clock.bar = saturate<int64_t>(value); }
     if (barBeat && (value = number(u, barBeat, ok), ok) && std::isfinite(value)) { clock.hasBarBeat = true; clock.barBeat = value; }
     if (beatsPerBar && (value = number(u, beatsPerBar, ok), ok) && std::isfinite(value)) { clock.hasBeatsPerBar = true; clock.beatsPerBar = value; }
-    if (beatUnit && (value = number(u, beatUnit, ok), ok) && std::isfinite(value)) { clock.hasBeatUnit = true; clock.beatUnit = int32_t(value); }
+    if (beatUnit && (value = number(u, beatUnit, ok), ok) && std::isfinite(value)) { clock.hasBeatUnit = true; clock.beatUnit = saturate<int32_t>(value); }
     if (bpm && (value = number(u, bpm, ok), ok) && std::isfinite(value) && value > 0) { clock.hasTempo = true; clock.tempo = value; }
 }
 
@@ -540,6 +552,12 @@ Library &library() {
 } // namespace
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index) {
-    auto &loaded = library();
-    return index == 0 && loaded.entry ? &loaded.descriptor : nullptr;
+    // Loading allocates (paths, error text) and std::call_once may throw; no
+    // C++ exception may reach the C host.
+    try {
+        auto &loaded = library();
+        return index == 0 && loaded.entry ? &loaded.descriptor : nullptr;
+    } catch (...) {
+        return nullptr;
+    }
 }

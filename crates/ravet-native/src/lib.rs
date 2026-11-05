@@ -5,6 +5,8 @@
 //! these for consumer-selected processors. Native facade traits supply bounded
 //! global schemas and optional explicit live base-state publication; SDK
 //! metadata/registration and delivery remain consumer policy. Normal processing/reset avoid heap actions.
+// Every unsafe block in library code states why it is sound.
+#![deny(clippy::undocumented_unsafe_blocks)]
 use ravet_foundation::{
     AudioBuffer, Event, EventData, OutputEvents, ParameterId, PrepareError, ProcessBlock,
     ProcessConfig, ProcessError, ProcessStatus, Processor, Sample,
@@ -177,8 +179,10 @@ impl<S: Sample> NativeAudioAdapter<S> {
         });
         let layout = self.config.layout();
         let (main_outputs, mut remaining_outputs) = outputs.split_at_mut(layout.output_channels());
+        // Scratch is prepared for the configured layout and `frames` is bounded
+        // by the prepared maximum, so this never fails; no panic path on audio.
         let main = AudioBuffer::separate(&inputs[..layout.input_channels()], main_outputs, frames)
-            .expect("prepared scratch");
+            .map_err(|_| ProcessError::LayoutMismatch)?;
         let mut input_offset = layout.input_channels();
         let mut auxiliary: [AudioBuffer<'_, '_, S>; 8] = std::array::from_fn(|index| {
             let (ins, outs) = self
@@ -188,6 +192,8 @@ impl<S: Sample> NativeAudioAdapter<S> {
                 .map_or((0, 0), |b| (b.input_channels(), b.output_channels()));
             let (out, rest) = std::mem::take(&mut remaining_outputs).split_at_mut(outs);
             remaining_outputs = rest;
+            // Unreachable panic: scratch is prepared for every configured
+            // auxiliary bus and `frames` is bounded by the prepared maximum.
             let bus = AudioBuffer::separate(&inputs[input_offset..input_offset + ins], out, frames)
                 .expect("prepared auxiliary scratch");
             input_offset += ins;

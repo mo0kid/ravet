@@ -194,6 +194,8 @@ void state(Instance &mono) {
     auto *chunk = reinterpret_cast<AAX_SPlugInChunk *>(storage.data());
     chunk->fChunkID = kStateChunkId;
     require(mono.model->GetChunk(kStateChunkId, chunk) == AAX_SUCCESS && uint32_t(chunk->fSize) == size, "chunk");
+    // A repeated GetChunk (no cached bytes) still fits the size the host allocated.
+    require(mono.model->GetChunk(kStateChunkId, chunk) == AAX_SUCCESS && uint32_t(chunk->fSize) == size, "repeated chunk");
     std::vector<uint8_t> direct(size);
     uint32_t length = 0;
     require(table->save_state(mono.instance(), direct.data(), size, &length) == 0 && length == size &&
@@ -251,6 +253,19 @@ void stereo(fake::Descriptor &descriptor) {
     stereo.fill(0.25f);
     stereo.context->run(512);
     require(stereo.context->outputs[0][511] == 0.25f && stereo.context->outputs[1][511] == 0.25f, "stereo unity");
+    {
+        // GetChunk without a preceding GetChunkSize: the host buffer size is
+        // unknown, so nothing is written.
+        std::vector<uint8_t> storage(sizeof(AAX_SPlugInChunk) + 4096, 0xee);
+        auto *chunk = reinterpret_cast<AAX_SPlugInChunk *>(storage.data());
+        chunk->fChunkID = kStateChunkId;
+        chunk->fSize = 0;
+        require(stereo.model->GetChunk(kStateChunkId, chunk) == AAX_ERROR_INCORRECT_CHUNK_SIZE && chunk->fSize == 0 &&
+                    uint8_t(chunk->fData[0]) == 0xee, "unsized GetChunk refused");
+        uint32_t size = 0;
+        require(stereo.model->GetChunkSize(kStateChunkId, &size) == AAX_SUCCESS && size <= 4096, "chunk size after refusal");
+        require(stereo.model->GetChunk(kStateChunkId, chunk) == AAX_SUCCESS && uint32_t(chunk->fSize) == size, "sized GetChunk");
+    }
     TransportControllerHost host;
     host.input = AAX_eStemFormat_Stereo;
     host.output = AAX_eStemFormat_Mono;

@@ -230,6 +230,8 @@ impl<
     }
     unsafe extern "C" fn destroy_cache(cache: *mut c_void) {
         if !cache.is_null() {
+            // SAFETY: created by `create_cache` and destroyed once after every borrower stops
+            // (table contract).
             drop(unsafe { Box::from_raw(cache.cast::<NativeTelemetryCache<N>>()) });
         }
     }
@@ -237,6 +239,8 @@ impl<
         if cache.is_null() || !aligned(cache.cast::<NativeTelemetryCache<N>>()) {
             None
         } else {
+            // SAFETY: checked nonnull and aligned; the contract requires a live cache from
+            // `create_cache`.
             unsafe { cache.cast::<NativeTelemetryCache<N>>().as_ref() }
         }
     }
@@ -248,12 +252,14 @@ impl<
         if output.is_null() || !aligned(output) {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { Self::get(cache) }) else {
             return 1;
         };
         let Some(info) = cache.info(index as usize) else {
             return 1;
         };
+        // SAFETY: checked nonnull and aligned above.
         unsafe {
             output.write(*info);
         }
@@ -273,6 +279,7 @@ impl<
         {
             return 1;
         }
+        // SAFETY: `get` checks null and alignment; the caller passes a live cache.
         let Some(cache) = (unsafe { Self::get(cache) }) else {
             return 1;
         };
@@ -287,6 +294,8 @@ impl<
                 return 1;
             };
             for (index, field) in values.into_iter().enumerate() {
+                // SAFETY: `output` is nonnull and aligned with room for `capacity` >= N records,
+                // and the cache validated exactly N values.
                 unsafe {
                     output.add(index).write(field);
                 }

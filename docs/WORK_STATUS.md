@@ -84,6 +84,95 @@ of either protected checkout was made.
 
 <a id="release-010-reaper-win-linux"></a>
 
+## Export robustness, dependency and notice review — 5 November 2026
+
+Release-plan review of the plug-in export surface (§1 opt-in dependencies, §6
+panic/unsafe review and dependency notices), branch `review/robustness` from
+`release/0.1.0` (`628af5d`). Decision
+[0287](decisions/0287-export-robustness-and-notices.md) (numbered 0286 on its branch; renumbered at merge because the keyboard-focus record took 0286) records the policy.
+
+Rust sites reviewed (non-test `panic!`/`unwrap()`/`expect()`/`unreachable!`
+and `unsafe` blocks, plus panicking indexing on host and audio paths):
+
+| Crate | Panic sites | Unsafe blocks | Fixed | Documented |
+|---|---|---|---|---|
+| ravet-plugin | 11 | 39 | 10 panic sites; CLAP audio-thread event-buffer growth; `debug_assert!` on the CLAP synchronization path; null/misaligned instance pointers | 1 (`# Panics` on const parameter constructors); 1 missing SAFETY comment; indexing invariants in the table |
+| ravet-native | 4 | 65 | 3 panic sites; misaligned handles in `NativeProcessor::control` | 1 (auxiliary scratch); 65 SAFETY comments added |
+| ravet-native-dsp (processor, denormal guard) | 1 | 4 | 1 (FP-state mask read on every block) | all 4 blocks already had SAFETY comments |
+| ravet-foundation | 8 | 0 (forbidden) | 4 (parameter-state decoding) | 4 (UMP/MIDI packet constructors) |
+| ravet-clap | 2 | 0 (forbidden) | 1 (output delivery) | 1 (multi-bus scratch) |
+| ravet-signal (delay line, smoothing) | 0 | 0 (forbidden) | — | `DelayLine` index invariant |
+| examples/delay-plugin | 10 | 0 (denied) | — | 6 audio-path invariants; 4 in `prepare`/`Default` (control) |
+
+`#![deny(clippy::undocumented_unsafe_blocks)]` now covers library code in
+`ravet-plugin`, `ravet-native` and `ravet-native-dsp`.
+
+C++ adapters (VST3, AAX, LV2, AUv2), reviewed in the same change: seven
+host-path risks fixed. Exceptions such as `std::bad_alloc` can no longer
+escape VST3 factory, component, controller, state, connection, view and timer
+callbacks, AAX init, parameter, chunk, display and timer callbacks, the LV2
+descriptor entry points, or the AUv2 render. A half-built VST3 factory is no
+longer published. AAX `GetChunk` refuses state larger than the last
+`GetChunkSize`. Out-of-range LV2 `time:Position` values saturate instead of
+overflowing. AUv2 `ScheduleParameter` stages into prepared storage instead of
+zeroing 56 KiB of stack per call.
+
+New tests, each failing before its fix:
+- `examples/delay-plugin/tests/clap.rs`: a 1,025-event CLAP block is silenced,
+  its values are not applied, and no process call allocates. Before the fix it
+  allocated once and changed the cache.
+- `tools/clap-smoke/src/delay.rs`: the same rejection through the built bundle.
+- `crates/ravet-plugin/src/native/tests.rs`: null and misaligned table
+  instances are rejected.
+- `crates/ravet-native/tests/entry.rs`: misaligned handles. The old code
+  crashed with SIGSEGV.
+- VST3 `contracts.cpp`: allocation failure under every guarded entry point.
+  The old code terminated with an uncaught exception.
+- AAX `adapter-tests.cpp`: chunk sizing.
+- LV2 `contracts.cpp`: saturating positions, 106 checks. The old code failed
+  under UBSan.
+
+Dependencies:
+- `ravet-plugin` gains an `editor` feature (umbrella `plugin-editor`).
+  `clap` and `native` no longer link `ravet-webview`. The delay and gain
+  examples enable it.
+- `sha2` and `serde_json` stay required, for the reasons in
+  [dependency notices](dependency-notices.md).
+
+Notices:
+- The export graph has 20 third-party crates, all permissive, with no copyleft
+  licences. The audit for both licensing routes is recorded in
+  [dependency notices](dependency-notices.md).
+- `scripts/third_party_notices.py` generates `THIRD-PARTY-NOTICES.txt`, RAVET's
+  licence and the Rust standard library notice. Every bundle script now ships
+  them.
+
+Local macOS arm64 validation (Rust 1.99.1, Python 3.14):
+- Format checks:
+  - `bundle-clap.py --plugin delay` followed by `ravet-clap-smoke --delay`
+    passed. Its Resources/notices folder is present.
+  - VST3 delay: Steinberg validator 47 passed, 0 failed.
+  - LV2 delay: CTest 4/4; `lv2_validate` reported 0 errors.
+  - AUv2 delay `--validate`: product and real-delay contracts passed.
+  - AAX delay: `ravet_aax_check` 1/1.
+  - Each format's bundle contains the notices.
+- Mock adapter suites: VST3 CTest 1/1; AAX CTest 2/2; LV2 2/2 under Release
+  and under ASan+UBSan; AU effect, instrument and MIDI mocks all passed.
+- Rust and scripts:
+  - Clippy with `-D warnings` (default and all features) and tests (674 with
+    all features, 0 failed) for the touched packages.
+  - `cargo fmt --check`.
+  - `python3 -m unittest discover -s scripts/tests`: 105 passed.
+
+Not run:
+- Windows and Linux builds of the changed adapters.
+- clap-validator (not installed here), Avid's validator, and any DAW.
+
+Open:
+- `ravet-webview` (about 75 unsafe sites and its Objective-C++ view, used by
+  the macOS editor) and the standalone runner were outside this review.
+- The dependency-notice audit covers only the plug-in export graph.
+
 ## REAPER delay check on Windows and Linux VST3 — 5 November 2026
 
 Ran the scripted REAPER delay check

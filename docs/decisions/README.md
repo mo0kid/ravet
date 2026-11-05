@@ -516,3 +516,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0284](0284-native-auv2-product-adapter.md) | Native AUv2 product adapter contracts | Prototype; macOS arm64 mock auval and real-delay in-process evidence, no DAW claim |
 | [0285](0285-linux-windows-plugin-builds.md) | Linux builds and Windows cross-builds of plug-in exports | Prototype; Linux x86_64 and Windows 11 x64 validator evidence for the Delay, no DAW claim |
 | [0286](0286-editor-keyboard-focus.md) | Keyboard focus for web-editor text fields in hosts that keep key status | Implemented in Cocoa/WebKit; AppKit fixture evidence, Pro Tools run pending |
+| [0287](0287-export-robustness-and-notices.md) | Export robustness, opt-in editor and bundle notices | Implemented for the plug-in export surface; offline and validator evidence on macOS arm64 |

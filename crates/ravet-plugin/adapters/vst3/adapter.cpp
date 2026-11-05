@@ -47,6 +47,14 @@ constexpr uint32_t capacity = 1024, stateLimit = 16 * 1024 * 1024;
 constexpr uint32_t midiControllers = 130;
 IPtr<FUnknown> factoryContext;
 
+// Host-facing methods that allocate (state buffers, bus and parameter objects,
+// messages, views, strings) run through this guard: a C++ exception must never
+// unwind into the host, which the SDK does not catch for us. process() does not
+// allocate and is not wrapped.
+template <class R, class F> R guarded(R failure, F&& body) noexcept {
+    try { return body(); } catch (...) { return failure; }
+}
+
 const RavetPluginEntryV1* entry() {
 #ifdef RAVET_PRODUCT_LIBRARY_NAME
     // Resolve beside this adapter, never against a process-wide symbol or cwd.
@@ -183,9 +191,9 @@ public:
 #endif
         if (timer) { timer->stop(); timer = nullptr; }
     }
-    void onTimer(Timer*) override { IPtr<MainTimer> keepAlive(this); callback(); }
+    void onTimer(Timer*) override { fire(); }
 #if SMTG_OS_LINUX
-    void PLUGIN_API onTimer() override { IPtr<MainTimer> keepAlive(this); callback(); }
+    void PLUGIN_API onTimer() override { fire(); }
 #endif
     OBJ_METHODS(MainTimer, FObject)
     DEFINE_INTERFACES
@@ -195,6 +203,8 @@ public:
     END_DEFINE_INTERFACES(FObject)
     REFCOUNT_METHODS(FObject)
 private:
+    // The host's run loop calls this: nothing may unwind out of it.
+    void fire() noexcept { IPtr<MainTimer> keepAlive(this); guarded(0, [&] { callback(); return 0; }); }
     std::function<void()> callback;
     IPtr<Timer> timer;
     IPtr<Linux::IRunLoop> loop;
@@ -242,8 +252,13 @@ public:
         processContextRequirements.flags = ravet::vst3::nativeTransportRequirements;
         reflected.fill(std::numeric_limits<double>::quiet_NaN()); }
     ~Component() override { if (timer) timer->stop(); }
-    static FUnknown* create(void*) { return static_cast<IAudioProcessor*>(new Component); }
+    static FUnknown* create(void*) {
+        return guarded<FUnknown*>(nullptr, [] { return static_cast<IAudioProcessor*>(new Component); });
+    }
     tresult PLUGIN_API initialize(FUnknown* context) override {
+        return guarded<tresult>(kOutOfMemory, [&] { return initializeComponent(context); });
+    }
+    tresult initializeComponent(FUnknown* context) {
         auto result = AudioEffect::initialize(context);
         if (result != kResultOk) return result;
         if (!instance.handle) return kOutOfMemory;
@@ -262,6 +277,9 @@ public:
     }
     tresult PLUGIN_API canProcessSampleSize(int32 size) override { return size == kSample32 ? kResultTrue : kResultFalse; }
     tresult PLUGIN_API setBusArrangements(SpeakerArrangement* inputs, int32 ni, SpeakerArrangement* outputs, int32 no) override {
+        return guarded<tresult>(kResultFalse, [&] { return arrangeBuses(inputs, ni, outputs, no); });
+    }
+    tresult arrangeBuses(SpeakerArrangement* inputs, int32 ni, SpeakerArrangement* outputs, int32 no) {
         if (active || ni < 0 || ni > 1 || no < 0 || no > 1 || (ni && !inputs) || (no && !outputs)) return kResultFalse;
         auto& p = *instance.api->product;
         for (uint32_t i = 0; i < p.layout_count; ++i) {
@@ -299,13 +317,20 @@ public:
     tresult PLUGIN_API setProcessing(TBool state) override { return state && !active ? kResultFalse : kResultOk; }
     uint32 PLUGIN_API getLatencySamples() override { return latency.load(std::memory_order_relaxed); }
     uint32 PLUGIN_API getTailSamples() override { return tail.load(std::memory_order_relaxed); }
-    tresult PLUGIN_API getState(IBStream* stream) override { return save(instance, stream) ? kResultOk : kResultFalse; }
+    tresult PLUGIN_API getState(IBStream* stream) override {
+        return guarded<tresult>(kResultFalse, [&] { return save(instance, stream) ? kResultOk : kResultFalse; });
+    }
     tresult PLUGIN_API setState(IBStream* stream) override {
-        std::vector<uint8_t> bytes;
-        if (!readState(stream, bytes) || instance.api->load_state(instance.handle, bytes.data(), uint32_t(bytes.size()))) return kResultFalse;
-        reflected.fill(std::numeric_limits<double>::quiet_NaN()); return kResultOk;
+        return guarded<tresult>(kResultFalse, [&] {
+            std::vector<uint8_t> bytes;
+            if (!readState(stream, bytes) || instance.api->load_state(instance.handle, bytes.data(), uint32_t(bytes.size()))) return kResultFalse;
+            reflected.fill(std::numeric_limits<double>::quiet_NaN()); return kResultOk;
+        });
     }
     tresult PLUGIN_API notify(IMessage* message) override {
+        return guarded<tresult>(kResultFalse, [&] { return receive(message); });
+    }
+    tresult receive(IMessage* message) {
         if (message && !std::strcmp(message->getMessageID(), "RAVET.Value")) {
             int64 index = -1; double value = 0.;
             auto a = message->getAttributes();
@@ -323,6 +348,9 @@ public:
         if (message && !std::strcmp(message->getMessageID(), "RAVET.Poll")) { idle(); return kResultOk; }
         return AudioEffect::notify(message);
     }
+    // AUDIO. Not exception-guarded because nothing here allocates or throws:
+    // events use fixed member arrays, host counts are bounded by `capacity`
+    // before use, and the stable insertion sort is bounded (n <= 1024).
     tresult PLUGIN_API process(ProcessData& data) override {
         auto fail = [&] { audio.silenceSupportedOutputs(data); return kResultFalse; };
         std::array<RavetNativeProcessorBusV1, 9> buses{}; RavetNativeTransportV1 transport{};
@@ -477,13 +505,15 @@ public:
     }
     void toString(ParamValue value, String128 text) const override {
         char buffer[512]{};
-        if (entry()->value_to_text(index, toPlain(value), buffer, sizeof(buffer))) { text[0] = 0; return; }
-        utf16(buffer, text, 128);
+        if (entry()->value_to_text(index, toPlain(value), buffer, sizeof(buffer)) ||
+            !guarded(false, [&] { utf16(buffer, text, 128); return true; })) text[0] = 0;
     }
     bool fromString(const TChar* text, ParamValue& value) const override {
-        double physical = 0.;
-        if (!text || entry()->text_to_value(index, utf8(text).c_str(), &physical)) return false;
-        return entry()->normalize(index, physical, &value) == 0;
+        return guarded(false, [&] {
+            double physical = 0.;
+            if (!text || entry()->text_to_value(index, utf8(text).c_str(), &physical)) return false;
+            return entry()->normalize(index, physical, &value) == 0;
+        });
     }
 private:
     uint32_t index;
@@ -581,8 +611,13 @@ private:
 class Controller final : public EditController, public IMidiMapping {
 public:
     ~Controller() override { close(); }
-    static FUnknown* create(void*) { return static_cast<IEditController*>(new Controller); }
+    static FUnknown* create(void*) {
+        return guarded<FUnknown*>(nullptr, [] { return static_cast<IEditController*>(new Controller); });
+    }
     tresult PLUGIN_API initialize(FUnknown* context) override {
+        return guarded<tresult>(kOutOfMemory, [&] { return initializeController(context); });
+    }
+    tresult initializeController(FUnknown* context) {
         auto result = EditController::initialize(context);
         if (result != kResultOk) return result;
         if (!life->alive) { life = std::make_shared<EditorLife>(); pending.fill(false); pendingState.clear(); }
@@ -618,6 +653,9 @@ public:
     }
     tresult PLUGIN_API terminate() override { close(); return EditController::terminate(); }
     tresult PLUGIN_API setParamNormalized(ParamID id, ParamValue value) override {
+        return guarded<tresult>(kResultFalse, [&] { return setNormalized(id, value); });
+    }
+    tresult setNormalized(ParamID id, ParamValue value) {
         if (!life->alive || !normalized(value)) return kResultFalse;
         auto& instance = life->instance;
         auto index = instance.api->parameter_index(id);
@@ -631,14 +669,21 @@ public:
         instance.api->normalize(uint32_t(index), instance.api->get_value(instance.handle, uint32_t(index)), &value);
         return EditController::setParamNormalized(id, value);
     }
-    tresult PLUGIN_API getState(IBStream* stream) override { return save(life->instance, stream) ? kResultOk : kResultFalse; }
-    tresult PLUGIN_API setComponentState(IBStream* stream) override { return load(stream, false); }
-    tresult PLUGIN_API setState(IBStream* stream) override { return load(stream, true); }
+    tresult PLUGIN_API getState(IBStream* stream) override {
+        return guarded<tresult>(kResultFalse, [&] { return save(life->instance, stream) ? kResultOk : kResultFalse; });
+    }
+    tresult PLUGIN_API setComponentState(IBStream* stream) override { return guarded<tresult>(kResultFalse, [&] { return load(stream, false); }); }
+    tresult PLUGIN_API setState(IBStream* stream) override { return guarded<tresult>(kResultFalse, [&] { return load(stream, true); }); }
     tresult PLUGIN_API connect(IConnectionPoint* other) override {
-        auto result = EditController::connect(other);
-        if (result == kResultOk) sendPending(); return result;
+        return guarded<tresult>(kResultFalse, [&] {
+            auto result = EditController::connect(other);
+            if (result == kResultOk) sendPending(); return result;
+        });
     }
     tresult PLUGIN_API notify(IMessage* message) override {
+        return guarded<tresult>(kResultFalse, [&] { return receive(message); });
+    }
+    tresult receive(IMessage* message) {
         if (!message || !life->alive) return kResultFalse;
         if (!std::strcmp(message->getMessageID(), "RAVET.Latency")) {
             return componentHandler ? componentHandler->restartComponent(kLatencyChanged) : kResultFalse;
@@ -659,6 +704,9 @@ public:
         id = midiStart() + uint32_t(channel) * midiControllers + uint32_t(controller); return kResultTrue;
     }
     IPlugView* PLUGIN_API createView(FIDString name) override {
+        return guarded<IPlugView*>(nullptr, [&] { return makeView(name); });
+    }
+    IPlugView* makeView(FIDString name) {
         auto p = life->instance.api->product;
         if (!life->alive || !name || std::strcmp(name, ViewType::kEditor) || !p->editor_width || !p->editor_height) return nullptr;
         std::weak_ptr<EditorLife> weak = life;
@@ -739,14 +787,22 @@ private:
 } // namespace ravet::plugin::vst3
 
 #ifndef RAVET_VST3_CONTRACT_TEST
+namespace ravet::plugin::vst3 {
+IPluginFactory* createFactory();
+}
 SMTG_EXPORT_SYMBOL IPluginFactory* PLUGIN_API GetPluginFactory() {
+    // Loading the product library and building the class records allocate.
+    return ravet::plugin::vst3::guarded<IPluginFactory*>(nullptr, ravet::plugin::vst3::createFactory);
+}
+IPluginFactory* ravet::plugin::vst3::createFactory() {
     using namespace ravet::plugin::vst3;
     if (!gPluginFactory) {
         auto e = entry(); if (!validTable(e)) return nullptr;
         const auto& p = *e->product;
         PFactoryInfo info(p.vendor, p.url, "", PFactoryInfo::kUnicode);
-        gPluginFactory = new CPluginFactory(info);
-        gPluginFactory->addHostContextCallback([](FUnknown* context) { factoryContext = context; });
+        // Publish only a complete factory: a failure part-way releases it.
+        auto factory = owned(new CPluginFactory(info));
+        factory->addHostContextCallback([](FUnknown* context) { factoryContext = context; });
         bool mono = false, stereo = false, surround = false;
         for (uint32_t i = 0; i < p.layout_count; ++i) {
             auto channels = std::max(p.layouts[i].inputs, p.layouts[i].outputs);
@@ -762,8 +818,9 @@ SMTG_EXPORT_SYMBOL IPluginFactory* PLUGIN_API GetPluginFactory() {
             kDistributable, category.c_str(), p.vendor, p.version, kVstVersionString);
         PClassInfo2 controllerClass(controller, PClassInfo::kManyInstances, kVstComponentControllerClass,
             p.name, 0, "", p.vendor, p.version, kVstVersionString);
-        gPluginFactory->registerClass(&componentClass, ravet::plugin::vst3::Component::create);
-        gPluginFactory->registerClass(&controllerClass, Controller::create);
+        factory->registerClass(&componentClass, ravet::plugin::vst3::Component::create);
+        factory->registerClass(&controllerClass, Controller::create);
+        gPluginFactory = factory.take();
     } else gPluginFactory->addRef();
     return gPluginFactory;
 }

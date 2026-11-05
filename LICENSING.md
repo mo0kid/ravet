@@ -110,6 +110,11 @@ RAVET's commercial terms without the necessary permission or replacement.
 Preserve required third-party notices and audit normal, build, development,
 vendored, and native dependencies before release.
 
+The plug-in export surface has a recorded audit for both routes, and its
+bundle scripts ship generated third-party notices: see
+[dependency notices](docs/dependency-notices.md). It is notice material for
+maintainers and distributors, not legal advice.
+
 The Cargo identifier describes the open-source licence currently supplied by
 this repository. Do not label it `MIT OR Apache-2.0`, `GPL-3.0-or-later`, or use
 an invented standard SPDX identifier for the unfinished commercial agreement.

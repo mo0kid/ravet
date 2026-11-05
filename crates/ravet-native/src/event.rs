@@ -395,8 +395,10 @@ pub fn decode_native_events<'a>(
         timing(event.frame_offset, previous, index, frames)?;
         previous = event.frame_offset;
     }
-    for (out, record) in output.iter_mut().zip(records) {
-        *out = record.to_event().expect("preflight immutable records");
+    // The preflight above already converted every record; `?` keeps this
+    // path free of panics without a partial write in practice.
+    for (index, (out, record)) in output.iter_mut().zip(records).enumerate() {
+        *out = record.to_event().map_err(|e| indexed(e, index))?;
     }
     Ok(&output[..records.len()])
 }
@@ -416,8 +418,9 @@ pub fn encode_native_events<'a>(
         timing(event.frame_offset, previous, index, frames)?;
         previous = event.frame_offset;
     }
-    for (out, event) in output.iter_mut().zip(events) {
-        *out = NativeEventV1::from_event(*event).expect("preflight immutable events");
+    // As above: preflighted, and fallible only to avoid a panic path.
+    for (index, (out, event)) in output.iter_mut().zip(events).enumerate() {
+        *out = NativeEventV1::from_event(*event).map_err(|e| indexed(e, index))?;
     }
     Ok(&output[..events.len()])
 }

@@ -204,6 +204,8 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
             return;
         }
         let _ = catch_unwind(AssertUnwindSafe(|| {
+            // SAFETY: created by `create` and destroyed once after every callback has ended (table
+            // contract).
             let mut owned = unsafe { Box::from_raw(handle.cast::<Self>()) };
             owned.processor.deactivate();
         }));
@@ -212,6 +214,12 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
         self.adapter.is_some()
     }
     pub(crate) fn control(handle: *mut c_void, operation: impl FnOnce(&mut Self) -> i32) -> i32 {
+        // No `create` returns a misaligned handle; reject it before the cast.
+        if !aligned(handle.cast::<Self>()) {
+            return 1;
+        }
+        // SAFETY: the table contract requires a live handle from `create`, used by one caller at a
+        // time; `as_mut` rejects null.
         let Some(owner) = (unsafe { handle.cast::<Self>().as_mut() }) else {
             return 1;
         };
@@ -238,6 +246,7 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
                 owner.processor.deactivate();
                 return 1;
             }
+            // SAFETY: checked nonnull and aligned above; the caller owns the record.
             let Some(config) = (unsafe { *config }).to_configuration() else {
                 owner.processor.deactivate();
                 return 1;
@@ -305,6 +314,7 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
                 tail_kind,
                 tail_samples,
             };
+            // SAFETY: checked nonnull and aligned above; the caller owns the record.
             unsafe { output.write(result) };
             0
         })
@@ -331,6 +341,8 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
         // Never dereference an unsupported raw bus count or missing array.
         let valid_buses = count <= 9 && (count == 0 || (!buses.is_null() && aligned(buses)));
         if valid_buses && count > 0 {
+            // SAFETY: `buses` is nonnull and aligned and the caller passes `count` (at most 9)
+            // records.
             let raw = unsafe { slice::from_raw_parts(buses, count) };
             for (out, bus) in native.iter_mut().zip(raw) {
                 *out = NativePlanarBus {
@@ -344,6 +356,7 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
         let native = &native[..if valid_buses { count } else { 0 }];
         let valid_result = !result.is_null() && aligned(result);
         if valid_result {
+            // SAFETY: checked nonnull and aligned above; the caller owns the result record.
             unsafe {
                 result.write(NativeProcessorResultV1 {
                     status: 2,
@@ -374,6 +387,8 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
             let records = if input_count == 0 {
                 &[]
             } else {
+                // SAFETY: checked nonnull and aligned above; the caller passes `input_count`
+                // records.
                 unsafe { slice::from_raw_parts(input, input_count as usize) }
             };
             let Ok(events) = decode_native_events(records, frames as usize, &mut owner.decoded)
@@ -386,11 +401,15 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
                 if !aligned(transport) {
                     return 1;
                 }
+                // SAFETY: checked nonnull and aligned above; the caller owns the transport record.
                 let Ok(value) = (unsafe { *transport }).to_transport() else {
                     return 1;
                 };
                 value
             };
+            // SAFETY: the table contract makes every bus pointer and sample range valid for the
+            // declared channels and frames; `process_native` validates shape and overlap before any
+            // access.
             let report = unsafe {
                 adapter.process_native(
                     &mut owner.processor,
@@ -412,11 +431,14 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
             let output = if output_capacity == 0 {
                 &mut []
             } else {
+                // SAFETY: checked nonnull and aligned above; the caller provides `output_capacity`
+                // records that do not overlap samples.
                 unsafe { slice::from_raw_parts_mut(output, output_capacity as usize) }
             };
             let Ok(records) = encode_native_events(report.events, frames as usize, output) else {
                 return 1;
             };
+            // SAFETY: `valid_result` checked it nonnull and aligned.
             unsafe {
                 result.write(NativeProcessorResultV1 {
                     status,
@@ -426,6 +448,8 @@ impl<P: Processor<S> + Default + Send + 'static, S: Sample + Send + 'static> Nat
             0
         });
         if code != 0 {
+            // SAFETY: as for `process_native`: the caller's bus pointers are valid for the declared
+            // channels and frames; `silence` rechecks null and alignment.
             unsafe { crate::raw::silence(native, frames as usize) };
         }
         code

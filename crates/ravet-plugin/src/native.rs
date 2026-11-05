@@ -72,6 +72,8 @@ pub const VERSION: u32 = 1;
 /// Most events the processor receives in one block: host events plus cached
 /// changes. Cached changes that do not fit wait for the next block.
 const MAXIMUM_EVENTS: usize = 1024;
+// Synchronization sends every parameter in one block of MAXIMUM_EVENTS events.
+const _: () = assert!(crate::MAXIMUM_PARAMETERS <= MAXIMUM_EVENTS);
 
 /// `RavetPluginCategoryV1`.
 pub mod category {
@@ -239,6 +241,7 @@ pub struct NativeStatics {
 // or freed while shared.
 #[allow(unsafe_code)]
 unsafe impl Send for NativeStatics {}
+// SAFETY: as for `Send`: shared access only reads immutable data.
 #[allow(unsafe_code)]
 unsafe impl Sync for NativeStatics {}
 
@@ -308,7 +311,8 @@ impl NativeStatics {
                 reserved: 0,
             })
             .collect();
-        let editor = description.editor();
+        // Without the `editor` feature no editor is offered, so adapters see 0 x 0.
+        let editor = description.editor().filter(|_| cfg!(feature = "editor"));
         let record = Box::new(RavetPluginProductV1 {
             name: string(description.name())?,
             vendor: string(description.vendor())?,
@@ -441,18 +445,18 @@ struct Instance<P: PluginExport> {
     /// processing is stopped, as the header requires.
     audio: UnsafeCell<AudioSide<P::Processor>>,
     /// Main-thread editor.
-    #[cfg(target_os = "macos")]
+    #[cfg(all(feature = "editor", target_os = "macos"))]
     editor: UnsafeCell<Option<crate::editor_host::EditorHost<'static>>>,
 }
 
 /// The editor side of an instance: editor values become dirty parameters.
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "editor", target_os = "macos"))]
 struct NativeTarget {
     shared: Arc<Shared>,
     editor_message: fn(&serde_json::Value) -> Option<serde_json::Value>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "editor", target_os = "macos"))]
 impl crate::editor_host::EditorTarget for NativeTarget {
     fn product(&self) -> &ResolvedProduct<'static> {
         self.shared.product()
@@ -557,9 +561,7 @@ impl<H: NativeExport> Table<H> {
         panicked: R,
         operation: impl FnOnce(&Instance<Plugin<H>>) -> R,
     ) -> R {
-        // SAFETY: the header requires `instance` to come from this table's
-        // `create` and not yet be destroyed.
-        let Some(owner) = (unsafe { instance.cast::<Instance<Plugin<H>>>().as_ref() }) else {
+        let Some(owner) = Self::owner(instance) else {
             return rejected;
         };
         match catch_unwind(AssertUnwindSafe(|| operation(owner))) {
@@ -569,6 +571,19 @@ impl<H: NativeExport> Table<H> {
                 panicked
             }
         }
+    }
+
+    /// The instance behind `instance`, or `None` for a null or misaligned
+    /// pointer (which no `create` returns).
+    fn owner<'a>(instance: *const c_void) -> Option<&'a Instance<Plugin<H>>> {
+        let instance = instance.cast::<Instance<Plugin<H>>>();
+        if !aligned(instance) {
+            return None;
+        }
+        // SAFETY: checked aligned, and `as_ref` rejects null; the header
+        // requires a nonnull `instance` to come from this table's `create` and
+        // not yet be destroyed.
+        unsafe { instance.as_ref() }
     }
 
     fn parameter_of(
@@ -714,7 +729,7 @@ impl<H: NativeExport> Table<H> {
                     processor: Some(processor),
                     prepared: None,
                 }),
-                #[cfg(target_os = "macos")]
+                #[cfg(all(feature = "editor", target_os = "macos"))]
                 editor: UnsafeCell::new(None),
             };
             Box::into_raw(Box::new(instance)).cast()
@@ -729,7 +744,7 @@ impl<H: NativeExport> Table<H> {
         let _ = catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: created by `create` and destroyed once, on MAIN.
             let owned = unsafe { Box::from_raw(instance.cast::<Instance<Plugin<H>>>()) };
-            #[cfg(target_os = "macos")]
+            #[cfg(all(feature = "editor", target_os = "macos"))]
             drop(owned.editor.into_inner());
             let mut audio = owned.audio.into_inner();
             audio.prepared = None;
@@ -834,6 +849,8 @@ impl<H: NativeExport> Table<H> {
     ) -> i32 {
         let generation = shared.parameters.generation();
         shared.clear_dirty();
+        // `Product::resolve` caps parameters at MAXIMUM_PARAMETERS (1,024),
+        // which equals MAXIMUM_EVENTS, the length of `prepared.events`.
         let ids = shared.product().parameter_ids();
         for (index, id) in ids.iter().enumerate() {
             prepared.events[index] = Event {
@@ -1050,7 +1067,9 @@ impl<H: NativeExport> Table<H> {
                 }
             }
             let mut length = 0;
-            // Cached host-side and editor changes first, as many as fit.
+            // Cached host-side and editor changes first, as many as fit. `length`
+            // stays below `room + count` == MAXIMUM_EVENTS == `prepared.events.len()`,
+            // and dirty bits are only set for declared parameter indices.
             let room = MAXIMUM_EVENTS - count;
             let ids = shared.product().parameter_ids();
             'dirty: for (word_index, word) in shared.dirty.iter().enumerate() {
@@ -1091,7 +1110,11 @@ impl<H: NativeExport> Table<H> {
                         },
                     }
                 } else {
-                    record.to_event().expect("validated record")
+                    // Validated above, so this never skips; it avoids a panic path.
+                    let Ok(event) = record.to_event() else {
+                        continue;
+                    };
+                    event
                 };
                 prepared.events[length] = event;
                 length += 1;
@@ -1137,9 +1160,7 @@ impl<H: NativeExport> Table<H> {
         });
         if code != 0 {
             if code == 2
-                && let Some(owner) =
-                    // SAFETY: as in `guard`.
-                    unsafe { instance.cast::<Instance<Plugin<H>>>().as_ref() }
+                && let Some(owner) = Self::owner(instance)
             {
                 owner.shared.fault.store(true, Ordering::Release);
             }
@@ -1293,7 +1314,7 @@ impl<H: NativeExport> Table<H> {
         height: u32,
     ) -> i32 {
         Self::guard(instance, 1, 2, |owner| {
-            #[cfg(target_os = "macos")]
+            #[cfg(all(feature = "editor", target_os = "macos"))]
             {
                 use crate::editor_host::{EditorHost, adjust_size};
                 // SAFETY: editor functions run on MAIN only.
@@ -1325,7 +1346,7 @@ impl<H: NativeExport> Table<H> {
                 *slot = Some(host);
                 0
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(all(feature = "editor", target_os = "macos")))]
             {
                 let _ = (owner, view_kind, parent, width, height);
                 1
@@ -1335,7 +1356,7 @@ impl<H: NativeExport> Table<H> {
 
     unsafe extern "C" fn editor_resize(instance: *mut c_void, width: u32, height: u32) -> i32 {
         Self::guard(instance, 1, 2, |owner| {
-            #[cfg(target_os = "macos")]
+            #[cfg(all(feature = "editor", target_os = "macos"))]
             {
                 // SAFETY: editor functions run on MAIN only.
                 let slot = unsafe { &mut *owner.editor.get() };
@@ -1349,7 +1370,7 @@ impl<H: NativeExport> Table<H> {
                 }
                 i32::from(!host.set_size(width, height))
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(all(feature = "editor", target_os = "macos")))]
             {
                 let _ = (owner, width, height);
                 1
@@ -1359,13 +1380,13 @@ impl<H: NativeExport> Table<H> {
 
     unsafe extern "C" fn editor_close(instance: *mut c_void) {
         Self::guard(instance, (), (), |owner| {
-            #[cfg(target_os = "macos")]
+            #[cfg(all(feature = "editor", target_os = "macos"))]
             {
                 // SAFETY: editor functions run on MAIN only.
                 let editor = unsafe { &mut *owner.editor.get() }.take();
                 drop(editor);
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(all(feature = "editor", target_os = "macos")))]
             let _ = owner;
         })
     }

@@ -159,6 +159,8 @@ public:
             life_->poll = [this] { poll(); };
             const std::weak_ptr<Life> weak = life_;
             timer_ = [NSTimer timerWithTimeInterval:1.0 / 30 repeats:YES block:^(NSTimer *) {
+                // poll() makes table calls (which catch panics) and SDK
+                // PropertyChanged notifications; none allocates or throws.
                 if (const auto token = weak.lock(); token && token->instance) token->poll();
             }];
             [[NSRunLoop mainRunLoop] addTimer:timer_ forMode:NSRunLoopCommonModes];
@@ -292,7 +294,9 @@ public:
     }
     OSStatus ScheduleParameter(const AudioUnitParameterEvent *events, UInt32 count) noexcept override {
         if (count && !events) return kAudio_ParamError;
-        std::array<RavetNativeEventV1, eventCapacity> candidate{};
+        // Staged in prepared storage, not a zeroed 56 KiB stack array on the
+        // render thread; committed to events_ only when every event is valid.
+        auto &candidate = scheduled_;
         uint32_t used = 0;
         for (UInt32 i = 0; i < count; ++i) {
             const auto &e = events[i];
@@ -343,6 +347,22 @@ public:
     OSStatus SysEx(const UInt8 *, UInt32) noexcept override { return kAudio_UnimplementedError; }
 
     OSStatus Render(AudioUnitRenderActionFlags &flags, const AudioTimeStamp &time, UInt32 frames) noexcept override {
+        // This override is noexcept, so an exception would terminate the host.
+        // With AudioUnitSDK 1.4 the element/buffer accessors below cannot throw
+        // here (DoRender prepares the output, PullInput returns its errors and
+        // inputChannels_ implies the input element), but they are declared to
+        // throw; contain any exception and output silence instead.
+        try {
+            return render(flags, time, frames);
+        } catch (...) {
+            try {
+                if (const auto output = this->Output(0).GetBufferListOrError()) silence(*output, frames);
+            } catch (...) {}
+            flags |= kAudioUnitRenderAction_OutputIsSilence;
+            return kAudioUnitErr_CannotDoInCurrentContext;
+        }
+    }
+    OSStatus render(AudioUnitRenderActionFlags &flags, const AudioTimeStamp &time, UInt32 frames) {
         auto &output = this->Output(0).GetBufferList();
         const auto count = pending_; pending_ = 0;
         auto fault = [&](OSStatus error) { silence(output, frames); flags |= kAudioUnitRenderAction_OutputIsSilence; return error; };
@@ -538,7 +558,7 @@ private:
     ravet::au::NativeAuAudioBusMap map_;
     ravet::au::NativeAuMidiOutput<> midi_;
     AUMIDIOutputCallbackStruct midiCallback_{};
-    std::array<RavetNativeEventV1, eventCapacity> events_{}, outputEvents_{};
+    std::array<RavetNativeEventV1, eventCapacity> events_{}, outputEvents_{}, scheduled_{};
     uint32_t pending_ = 0, inputChannels_ = 0;
     bool prepared_ = false;
     double sampleRate_ = 44100;

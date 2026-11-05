@@ -94,7 +94,12 @@ impl<'a> Parameter<'a> {
             read_only: false,
         }
     }
-    /// A continuous linear parameter. An invalid range fails const evaluation.
+    /// A continuous linear parameter.
+    ///
+    /// # Panics
+    /// If the range is invalid (nonfinite, or minimum not below maximum). In a
+    /// `const` product description, as recommended, this is a compile error
+    /// rather than a run-time panic.
     pub const fn linear(
         key: &'a str,
         name: &'a str,
@@ -110,6 +115,9 @@ impl<'a> Parameter<'a> {
         )
     }
     /// A continuous logarithmic parameter with strictly positive bounds.
+    ///
+    /// # Panics
+    /// If the range is invalid; a compile error in a `const` description.
     pub const fn logarithmic(
         key: &'a str,
         name: &'a str,
@@ -125,6 +133,10 @@ impl<'a> Parameter<'a> {
         )
     }
     /// A stepped parameter with `steps + 1` equally spaced values.
+    ///
+    /// # Panics
+    /// If the range or step count is invalid; a compile error in a `const`
+    /// description.
     pub const fn stepped(
         key: &'a str,
         name: &'a str,

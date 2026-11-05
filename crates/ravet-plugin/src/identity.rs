@@ -54,14 +54,17 @@ fn digest(text: &str) -> [u8; 32] {
 }
 fn class_id(plugin_id: &str, role: &str) -> [u32; 4] {
     let hash = digest(&format!("{plugin_id}/{role}"));
-    core::array::from_fn(|i| u32::from_be_bytes(hash[i * 4..i * 4 + 4].try_into().unwrap()))
+    // Eight 4-byte words; the first four (i < 4) are used.
+    let (words, _) = hash.as_chunks::<4>();
+    core::array::from_fn(|i| u32::from_be_bytes(words[i]))
 }
 fn four_letters(text: &str) -> [u8; 4] {
     let hash = digest(text);
     core::array::from_fn(|i| b'A' + hash[i] % 26)
 }
 fn word(text: &str) -> u32 {
-    u32::from_be_bytes(digest(text)[..4].try_into().unwrap())
+    let [a, b, c, d, ..] = digest(text);
+    u32::from_be_bytes([a, b, c, d])
 }
 fn layout_key(layout: AudioLayout) -> String {
     match (layout.input_channels(), layout.output_channels()) {
