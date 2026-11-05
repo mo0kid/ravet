@@ -144,6 +144,8 @@ See [Getting started](getting-started.md) for commands,
 | [Prepared FIR coefficient design family](#fir-coefficient-design) | Implemented | Owned symmetric f64 FIR coefficients cover cosine/Kaiser windowed LP/HP/BP/BS, transparent empirical Kaiser sizing, analytic degree1..4 transitions, weighted integrated least squares and exact-zero windowed halfband. |
 | [Sampled equiripple FIR and constrained halfband design](#sampled-equiripple-fir-design) | Implemented | Bounded weighted sampled minimax exchange generates actual symmetric LP/HP/BP/BS and reduced halfband coefficients with immutable error/ripple/extrema/convergence/resource receipts for existing direct and partitioned FIR consumers. |
 | [Prepared FIR convolution](#prepared-fir-convolution) | Implemented | Copied finite impulse responses and a prepared f64 history ring produce streaming direct convolution with reset and explicit tail length. |
+| [Prepared fixed-size stereo FIR](#stereo-block-fir) | Implemented | A prepared f32/f64 stereo direct FIR filters whole blocks in place from contiguous history with register-blocked, vectorisable safe loops, zero latency and partition-independent results. |
+| [Block stereo oversampling](#stereo-block-oversampling) | Implemented | A prepared stereo 1x/2x/4x/8x oversampler runs the fixed half-band profile over whole blocks, advancing both branches of both channels as one vector, bit-identical to the per-sample Oversampler. |
 | [Selectable streaming oversampling](#configurable-oversampling) | Implemented | Stack-backed 1x/2x/4x/8x half-band cascades invoke caller-owned high-rate DSP in temporal order with persistent filter state and allocation-free reset. |
 | [Native first-order topology-preserving filter family](#first-order-tpt-filter-family) | Implemented | Prepared native f64/f32 first-order trapezoidal LP/HP/allpass designs, simultaneous one-update outputs and fixed independently channelled banks expose explicit preserved/reset capacitor histories with whole-prefix validation. |
 | [Native six-stage modulated feedback phaser](#six-stage-modulated-feedback-phaser) | Implemented | Prepared native f64/f32 independently channelled six-stage TPT allpass phaser with explicit log-frequency LFO/phase offsets, signed delayed feedback, exact dry/wet endpoints and full-prefix state preflight. |
@@ -172,9 +174,9 @@ See [Getting started](getting-started.md) for commands,
 | [Positive multiplicative parameter smoothing](#multiplicative-parameter-smoothing) | Implemented | Finite positive f32 values transition geometrically over explicit sample counts with retargeting independent of block boundaries, preserved identical targets and exact final snap. |
 | [Prepared quadrature rotation](#quadrature-rotation) | Implemented | Precomputed double-precision rotations advance caller-owned sine/cosine pairs and fixed banks without allocation or per-sample trigonometric calls. |
 | [Native f64 peak and RMS meters](#native-f64-meters) | Implemented | Fixed-storage scaled sum-of-squares preserves native f64 peak/RMS for extreme finite and subnormal samples, with explicit optional bounded f32 telemetry. |
-| [Reusable parameter schema and state](#parameters-state) | Implemented | Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and discrete mappings, fixed-size complete state records, and explicit ID-based migration. |
-| [Observable hierarchical state and undoable presets](#observable-state) | Implemented | An explicit control-thread store provides stable-ID trees, atomic grouped edits, bounded undo/redo, revision subscriptions with resync, and deterministic complete product-identified preset records. |
-| [Explicit preset-file libraries](#preset-file-libraries) | Implemented | Consumer-selected directories provide sorted bounded preset metadata, validated atomic replacement and complete undoable selected-file recall through observable state. |
+| [Reusable parameter schema and state](#parameters-state) | Implemented | Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and discrete mappings, fixed-size complete versioned state records, a header version reader for schema selection, and explicit ID-based migration. |
+| [Observable hierarchical state and undoable presets](#observable-state) | Implemented | An explicit control-thread store provides stable-ID trees, atomic grouped edits, bounded undo/redo, revision subscriptions with resync, and deterministic complete product-identified preset records with format and product schema versions, newer-version rejection and an atomic migration hook. |
+| [Explicit preset-file libraries](#preset-file-libraries) | Implemented | Consumer-selected directories provide sorted bounded preset metadata, validated atomic replacement and complete undoable selected-file recall through observable state, with a product schema version and explicit migration of older presets. |
 | [Immutable complete parameter program banks](#complete-parameter-programs) | Implemented | Borrowed catalogues validate complete canonical parameter states with unique stable IDs/MIDI addresses and bounded heap-free lookup/copy. |
 | [Reusable UI parameter attachments](#parameter-attachments) | Implemented | Stable-ID attachments borrow validated metadata, map physical/normalized linear/logarithmic/discrete input, refresh host values without feedback, and submit explicit gestures through a product transport trait. |
 | [Portable MIDI 1.0 short messages](#midi-short-messages) | Implemented | Validated wire-preserving channel/system messages decode controllers, pitch bend and pressure; a nonallocating running-status decoder handles interleaved real-time messages and timed processor events. |
@@ -1180,6 +1182,34 @@ Copied finite impulse responses and a prepared f64 history ring produce streamin
 
 **Documentation:** [`docs/signal-processing.md`](../docs/signal-processing.md), [`docs/decisions/0019-signal-kernels.md`](../docs/decisions/0019-signal-kernels.md).
 
+<a id="stereo-block-fir"></a>
+
+### Prepared fixed-size stereo FIR
+
+A prepared f32/f64 stereo direct FIR filters whole blocks in place from contiguous history with register-blocked, vectorisable safe loops, zero latency and partition-independent results.
+
+**Limits:** 1..16,384 taps per channel (equal lengths), prepared 1..65,536-frame pieces; O(taps) per sample, so a partitioned FFT engine is cheaper above about 1,024 taps when latency is acceptable. Fused multiply-add on arm64 only, so last bits differ across targets. Kernel widths tuned on one Apple M4 Pro; x86_64 widths untuned and measured only under Rosetta 2. f32 cost matches Apple vDSP_conv at 256-1,024 taps and is within 1.2x at 16-64 taps on that machine. No response crossfade, denormal handling or callback-deadline guarantee.
+
+**Source:** [`crates/ravet-signal/src/stereo_fir.rs`](../crates/ravet-signal/src/stereo_fir.rs).
+
+**Tests:** [`crates/ravet-signal/tests/stereo_block_paths.rs`](../crates/ravet-signal/tests/stereo_block_paths.rs), [`crates/ravet-signal/examples/fir-oversampling-bench.rs`](../crates/ravet-signal/examples/fir-oversampling-bench.rs).
+
+**Documentation:** [`docs/signal-processing.md`](../docs/signal-processing.md), [`docs/decisions/0287-stereo-block-dsp-kernels.md`](../docs/decisions/0287-stereo-block-dsp-kernels.md).
+
+<a id="stereo-block-oversampling"></a>
+
+### Block stereo oversampling
+
+A prepared stereo 1x/2x/4x/8x oversampler runs the fixed half-band profile over whole blocks, advancing both branches of both channels as one vector, bit-identical to the per-sample Oversampler.
+
+**Limits:** Fixed f32 half-band IIR profile only; prepared 1..65,536 host frames; frequency-dependent phase delay, no constant integer latency or dry alignment; factor changes need a new instance. About 3.3x cheaper than two per-sample Oversamplers on one Apple M4 Pro; no external oversampling baseline measured, no native x86_64 measurement, no deadline guarantee.
+
+**Source:** [`crates/ravet-signal/src/stereo_oversampling.rs`](../crates/ravet-signal/src/stereo_oversampling.rs), [`crates/ravet-signal/src/oversampling.rs`](../crates/ravet-signal/src/oversampling.rs).
+
+**Tests:** [`crates/ravet-signal/tests/stereo_block_paths.rs`](../crates/ravet-signal/tests/stereo_block_paths.rs), [`crates/ravet-signal/examples/fir-oversampling-bench.rs`](../crates/ravet-signal/examples/fir-oversampling-bench.rs).
+
+**Documentation:** [`docs/signal-processing.md`](../docs/signal-processing.md), [`docs/decisions/0287-stereo-block-dsp-kernels.md`](../docs/decisions/0287-stereo-block-dsp-kernels.md).
+
 <a id="configurable-oversampling"></a>
 
 ### Selectable streaming oversampling
@@ -1576,7 +1606,7 @@ Fixed-storage scaled sum-of-squares preserves native f64 peak/RMS for extreme fi
 
 ### Reusable parameter schema and state
 
-Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and discrete mappings, fixed-size complete state records, and explicit ID-based migration.
+Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and discrete mappings, fixed-size complete versioned state records, a header version reader for schema selection, and explicit ID-based migration.
 
 **Limits:** Bounded caller-selected portable schema size and product-owned version/semantic migration policy. Product-specific CLAP gain/bypass integration exists; host transport remains product-owned, with reusable UI attachments available separately; no preset discovery.
 
@@ -1590,21 +1620,21 @@ Borrowed parameter schemas provide stable IDs, validated linear/logarithmic and 
 
 ### Observable hierarchical state and undoable presets
 
-An explicit control-thread store provides stable-ID trees, atomic grouped edits, bounded undo/redo, revision subscriptions with resync, and deterministic complete product-identified preset records.
+An explicit control-thread store provides stable-ID trees, atomic grouped edits, bounded undo/redo, revision subscriptions with resync, and deterministic complete product-identified preset records with format and product schema versions, newer-version rejection and an atomic migration hook.
 
-**Limits:** Allocates/clones on control threads; up to 4096 nodes, depth 64, 16 MiB state/transaction payload, 128 history snapshots/journal batches. Poll cursors belong to one store. No preset file discovery, migration, host programs or audio-thread delivery.
+**Limits:** Allocates/clones on control threads; up to 4096 nodes, depth 64, 16 MiB state/transaction payload, 128 history snapshots/journal batches. Poll cursors belong to one store. Writes RVETTREE format 2; reads formats 1 (RAVET 0.0.1, as schema 1) and 2. Product schema migration is product code; no automatic version registry. No preset file discovery, host programs or audio-thread delivery.
 
 **Source:** [`crates/ravet-state/Cargo.toml`](../crates/ravet-state/Cargo.toml), [`crates/ravet-state/src/lib.rs`](../crates/ravet-state/src/lib.rs).
 
 **Tests:** [`crates/ravet-state/tests/state.rs`](../crates/ravet-state/tests/state.rs).
 
-**Documentation:** [`docs/observable-state.md`](../docs/observable-state.md), [`docs/decisions/0024-observable-state.md`](../docs/decisions/0024-observable-state.md).
+**Documentation:** [`docs/observable-state.md`](../docs/observable-state.md), [`docs/decisions/0024-observable-state.md`](../docs/decisions/0024-observable-state.md), [`docs/decisions/0286-versioned-tree-records.md`](../docs/decisions/0286-versioned-tree-records.md), [`docs/releases/0.1.0-upgrade.md`](../docs/releases/0.1.0-upgrade.md).
 
 <a id="preset-file-libraries"></a>
 
 ### Explicit preset-file libraries
 
-Consumer-selected directories provide sorted bounded preset metadata, validated atomic replacement and complete undoable selected-file recall through observable state.
+Consumer-selected directories provide sorted bounded preset metadata, validated atomic replacement and complete undoable selected-file recall through observable state, with a product schema version and explicit migration of older presets.
 
 **Limits:** 4096 directory entries, 128-byte portable ASCII stems, product-tagged tree codec/library/destination bounds. Blocking/allocating runtime dependency outside portable umbrella; no watcher, categories/Unicode titles, host program/discovery extension, rename/delete or power-loss/platform/DAW claim.
 
@@ -1612,7 +1642,7 @@ Consumer-selected directories provide sorted bounded preset metadata, validated 
 
 **Tests:** [`crates/ravet-preset/tests/library.rs`](../crates/ravet-preset/tests/library.rs).
 
-**Documentation:** [`docs/preset-files.md`](../docs/preset-files.md), [`docs/decisions/0035-explicit-preset-files.md`](../docs/decisions/0035-explicit-preset-files.md).
+**Documentation:** [`docs/preset-files.md`](../docs/preset-files.md), [`docs/decisions/0035-explicit-preset-files.md`](../docs/decisions/0035-explicit-preset-files.md), [`docs/decisions/0286-versioned-tree-records.md`](../docs/decisions/0286-versioned-tree-records.md), [`docs/releases/0.1.0-upgrade.md`](../docs/releases/0.1.0-upgrade.md).
 
 <a id="complete-parameter-programs"></a>
 

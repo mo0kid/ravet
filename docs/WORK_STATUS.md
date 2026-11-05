@@ -6,6 +6,37 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+## State-format policy and stereo block DSP — 5 November 2026
+
+Branch `policy/state-and-dsp` from `release/0.1.0` (`628af5d`). Machine: Apple
+M4 Pro, macOS arm64, rustc 1.99.1; shared with other sessions (load average
+6–9 during measurement).
+
+**State and parameter IDs.** Inventoried every saved format and parameter-ID
+scheme in the supported surface against the compatibility policy; the table is
+in the [0.1.0 upgrade notes](releases/0.1.0-upgrade.md). Only `RVETTREE`
+observable-tree records (and so `.ravetpreset` files) needed changes: format 2
+adds a product schema version, newer formats and schemas reject with distinct
+errors, 0.0.1 format-1 records still load as schema 1, and
+`Store::restore_migrating` / `PresetLibrary::load_into_migrating` migrate older
+schemas atomically ([decision 0286](decisions/0286-versioned-tree-records.md)).
+Foundation gained `parameter_record_version`. `cargo test -p ravet-state -p
+ravet-preset -p ravet-foundation` passes, including a hand-built 0.0.1 record.
+
+**Stereo FIR and oversampler.** Added `StereoFir` (f32/f64) and
+`StereoOversampler` ([decision 0287](decisions/0287-stereo-block-dsp-kernels.md),
+[guide](signal-processing.md#stereo-block-fir-and-oversampling)). Tests compare
+the FIR with an independent double-precision convolution (1–1,024 taps, many
+block shapes) and the oversampler sample-for-sample with `Oversampler` at every
+factor; both process with zero counted allocations. The x86_64-apple-darwin
+build passes the same tests under Rosetta 2. Release-mode medians at 512-frame
+blocks, ns per stereo frame: f32 FIR 0.91/3.10/12.0/47.4 for 16/64/256/1,024
+taps (Apple Accelerate `vDSP_conv`, separate harness: 0.78/2.51/11.4/49.1;
+existing `FirConvolver` ×2: 13.5/79.7/389/1,577); oversampler 4.64/13.7/31.2 at
+2×/4×/8× (per-sample `Oversampler` ×2: 16.0/38.3/100). One machine only; no
+external oversampling baseline and no native x86_64 measurement, so the
+release-plan item stays open.
+
 ## REAPER delay check on Windows and Linux VST3 — 5 November 2026
 
 Ran the scripted REAPER delay check
