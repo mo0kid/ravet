@@ -127,7 +127,9 @@ The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 
 - The descriptor, audio ports, note input and parameters come from the product.
   Parameters with integer steps, and the bypass toggle, are marked stepped.
-- Parameter text uses `ravet_plugin::text`, shared with the native table.
+- Parameter text uses `ravet_plugin::text`, shared with the native table. The
+  bypass parameter and unitless 0/1 toggles read `On`/`Off`; hosts may type
+  either the word or the number.
 - Host values are snapped to their ranges before the processor sees them, and
   recorded in a shared parameter cache. Values the host sets on the main thread
   update the cache immediately, so saving state never misses them.
