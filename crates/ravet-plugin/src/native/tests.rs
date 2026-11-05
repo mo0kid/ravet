@@ -5,7 +5,6 @@ use crate::{
     state::{SavedState, StateError},
 };
 use ravet_foundation::{AudioLayout, PrepareError, ProcessBlock, ProcessError};
-use ravet_native::NativeBusLayoutV1;
 use std::sync::OnceLock;
 
 const GAIN: u32 = 11;
@@ -190,7 +189,10 @@ fn instance() -> *mut c_void {
     let instance = (table.create)();
     assert!(!instance.is_null());
     // SAFETY: valid instance and configuration.
-    assert_eq!(unsafe { (table.prepare)(instance, &config(512, (2, 2))) }, 0);
+    assert_eq!(
+        unsafe { (table.prepare)(instance, &config(512, (2, 2))) },
+        0
+    );
     instance
 }
 
@@ -327,11 +329,20 @@ fn parameter_metadata_text_and_normalization() {
         assert_eq!((table.parameter)(0, &mut record), 0);
         assert_eq!((record.id, record.scale, record.steps), (GAIN, 0, 0));
         assert_eq!(record.flags, parameter_flags::AUTOMATABLE);
-        assert_eq!((record.minimum, record.maximum, record.default_value), (0.0, 2.0, 1.0));
-        assert_eq!((text(record.key), text(record.name), text(record.unit)), ("gain", "Gain", "x"));
+        assert_eq!(
+            (record.minimum, record.maximum, record.default_value),
+            (0.0, 2.0, 1.0)
+        );
+        assert_eq!(
+            (text(record.key), text(record.name), text(record.unit)),
+            ("gain", "Gain", "x")
+        );
         assert_eq!((table.parameter)(1, &mut record), 0);
         assert_eq!(record.steps, 3);
-        assert_eq!(record.flags, parameter_flags::AUTOMATABLE | parameter_flags::STEPPED);
+        assert_eq!(
+            record.flags,
+            parameter_flags::AUTOMATABLE | parameter_flags::STEPPED
+        );
         assert_eq!((table.parameter)(3, &mut record), 0);
         assert_eq!(
             record.flags,
@@ -357,7 +368,10 @@ fn parameter_metadata_text_and_normalization() {
         // Truncated text is NUL-terminated and reported.
         assert_eq!((table.value_to_text)(0, 1.5, buffer.as_mut_ptr(), 4), 1);
         assert_eq!(text(buffer.as_ptr()), "1.5");
-        assert_eq!((table.text_to_value)(0, c"nonsense".as_ptr(), &mut value), 1);
+        assert_eq!(
+            (table.text_to_value)(0, c"nonsense".as_ptr(), &mut value),
+            1
+        );
         assert_eq!((table.value_to_text)(9, 1.0, buffer.as_mut_ptr(), 32), 1);
         assert_eq!((table.normalize)(0, 0.5, &mut value), 0);
         assert_eq!(value, 0.25);
@@ -376,7 +390,13 @@ fn host_changes_reach_the_processor_and_saved_state() {
     let input = [0.5f32; 16];
     let block = process(instance, &input, &[]);
     assert_eq!(block.code, 0);
-    assert_eq!(block.result, NativeProcessorResultV1 { status: 0, event_count: 0 });
+    assert_eq!(
+        block.result,
+        NativeProcessorResultV1 {
+            status: 0,
+            event_count: 0
+        }
+    );
     assert_eq!(block.output[0], input);
 
     // SAFETY: valid instance.
@@ -391,9 +411,18 @@ fn host_changes_reach_the_processor_and_saved_state() {
     let mut bytes = vec![0u8; 256];
     // SAFETY: valid buffers.
     unsafe {
-        assert_eq!((table.save_state)(instance, ptr::null_mut(), 0, &mut length), 0);
-        assert_eq!((table.save_state)(instance, bytes.as_mut_ptr(), 4, &mut length), 1);
-        assert_eq!((table.save_state)(instance, bytes.as_mut_ptr(), 256, &mut length), 0);
+        assert_eq!(
+            (table.save_state)(instance, ptr::null_mut(), 0, &mut length),
+            0
+        );
+        assert_eq!(
+            (table.save_state)(instance, bytes.as_mut_ptr(), 4, &mut length),
+            1
+        );
+        assert_eq!(
+            (table.save_state)(instance, bytes.as_mut_ptr(), 256, &mut length),
+            0
+        );
     }
     let product = TestPlugin::PRODUCT.resolve().unwrap();
     let restored = state::restore(&product, &bytes[..length as usize], &state::NoHooks).unwrap();
@@ -432,7 +461,10 @@ fn loading_state_resets_and_delivers_every_value() {
     let bytes = state::encode(&product, &[0.5, 2.0, 0.0, 0.0], &[]).unwrap();
     // SAFETY: valid buffers.
     unsafe {
-        assert_eq!((table.load_state)(instance, bytes.as_ptr(), bytes.len() as u32), 0);
+        assert_eq!(
+            (table.load_state)(instance, bytes.as_ptr(), bytes.len() as u32),
+            0
+        );
         assert_eq!((table.get_value)(instance, 1), 2.0);
         assert_eq!((table.load_state)(instance, b"junk".as_ptr(), 4), 1);
         assert_eq!((table.get_value)(instance, 1), 2.0, "nothing applied");
@@ -452,7 +484,10 @@ fn loading_state_resets_and_delivers_every_value() {
     old[20..24].copy_from_slice(&1u32.to_le_bytes());
     // SAFETY: valid buffers.
     unsafe {
-        assert_eq!((table.load_state)(instance, old.as_ptr(), old.len() as u32), 0);
+        assert_eq!(
+            (table.load_state)(instance, old.as_ptr(), old.len() as u32),
+            0
+        );
         assert_eq!((table.get_value)(instance, 0), 0.5);
         assert_eq!((table.load_state)(instance, b"legacy".as_ptr(), 6), 0);
         assert_eq!((table.get_value)(instance, 0), 0.25);
@@ -469,7 +504,10 @@ fn hard_bypass_policy_applies_through_the_table() {
     let block = process(instance, &input, &[parameter_value(BYPASS, 4, 1.0)]);
     assert_eq!(block.output[0], [0.0, 2.0, 4.0, 6.0, 4.0, 5.0, 6.0, 7.0]);
     assert!(
-        recorder(instance).values.iter().all(|(_, id, _)| *id != BYPASS),
+        recorder(instance)
+            .values
+            .iter()
+            .all(|(_, id, _)| *id != BYPASS),
         "the bypass parameter is consumed"
     );
     destroy(instance);
@@ -509,7 +547,10 @@ fn preparation_validates_the_configuration() {
         assert_eq!((table.prepare)(instance, &config(512, (2, 1))), 1);
         let mut two_buses = config(512, (2, 2));
         two_buses.bus_count = 2;
-        two_buses.buses[1] = NativeBusLayoutV1 { inputs: 2, outputs: 0 };
+        two_buses.buses[1] = NativeBusLayoutV1 {
+            inputs: 2,
+            outputs: 0,
+        };
         assert_eq!((table.prepare)(instance, &two_buses), 1);
         assert_eq!((table.prepare)(instance, ptr::null()), 1);
         assert_eq!(process(instance, &[0.0; 4], &[]).code, 1, "not prepared");
@@ -540,7 +581,10 @@ fn panics_return_2_and_fault_processing_until_prepare() {
         // Parameters and state keep working.
         assert_eq!((table.set_value)(instance, 2, 0.0), 0);
         let mut length = 0;
-        assert_eq!((table.save_state)(instance, ptr::null_mut(), 0, &mut length), 0);
+        assert_eq!(
+            (table.save_state)(instance, ptr::null_mut(), 0, &mut length),
+            0
+        );
         // A panicking state hook returns 2 and applies nothing.
         assert_eq!((table.load_state)(instance, b"panic".as_ptr(), 5), 2);
         // Prepare recreates the processor and clears the fault.
@@ -635,8 +679,22 @@ fn editor_edits_flow_to_take_edits_and_the_processor() {
     // SAFETY: valid buffers.
     unsafe {
         assert_eq!((table.take_edits)(instance, edits.as_mut_ptr(), 2), 2);
-        assert_eq!(edits[0], RavetPluginEditV1 { kind: edit_kind::BEGIN, index: 0, value: 0.0 });
-        assert_eq!(edits[1], RavetPluginEditV1 { kind: edit_kind::VALUE, index: 0, value: 0.5 });
+        assert_eq!(
+            edits[0],
+            RavetPluginEditV1 {
+                kind: edit_kind::BEGIN,
+                index: 0,
+                value: 0.0
+            }
+        );
+        assert_eq!(
+            edits[1],
+            RavetPluginEditV1 {
+                kind: edit_kind::VALUE,
+                index: 0,
+                value: 0.5
+            }
+        );
         assert_eq!((table.take_edits)(instance, edits.as_mut_ptr(), 2), 1);
         assert_eq!(edits[0].kind, edit_kind::END);
         assert_eq!((table.take_edits)(instance, edits.as_mut_ptr(), 2), 0);
@@ -655,9 +713,18 @@ fn editor_open_rejects_unsupported_views() {
     // SAFETY: the view kinds are rejected before the parent is used.
     unsafe {
         let parent = (&mut parent as *mut u8).cast();
-        assert_eq!((table.editor_open)(instance, view_kind::WIN32, parent, 300, 200), 1);
-        assert_eq!((table.editor_open)(instance, view_kind::X11, parent, 300, 200), 1);
-        assert_eq!((table.editor_open)(instance, view_kind::COCOA, ptr::null_mut(), 300, 200), 1);
+        assert_eq!(
+            (table.editor_open)(instance, view_kind::WIN32, parent, 300, 200),
+            1
+        );
+        assert_eq!(
+            (table.editor_open)(instance, view_kind::X11, parent, 300, 200),
+            1
+        );
+        assert_eq!(
+            (table.editor_open)(instance, view_kind::COCOA, ptr::null_mut(), 300, 200),
+            1
+        );
         assert_eq!((table.editor_resize)(instance, 300, 200), 1, "not open");
         (table.editor_idle)(instance);
         (table.editor_close)(instance);
@@ -711,7 +778,8 @@ fn rust_records_match_the_c_header() {
         program.push_str(&format!("printf(\"%zu\\n\", (size_t){expression});\n"));
     }
     program.push_str("return 0; }\n");
-    let directory = std::env::temp_dir().join(format!("ravet-plugin-layout-{}", std::process::id()));
+    let directory =
+        std::env::temp_dir().join(format!("ravet-plugin-layout-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let source = directory.join("layout.c");
     let binary = directory.join("layout");

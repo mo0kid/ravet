@@ -45,13 +45,15 @@ use crate::{
     state,
 };
 use ravet_foundation::{
-    Event, EventData, ParameterId, ParameterScale, ProcessConfig, ProcessStatus, Processor,
-    Tail, Transport,
+    Event, EventData, ParameterId, ParameterScale, ProcessConfig, ProcessStatus, Processor, Tail,
+    Transport,
 };
-use ravet_native::{
-    NativeAudioAdapter, NativeEventV1, NativePlanarBus, NativeProcessorBusV1,
-    NativeProcessorConfigV1, NativeProcessorResultV1, NativeProcessorTimingV1, NativeTransportV1,
-    encode_native_events, native_event_kind,
+use ravet_native::{NativeAudioAdapter, NativePlanarBus, encode_native_events};
+/// The processor, event and transport records the table shares with
+/// `RavetNativeProcessor.h`, `RavetNativeEvent.h` and `RavetNativeTransport.h`.
+pub use ravet_native::{
+    NativeBusLayoutV1, NativeEventV1, NativeProcessorBusV1, NativeProcessorConfigV1,
+    NativeProcessorResultV1, NativeProcessorTimingV1, NativeTransportV1, native_event_kind,
 };
 use std::{
     cell::UnsafeCell,
@@ -751,11 +753,7 @@ impl<H: NativeExport> Table<H> {
     unsafe extern "C" fn set_value(instance: *mut c_void, index: u32, physical: f64) -> i32 {
         Self::guard(instance, 1, 2, |owner| {
             let shared = &owner.shared;
-            let Some(parameter) = shared
-                .product()
-                .product()
-                .parameters()
-                .get(index as usize)
+            let Some(parameter) = shared.product().product().parameters().get(index as usize)
             else {
                 return 1;
             };
@@ -1041,8 +1039,7 @@ impl<H: NativeExport> Table<H> {
                     return 1;
                 }
                 previous = offset;
-                if record.kind != native_event_kind::PARAMETER_VALUE && record.to_event().is_err()
-                {
+                if record.kind != native_event_kind::PARAMETER_VALUE && record.to_event().is_err() {
                     return 1;
                 }
             }
@@ -1201,7 +1198,10 @@ impl<H: NativeExport> Table<H> {
         })
     }
 
-    unsafe extern "C" fn timing(instance: *mut c_void, output: *mut NativeProcessorTimingV1) -> i32 {
+    unsafe extern "C" fn timing(
+        instance: *mut c_void,
+        output: *mut NativeProcessorTimingV1,
+    ) -> i32 {
         Self::guard(instance, 1, 2, |owner| {
             let shared = &owner.shared;
             // SAFETY: the header forbids calling timing during process.
