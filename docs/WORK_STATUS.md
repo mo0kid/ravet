@@ -9682,3 +9682,11 @@ while a value was being edited. Return and Escape therefore never reach the
 plug-in: Pro Tools handles them before AppKit's local monitors run. RAVET does
 not patch host event handling; in Pro Tools typed values apply on click-away,
 and editor pages should commit on blur (decision 0286, final note).
+
+### macOS standalone devices named (owner, 2026-11-05)
+
+The owner's macOS standalone audio and MIDI run of the DW-303 application
+(recorded earlier as an owner report) used a Behringer UMC1820 audio interface
+(USB vendor 0x1397) for output and a Studiologic SL STUDIO keyboard (USB vendor
+0x9516, product 0x2015) for MIDI input; both names are as macOS reports them
+in its USB device list on this Mac.
