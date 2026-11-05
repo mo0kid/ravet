@@ -200,6 +200,15 @@ table (including a C99 compile of the header that checks every record offset
 against the Rust definitions), and `examples/delay-plugin/tests/native.rs` uses
 the delay's exported table end to end.
 
+### AAX export
+
+The generic AAX adapter in `crates/ravet-plugin/aax` turns any product into an
+unsigned `.aaxplugin` on macOS and Windows from the product's table
+(`ravet_plugin_v1`): `python3 scripts/bundle-aax.py --plugin delay --aax-sdk
+<external AAX SDK>`, or `--package <crate>` for another product crate. Vendors
+sign (PACE-wrap) their own builds. See [AAX](aax.md#generic-aax-adapter-010) for
+what maps where, the Windows commands, checks and limits.
+
 ## Format identities
 
 All identities derive from the plug-in ID, using the same derivations as RAVET
