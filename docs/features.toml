@@ -3111,6 +3111,16 @@ tests = ["examples/gain-plugin/src/lib.rs", "crates/ravet-plugin/src/text.rs", "
 docs = ["docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md"]
 
 [[feature]]
+id = "generic-vst3-export"
+title = "Generic runtime-table VST3 adapter"
+status = "prototype"
+summary = "One C++ component/controller exports any RavetPluginEntryV1 product: runtime identities/layouts/parameters, unchanged state envelope, physical timed automation, bypass/step/hidden/read-only flags, notes and short MIDI output, 16-channel CC/pitch-bend/aftertouch input through hidden IMidiMapping parameters, cached latency/tail and main-loop editor gestures. The bundler builds one Cargo cdylib and packages it beside the adapter with external SDK validation."
+limits = "macOS arm64: independent C++ mock, real Delay and real Gain each pass Steinberg SDK validator47/0; mock CTest1/1. f32, one main bus/direction, declared count-based arrangements, frames1..65536, input/output1024records, state streams<=16MiB and VST3 parameter IDs<=0x7fffffff. No SysEx/UMP; host output refusal retains accepted prefix without replay. Mock editor callbacks only; Linux timers require host IRunLoop. Real editor/DAW, Windows/Linux runtime and deadlines need separate evidence; the current Rust table provides Cocoa editors only; external SDK never bundled as source."
+sources = ["crates/ravet-plugin/adapters/vst3/adapter.cpp", "crates/ravet-plugin/adapters/vst3/CMakeLists.txt", "crates/ravet-plugin/include/RavetPlugin.h", "scripts/generic_vst3_bundle.py", "scripts/bundle-vst3.py"]
+tests = ["crates/ravet-plugin/adapters/vst3/mock.cpp", "crates/ravet-plugin/adapters/vst3/contracts.cpp", "scripts/tests/test_generic_vst3_bundle.py"]
+docs = ["docs/vst3.md", "docs/plugin-export.md", "docs/decisions/0281-generic-export-layer.md"]
+
+[[feature]]
 id = "delay-plugin-example"
 title = "Tempo-synced delay plug-in example"
 status = "prototype"

@@ -1,7 +1,7 @@
 # 0281: Generic plug-in export layer
 
 **Date:** 23 October 2026  
-**Status:** Accepted design (23 October 2026). Not implemented.
+**Status:** Accepted design (23 October 2026). Partial implementation; see the feature catalogue for qualified capabilities.
 
 ## Context
 
@@ -191,3 +191,35 @@ On 23 October 2026 the owner accepted the design and answered its open questions
   under the compatibility policy, because they are prototypes in 0.0.1.
 - Windows and Linux runtime evidence is needed for every format. Today only
   macOS arm64 has any.
+
+## VST3 implementation choices (5 November 2026)
+
+The runtime-table adapter lives under `crates/ravet-plugin/adapters/vst3`.
+It uses separate product instances for the component and controller and SDK
+messages for cache/state synchronization, preserving `kDistributable` without
+sending process-local pointers. Editor views hold a weak controller lifetime
+token. Audio processing uses fixed event storage and existing native audio,
+transport and note helpers. The table owns denormal policy.
+
+Products remain Cargo cdylibs. The adapter loads the named product image beside
+its own module, with a module-relative platform loader and local symbol lookup.
+This avoids requiring every product to add Rust static-library system-link
+flags to the generic CMake build. The bundle must retain both images. The mock
+instead links a small C++ table directly so adapter validation can proceed
+independently of Rust table delivery.
+
+The v1 table carries channel counts rather than speaker identities or precision
+capabilities. This adapter exposes f32 and one main bus per nonempty direction;
+mono/stereo have standard arrangements and larger counts use low N speaker
+bits. f64, auxiliary buses and richer speaker declarations need explicit contract
+work. VST3's maximum parameter ID is 0x7fffffff: larger explicit product IDs
+reject rather than being remapped. MIDI input uses a deterministic free range
+of 2,080 IDs within that limit. State streams are bounded to 16 MiB and preserve
+the product bytes without a VST3-specific header.
+
+macOS/Windows use SDK main-loop timers. Linux uses the host IRunLoop (including
+factory context and view-frame fallbacks); without it there is no main-thread
+timer service. Timing is sampled on the processor owner after processing and
+published atomically; the main loop delivers restart notifications. Mock SDK
+validation establishes adapter behavior only, not real editor, product, DAW or
+cross-platform support. Commands and current evidence are in [VST3](../vst3.md).
