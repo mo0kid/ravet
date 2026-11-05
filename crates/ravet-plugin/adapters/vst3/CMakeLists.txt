@@ -41,6 +41,8 @@ function(ravet_adapter_target target)
     else()
         get_filename_component(product_name "${RAVET_PRODUCT_LIBRARY}" NAME)
         target_compile_definitions(${target} PRIVATE RAVET_PRODUCT_LIBRARY_NAME="${product_name}")
+        # Relink/copy when Cargo updates the image, even if C++ is unchanged.
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${RAVET_PRODUCT_LIBRARY}")
         add_custom_command(TARGET ${target} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${RAVET_PRODUCT_LIBRARY}" "$<TARGET_FILE_DIR:${target}>/${product_name}")
     endif()
