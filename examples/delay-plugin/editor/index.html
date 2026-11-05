@@ -21,7 +21,11 @@
   .knob svg { width: 64px; height: 64px; }
   .knob .name { font-size: 11px; color: var(--muted); text-transform: uppercase;
                 letter-spacing: .08em; }
-  .knob output { font-variant-numeric: tabular-nums; color: var(--accent); min-height: 1.2em; }
+  .knob output { font-variant-numeric: tabular-nums; color: var(--accent); min-height: 1.2em;
+                 cursor: text; border-radius: 4px; padding: 0 4px; }
+  .knob output:hover { background: var(--line); }
+  .knob input { width: 72px; font: inherit; text-align: center; color: var(--text);
+                background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   button { font: inherit; color: var(--text); background: var(--panel);
            border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
@@ -65,11 +69,20 @@
     const [x1, y1] = p(from), [x2, y2] = p(to);
     return `M${x1.toFixed(2)} ${y1.toFixed(2)}A26 26 0 ${to - from > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
   };
+  // One decimal, dropped when zero, so a value that is not whole never reads as one.
+  const num = (v) => { const t = v.toFixed(1); return t.endsWith(".0") ? t.slice(0, -2) : t; };
   const format = {
-    time: (v) => values.sync >= 0.5 ? `${DIVISIONS[values.division]} · sync` : `${Math.round(v)} ms`,
-    feedback: (v) => `${Math.round(v)} %`,
-    tone: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${Math.round(v)} Hz`,
-    mix: (v) => `${Math.round(v)} %`,
+    time: (v) => values.sync >= 0.5 ? `${DIVISIONS[values.division]} · sync`
+                                    : `${v >= 1000 ? Math.round(v) : num(v)} ms`,
+    feedback: (v) => `${num(v)} %`,
+    tone: (v) => v >= 1000 ? `${num(v / 1000)} kHz` : `${num(v)} Hz`,
+    mix: (v) => `${num(v)} %`,
+  };
+  // Typed values: a number in the control's unit; "k" multiplies by 1,000 (tone).
+  const parseTyped = (text) => {
+    const match = text.trim().toLowerCase().match(/^(-?\d*\.?\d+)\s*(k)?/);
+    if (!match) return null;
+    return parseFloat(match[1]) * (match[2] ? 1000 : 1);
   };
 
   function drawKnob(element) {
@@ -94,7 +107,8 @@
       b.setAttribute("aria-pressed", i === values.division));
   }
 
-  // Knobs: drag vertically; Shift for fine control; double-click resets.
+  // Knobs: drag vertically; Shift for fine control; double-click resets;
+  // click the value to type one (Enter applies, Escape cancels).
   document.querySelectorAll(".knob").forEach((element) => {
     const key = element.dataset.key;
     let startY = 0, startN = 0;
@@ -114,9 +128,36 @@
     const release = () => { if (dragging.delete(key)) plugin.end(key); };
     element.addEventListener("pointerup", release);
     element.addEventListener("pointercancel", release);
-    element.addEventListener("dblclick", () => {
+    element.addEventListener("dblclick", (e) => {
+      if (e.target.closest("output, input")) return;
       const p = plugin.info?.parameters.find((p) => p.key === key);
       if (p) plugin.set(key, p.default);
+    });
+    const output = element.querySelector("output");
+    output.addEventListener("pointerdown", (e) => e.stopPropagation());
+    output.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = key === "time" ? num(values.time) : num(values[key]);
+      input.setAttribute("aria-label", `${key} value`);
+      output.replaceWith(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = (apply) => {
+        if (done) return;
+        done = true;
+        const value = parseTyped(input.value);
+        input.replaceWith(output);
+        if (apply && value !== null && Number.isFinite(value)) plugin.set(key, value);
+        render();
+      };
+      input.addEventListener("pointerdown", (e) => e.stopPropagation());
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") finish(true);
+        if (e.key === "Escape") finish(false);
+      });
+      input.addEventListener("blur", () => finish(true));
     });
   });
 

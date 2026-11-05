@@ -132,7 +132,9 @@ The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
   Parameters with integer steps, and the bypass toggle, are marked stepped.
 - Parameter text uses `ravet_plugin::text`, shared with the native table. The
   bypass parameter and unitless 0/1 toggles read `On`/`Off`; hosts may type
-  either the word or the number.
+  either the word or the number. Other values show two decimals below
+  100, one from 100 (dropped when zero) and none for logarithmic values from
+  1,000, so a fractional value never reads as a whole one.
 - Host values are snapped to their ranges before the processor sees them, and
   recorded in a shared parameter cache. Values the host sets on the main thread
   update the cache immediately, so saving state never misses them.

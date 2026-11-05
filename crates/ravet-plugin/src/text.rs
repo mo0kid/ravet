@@ -18,9 +18,11 @@ fn is_switch(parameter: &Parameter<'_>) -> bool {
 }
 
 /// Write a physical value as text: clamped and snapped first, then `On`/`Off`
-/// for switches (the bypass parameter and unitless 0/1 toggles), whole numbers for integral stepped values and
-/// logarithmic values of 100 or more, two decimals otherwise, followed by a
-/// space and the unit when the parameter has one. Nonfinite values fail.
+/// for switches (the bypass parameter and unitless 0/1 toggles). Otherwise a
+/// number: whole for integral stepped values and logarithmic values of 1,000 or
+/// more, one decimal (dropped when it is zero) from 100, and two decimals below
+/// 100, so a value that is not whole never reads as one. The unit follows after
+/// a space when the parameter has one. Nonfinite values fail.
 pub fn write_value(parameter: &Parameter<'_>, value: f64, output: &mut impl Write) -> fmt::Result {
     let range = parameter.range();
     let value = range.canonicalize(value as f32).ok_or(fmt::Error)?;
@@ -29,10 +31,15 @@ pub fn write_value(parameter: &Parameter<'_>, value: f64, output: &mut impl Writ
     }
     let decimals = match (range.intervals(), range.scale()) {
         (Some(_), _) if value.fract() == 0.0 => 0,
-        (_, ParameterScale::Logarithmic) if value.abs() >= 100.0 => 0,
+        (_, ParameterScale::Logarithmic) if value.abs() >= 1000.0 => 0,
+        _ if value.abs() >= 100.0 => 1,
         _ => 2,
     };
-    write!(output, "{value:.decimals$}")?;
+    let mut number = format!("{value:.decimals$}");
+    if decimals == 1 && number.ends_with(".0") {
+        number.truncate(number.len() - 2);
+    }
+    output.write_str(&number)?;
     if !parameter.unit().is_empty() {
         write!(output, " {}", parameter.unit())?;
     }
@@ -76,6 +83,11 @@ mod tests {
 
         let tone = Parameter::logarithmic("tone", "Tone", 20.0, 20_000.0, 1000.0).with_unit("Hz");
         assert_eq!(format_value(&tone, 1234.4).unwrap(), "1234 Hz");
+        assert_eq!(format_value(&tone, 100.3125).unwrap(), "100.3 Hz");
+        assert_eq!(format_value(&tone, 820.0).unwrap(), "820 Hz");
+        let mix = Parameter::linear("mix", "Mix", 0.0, 100.0, 50.0).with_unit("%");
+        assert_eq!(format_value(&mix, 100.0).unwrap(), "100 %");
+        assert_eq!(format_value(&mix, 45.0).unwrap(), "45.00 %");
         assert_eq!(format_value(&tone, 55.123).unwrap(), "55.12 Hz");
 
         let steps = Parameter::stepped("division", "Division", 0.0, 9.0, 9, 3.0);

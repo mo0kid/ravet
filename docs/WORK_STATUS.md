@@ -8156,3 +8156,27 @@ still registered on Windows and would show an empty view. The intermittent
 Windows denormal warning was not reproduced on Linux (0 of 7 runs); the
 x86-64 denormal guard has no OS-specific code, and the VM's timing noise is
 the likely cause, but this is not established.
+
+### Ableton Live 12 VST3 delay check, and value text (2026-11-05)
+
+The owner loaded the VST3 delay (installed in `~/Library/Audio/Plug-Ins/VST3`)
+in Ableton Live 12 Suite on macOS 27 arm64 and exported two renders of the
+synthetic impulse input at 48 kHz, 24-bit, 150 BPM. Live warped the clip (the
+impulses arrived 57,600 samples apart instead of 72,000, a 120/150 stretch), so
+the strict REAPER checker does not apply; the echo spacing relative to each
+impulse was measured instead:
+
+- Synced (1/8, mix 50 %, feedback 0): each echo exactly 9,600 samples (200 ms,
+  an eighth note at 150 BPM) after its impulse; dry and echo about 0.25 / 0.125
+  per channel as expected.
+- Fixed (sync off, mix 100 %, feedback 0): one echo 4,815 samples after each
+  impulse and no dry signal. The time had been dragged to about 100.3 ms, which
+  the editor and host text displayed as "100 ms".
+
+Following that, host value text keeps one decimal from 100 (dropped when zero)
+and two below 100, with whole numbers only for logarithmic values from 1,000 and
+integral steps, and the delay editor shows the same precision and accepts typed
+values (click the value). The rebuilt VST3 delay passes the Steinberg
+validator (47 passed, 0 failed) and replaced the installed copy. This is a
+manual, single-host check; Live's editor, parameter list and session recall
+answers are pending from the owner.
