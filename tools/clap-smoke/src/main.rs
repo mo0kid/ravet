@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if delay {
         let blocks = ravet_clap_smoke::delay::exercise_delay(&entry)?;
         println!(
-            "RAVET CLAP Smoke Host: delay passed {blocks} blocks, parameters, host-tempo sync, inactive flush and state recall."
+            "RAVET CLAP Smoke Host: delay passed {blocks} blocks, parameters, host-tempo sync, oversized-block rejection, inactive flush and state recall."
         );
         return Ok(());
     }

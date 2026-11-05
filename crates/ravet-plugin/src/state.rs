@@ -272,7 +272,7 @@ impl Reader<'_> {
             .get(self.offset..end)
             .ok_or(StateError::Malformed)?;
         self.offset = end;
-        Ok(slice.try_into().unwrap())
+        slice.try_into().map_err(|_| StateError::Malformed)
     }
     fn u32(&mut self) -> Result<u32, StateError> {
         Ok(u32::from_le_bytes(self.take::<4>()?))

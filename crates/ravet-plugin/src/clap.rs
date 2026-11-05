@@ -32,7 +32,9 @@ use clack_extensions::{
 use clack_plugin::{
     events::{
         UnknownEvent,
-        event_types::{ParamGestureBeginEvent, ParamGestureEndEvent, ParamValueEvent},
+        event_types::{
+            ParamGestureBeginEvent, ParamGestureEndEvent, ParamValueEvent, TransportEvent,
+        },
         io::EventBuffer,
     },
     prelude::*,
@@ -62,7 +64,7 @@ impl<P: PluginExport> Plugin for ClapPlugin<P> {
             .register::<PluginState>()
             .register::<PluginLatency>()
             .register::<PluginTail>();
-        #[cfg(target_os = "macos")]
+        #[cfg(all(feature = "editor", target_os = "macos"))]
         if P::PRODUCT.editor().is_some() {
             builder.register::<clack_extensions::gui::PluginGui>();
         }
@@ -132,7 +134,7 @@ impl<P: PluginExport> DefaultPluginFactory for ClapPlugin<P> {
             shared,
             params: host.get_extension::<HostParams>(),
             reported_latency: AtomicU32::new(0),
-            #[cfg(target_os = "macos")]
+            #[cfg(all(feature = "editor", target_os = "macos"))]
             gui: std::cell::RefCell::new(None),
         })
     }
@@ -145,7 +147,7 @@ pub struct ClapShared {
     hooks: FnHooks,
     /// Editor edits waiting to be delivered to the host and processor.
     edits: EditQueue,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
     editor_message: fn(&serde_json::Value) -> Option<serde_json::Value>,
     /// Latency of the active processor.
     latency: AtomicU32,
@@ -163,11 +165,11 @@ impl ClapShared {
     pub fn parameters(&self) -> &ParameterCache {
         &self.parameters
     }
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
     pub(crate) fn edit_queue(&self) -> &EditQueue {
         &self.edits
     }
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
     pub(crate) fn handle_editor_message(
         &self,
         data: &serde_json::Value,
@@ -179,10 +181,15 @@ impl ClapShared {
         self.fault.load(Ordering::Relaxed)
     }
     /// Deliver queued editor edits: gesture and value events to the host, and
-    /// values to the processor at the start of `events`. Stops early when the
-    /// host's output queue is full; the rest are delivered next time.
-    fn deliver_edits(&self, output: &mut OutputEvents, events: &mut EventBuffer) {
+    /// values to the processor at the start of `events`, adding at most `room`
+    /// values. Stops early when the host's output queue or `room` is full; the
+    /// rest are delivered next time.
+    fn deliver_edits(&self, output: &mut OutputEvents, events: &mut EventBuffer, room: usize) {
+        let mut room = room;
         while let Some(edit) = self.edits.peek() {
+            if matches!(edit, Edit::Value(..)) && room == 0 {
+                break;
+            }
             let id = ClapId::new(self.product.parameter_ids()[edit.index()].0);
             let delivered = match edit {
                 Edit::Begin(_) => output.try_push(ParamGestureBeginEvent::new(0, id)).is_ok(),
@@ -192,6 +199,7 @@ impl ClapShared {
                     let ok = output.try_push(event).is_ok();
                     if ok {
                         events.push(&event);
+                        room -= 1;
                     }
                     ok
                 }
@@ -219,9 +227,9 @@ impl ClapShared {
 pub struct ClapMain<'a> {
     host: HostMainThreadHandle<'a>,
     shared: &'a ClapShared,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
     params: Option<HostParams>,
-    #[cfg(target_os = "macos")]
+    #[cfg(all(feature = "editor", target_os = "macos"))]
     gui: std::cell::RefCell<Option<crate::clap_gui::GuiState<'a>>>,
     /// Latency last reported to the host.
     reported_latency: AtomicU32,
@@ -236,24 +244,24 @@ impl<'a> PluginMainThread<'a, ClapShared> for ClapMain<'a> {
 }
 
 impl<'a> ClapMain<'a> {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
     pub(crate) fn shared(&self) -> &'a ClapShared {
         self.shared
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(feature = "editor", target_os = "macos"))]
     pub(crate) fn host(&self) -> &HostMainThreadHandle<'a> {
         &self.host
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(feature = "editor", target_os = "macos"))]
     pub(crate) fn host_params(&self) -> Option<HostParams> {
         self.params
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(feature = "editor", target_os = "macos"))]
     pub(crate) fn gui(&self) -> &std::cell::RefCell<Option<crate::clap_gui::GuiState<'a>>> {
         &self.gui
     }
     /// Ask the host to deliver queued editor edits.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "editor", target_os = "macos")), allow(dead_code))]
     pub(crate) fn request_flush(host: &HostMainThreadHandle<'_>, params: Option<HostParams>) {
         match params {
             Some(params) => params.request_flush(host),
@@ -391,7 +399,7 @@ impl PluginMainThreadParams for ClapMain<'_> {
     fn flush(&self, input: &InputEvents, output: &mut OutputEvents) {
         // Inactive: editor values are already cached; report them to the host.
         let mut ignored = EventBuffer::new();
-        self.shared.deliver_edits(output, &mut ignored);
+        self.shared.deliver_edits(output, &mut ignored, usize::MAX);
         // Store host values; activation sends the whole cache to the processor.
         for event in input {
             if let Some((index, value)) =
@@ -401,6 +409,15 @@ impl PluginMainThreadParams for ClapMain<'_> {
             }
         }
     }
+}
+
+/// Whether the audio thread copies `event` for the processor: core events
+/// only (the bridge ignores the others), no larger than the largest standard
+/// event. With at most [`MAXIMUM_EVENTS`] copies, the preallocated buffer
+/// never grows on the audio thread.
+fn copied(event: &UnknownEvent) -> bool {
+    let header = event.header().as_raw();
+    header.space_id == 0 && header.size as usize <= size_of::<TransportEvent>()
 }
 
 /// The parameter ID and value of a global parameter-value event.
@@ -476,21 +493,25 @@ impl<P: PluginExport> ClapAudio<'_, P> {
             ));
         }
         let result = self.bridge.flush(&self.events.as_input());
-        debug_assert!(result.is_ok());
+        self.shared.fault.store(result.is_err(), Ordering::Relaxed);
         self.bridge.reset();
         self.generation = generation;
     }
     /// Copy host events, snapping global parameter values to their ranges and
-    /// recording them in the cache. Unknown parameters and nonfinite values are dropped.
+    /// recording them in the cache. Unknown parameters and nonfinite values are
+    /// dropped, as are events [`copied`] excludes.
     fn canonicalize(&mut self, input: &InputEvents) {
         for event in input {
+            if !copied(event) {
+                continue;
+            }
             match global_value(event) {
                 Some((id, value)) => {
-                    if let Some((index, value)) = self.shared.canonical(id, value) {
+                    if let Some((index, value)) = self.shared.canonical(id, value)
+                        && let Some(parameter) = event.as_event::<ParamValueEvent>()
+                    {
                         self.shared.parameters.set(index, value);
-                        let mut copy = *event
-                            .as_event::<ParamValueEvent>()
-                            .expect("parameter event");
+                        let mut copy = *parameter;
                         copy.set_value(f64::from(value));
                         self.events.push(&copy);
                     }
@@ -498,6 +519,11 @@ impl<P: PluginExport> ClapAudio<'_, P> {
                 None => self.events.push(event),
             }
         }
+    }
+    /// Room for editor values beside the host's events, or `None` when the
+    /// host sent more events than the processor accepts in one block.
+    fn room(input: &InputEvents) -> Option<usize> {
+        MAXIMUM_EVENTS.checked_sub(input.len() as usize)
     }
     fn after_processing(&self, ok: bool) {
         self.shared.fault.store(!ok, Ordering::Relaxed);
@@ -555,7 +581,15 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
     ) -> Result<ProcessStatus, PluginError> {
         self.synchronize();
         self.events.clear();
-        self.shared.deliver_edits(events.output, &mut self.events);
+        // Like the native table, reject an oversized block with silence rather
+        // than grow the event buffer on the audio thread.
+        let Some(room) = Self::room(events.input) else {
+            ravet_clap::silence(&mut audio);
+            self.after_processing(false);
+            return Ok(ProcessStatus::Continue);
+        };
+        self.shared
+            .deliver_edits(events.output, &mut self.events, room);
         self.canonicalize(events.input);
         let result = self
             .bridge
@@ -576,7 +610,11 @@ impl<P: PluginExport> PluginAudioProcessorParams for ClapAudio<'_, P> {
     fn flush(&mut self, input: &InputEvents, output: &mut OutputEvents) {
         self.synchronize();
         self.events.clear();
-        self.shared.deliver_edits(output, &mut self.events);
+        let Some(room) = Self::room(input) else {
+            self.shared.fault.store(true, Ordering::Relaxed);
+            return;
+        };
+        self.shared.deliver_edits(output, &mut self.events, room);
         self.canonicalize(input);
         let result = self.bridge.flush(&self.events.as_input());
         self.shared.fault.store(result.is_err(), Ordering::Relaxed);

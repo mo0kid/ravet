@@ -31,8 +31,12 @@ pub(crate) unsafe fn silence<S: Sample>(buses: &[NativePlanarBus<S>], frames: us
             continue;
         }
         for channel in 0..bus.output_channels as usize {
+            // SAFETY: `outputs` is nonnull and aligned, and the caller's array covers
+            // `output_channels`.
             let output = unsafe { *bus.outputs.add(channel) };
             if !output.is_null() && aligned(output) {
+                // SAFETY: nonnull and aligned; the caller guarantees the channel covers `frames`
+                // samples.
                 unsafe { slice::from_raw_parts_mut(output, frames) }.fill(S::default());
             }
         }
@@ -64,6 +68,8 @@ impl<S: Sample> NativeAudioAdapter<S> {
         let result = if self.poisoned {
             Err(ProcessError::BackendFailure)
         } else {
+            // SAFETY: this function's caller contract covers every pointer `render` reads or
+            // writes.
             match catch_unwind(AssertUnwindSafe(|| unsafe {
                 self.render(processor, buses, frames, events, transport)
             })) {
@@ -80,6 +86,8 @@ impl<S: Sample> NativeAudioAdapter<S> {
                 events: &self.generated[..count],
             },
             Err(error) => {
+                // SAFETY: this function's caller contract; `silence` rechecks null, alignment and
+                // limits.
                 unsafe { silence(buses, frames) };
                 NativeProcessReport {
                     status: ProcessStatus::Fault(error),
@@ -124,12 +132,16 @@ impl<S: Sample> NativeAudioAdapter<S> {
                 return Err(ProcessError::LayoutMismatch);
             }
             for channel in 0..bus.input_channels as usize {
+                // SAFETY: `inputs` is nonnull and aligned, and the caller's array covers
+                // `input_channels`.
                 let input = unsafe { *bus.inputs.add(channel) };
                 if input.is_null() || !aligned(input) {
                     return Err(ProcessError::LayoutMismatch);
                 }
             }
             for channel in 0..bus.output_channels as usize {
+                // SAFETY: `outputs` is nonnull and aligned, and the caller's array covers
+                // `output_channels`.
                 let output = unsafe { *bus.outputs.add(channel) };
                 if output.is_null() || !aligned(output) {
                     return Err(ProcessError::LayoutMismatch);
@@ -149,6 +161,9 @@ impl<S: Sample> NativeAudioAdapter<S> {
         for bus in buses {
             for channel in 0..bus.input_channels as usize {
                 if frames > 0 {
+                    // SAFETY: every input pointer was checked nonnull and aligned above, and covers
+                    // `frames` samples by contract; it is copied before any output is written, so
+                    // aliasing is safe.
                     self.inputs[input_index][..frames].copy_from_slice(unsafe {
                         slice::from_raw_parts(*bus.inputs.add(channel), frames)
                     });
@@ -161,6 +176,9 @@ impl<S: Sample> NativeAudioAdapter<S> {
         for bus in buses {
             for channel in 0..bus.output_channels as usize {
                 if frames > 0 {
+                    // SAFETY: output pointers were checked nonnull, aligned and pairwise disjoint
+                    // above and cover `frames` samples by contract; the prepared scratch never
+                    // overlaps host samples.
                     unsafe {
                         ptr::copy_nonoverlapping(
                             self.outputs[output_index].as_ptr(),

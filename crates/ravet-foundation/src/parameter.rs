@@ -266,26 +266,33 @@ impl<'a, const N: usize> ParameterState<'a, N> {
         if input[..8] != product {
             return Err(ParameterError::WrongProduct);
         }
-        let actual_version = u32::from_le_bytes(input[8..12].try_into().unwrap());
+        let actual_version = word(input, 8).ok_or(ParameterError::InvalidRecord)?;
         if actual_version != version {
             return Err(ParameterError::UnsupportedVersion(actual_version));
         }
-        if u32::from_le_bytes(input[12..16].try_into().unwrap()) as usize != N {
+        if word(input, 12).ok_or(ParameterError::InvalidRecord)? as usize != N {
             return Err(ParameterError::InvalidRecord);
         }
         let mut values = [0.0; N];
         let mut seen = [false; N];
         for pair in input[16..].as_chunks::<8>().0 {
-            let id = ParameterId(u32::from_le_bytes(pair[..4].try_into().unwrap()));
+            let [a, b, c, d, e, f, g, h] = *pair;
+            let id = ParameterId(u32::from_le_bytes([a, b, c, d]));
             let index = schema.index(id).ok_or(ParameterError::WrongParameter(id))?;
             if seen[index] {
                 return Err(ParameterError::DuplicateId(id));
             }
             seen[index] = true;
-            values[index] = f32::from_le_bytes(pair[4..].try_into().unwrap());
+            values[index] = f32::from_le_bytes([e, f, g, h]);
         }
         schema.state(values)
     }
+}
+
+/// The little-endian word at `offset`, or `None` past the end of `bytes`.
+fn word(bytes: &[u8], offset: usize) -> Option<u32> {
+    let slice = bytes.get(offset..offset.checked_add(4)?)?;
+    Some(u32::from_le_bytes(slice.try_into().ok()?))
 }
 
 // Keep desktop mappings unchanged; bare-metal targets have no platform libm.

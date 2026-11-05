@@ -110,6 +110,8 @@ impl UmpSysExChunk {
         bytes[0] = kind << 4 | self.group;
         bytes[1] = (self.form as u8) << 4 | count;
         bytes[offset..offset + usize::from(self.length)].copy_from_slice(self.payload());
+        // Unreachable panic: the constructors bound group, form and length, and
+        // `length` is 8 or 16, so the packet always validates.
         UmpPacket::from_be_bytes(&bytes[..length]).expect("validated SysEx chunk")
     }
     /// Zero-based group.

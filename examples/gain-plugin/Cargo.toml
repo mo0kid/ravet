@@ -24,4 +24,4 @@ unsafe_code = "deny"
 [dependencies]
 ravet-foundation.workspace = true
 ravet-gain = { path = "../gain" }
-ravet-plugin = { workspace = true, features = ["clap", "native"] }
+ravet-plugin = { workspace = true, features = ["clap", "native", "editor"] }

@@ -6,6 +6,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import third_party_notices
 import tomllib
 
 
@@ -59,11 +60,13 @@ def build(root, args):
     if args.mock and args.product_library:
         raise ValueError("choose --mock or --product-library")
     manifest = args.manifest_path
+    product_package = None
     if not args.mock and not args.product_library:
         manifest = (manifest or root / "examples" / (args.plugin + "-plugin") / "Cargo.toml").resolve()
         with manifest.open("rb") as stream:
             package = tomllib.load(stream)
         name = package["package"]["name"]
+        product_package = name
         run("cargo", "build", "--manifest-path", manifest, "-p", name, "--release", "--locked")
         metadata = json.loads(run("cargo", "metadata", "--manifest-path", manifest, "--no-deps", "--format-version", "1", capture=True))
         library_name = package.get("lib", {}).get("name", name.replace("-", "_"))
@@ -107,6 +110,12 @@ def build(root, args):
     notices.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / "LICENSE", notices / "RAVET-LICENSE.txt")
     shutil.copy2(sdk / "LICENSE.txt", notices / "Apple-AudioUnitSDK-LICENSE.txt")
+    if product_package:
+        third_party_notices.write(root, product_package, notices, manifest_path=manifest,
+                                  run=lambda arguments, capture=False: run(*arguments, capture=capture))
+    elif not args.mock:
+        print("note: --product-library given; add its third-party notices to "
+              f"{notices} yourself", file=sys.stderr)
     run("codesign", "--force", "--sign", "-", component)
     if args.validate:
         run(build_dir / "ravet_au_plugin_contracts", component, *([] if args.mock else ["real"]))

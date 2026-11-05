@@ -354,6 +354,8 @@ impl<P: Processor<S>, S: ClapSample> MultiBusBridge<P, S> {
                     bus_outputs,
                     frames,
                 )
+                // Unreachable panic: `prepare` sized every scratch channel for the
+                // configured buses and `frames` is bounded by the prepared maximum.
                 .expect("prepared scratch dimensions");
                 input_offset += ins;
                 bus

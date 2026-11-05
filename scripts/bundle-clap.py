@@ -3,6 +3,10 @@
 
 --target windows cross-compiles the product for x86_64 Windows with cargo-xwin
 (C runtime linked statically) into target/clap/windows/<profile>/<Name>.clap.
+
+Notices (third-party crates, RAVET's licence and the Rust standard library)
+go to Contents/Resources/notices in the macOS bundle, and to a "<Name> notices"
+directory beside the single-file Linux and Windows .clap.
 """
 import argparse
 import json
@@ -12,6 +16,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import third_party_notices
 import tomllib
 import windows_cross
 
@@ -66,11 +71,15 @@ def bundle(profile: str, plugin: str = "gain", cross: str | None = None) -> path
                 "CFBundleVersion": version,
                 "CFBundleShortVersionString": version,
             }, destination)
+        third_party_notices.write(root, crate, contents / "Resources" / "notices")
         subprocess.run(["codesign", "--force", "--sign", "-", str(artifact)], check=True)
     else:
         library = f"{library_stem}.dll" if sys.platform == "win32" else f"lib{library_stem}.so"
         artifact = output / f"{name}.clap"
         shutil.copy2(target / profile / library, artifact)
+    if cross or sys.platform != "darwin":
+        third_party_notices.write(root, crate, output / f"{name} notices",
+                                  windows_cross.TRIPLE if cross else None)
     return artifact
 
 

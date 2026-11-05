@@ -227,10 +227,13 @@ fn run_inner<P: Processor<f32>>(
     generated: &mut [Event],
 ) -> ProcessStatus {
     let frames = block.audio.frames();
-    let audio = std::mem::replace(
-        &mut block.audio,
-        AudioBuffer::separate(&[], &mut [], 0).expect("empty buffer"),
-    );
+    // A buffer without channels or frames always validates; matching keeps the
+    // audio path free of panics.
+    let Ok(empty) = AudioBuffer::separate(&[], &mut [], 0) else {
+        block.clear_outputs();
+        return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+    };
+    let audio = std::mem::replace(&mut block.audio, empty);
     let mut inner = ProcessBlock {
         audio,
         auxiliary: block.auxiliary.take(),
@@ -335,7 +338,7 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
                 &self.events[..count],
                 &mut self.generated,
             ),
-            BypassPolicy::Frozen => self.process_frozen(block, count, switches),
+            BypassPolicy::Frozen => self.process_frozen(config, block, count, switches),
             BypassPolicy::Hard | BypassPolicy::Crossfade { .. } => {
                 self.process_mixed(block, count, switches)
             }
@@ -363,6 +366,7 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
 impl<P: Processor<f32>> PolicyProcessor<P> {
     fn process_frozen(
         &mut self,
+        config: ProcessConfig,
         block: &mut ProcessBlock<'_, '_, '_, f32>,
         count: usize,
         switches: usize,
@@ -394,15 +398,22 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
         if parameters == 0 {
             return ProcessStatus::Continue;
         }
-        let layout = self.config.expect("prepared").layout();
+        let layout = config.layout();
         let inputs: [&[f32]; MAXIMUM_CHANNELS] = [&[]; MAXIMUM_CHANNELS];
         let mut outputs: [&mut [f32]; MAXIMUM_CHANNELS] = std::array::from_fn(|_| &mut [][..]);
-        let audio = AudioBuffer::separate(
-            &inputs[..layout.input_channels()],
-            &mut outputs[..layout.output_channels()],
-            0,
-        )
-        .expect("empty channels");
+        // `prepare` rejects Frozen layouts over MAXIMUM_CHANNELS, and zero-frame
+        // channels always validate; matching keeps the audio path free of panics.
+        let (Some(inputs), Some(outputs)) = (
+            inputs.get(..layout.input_channels()),
+            outputs.get_mut(..layout.output_channels()),
+        ) else {
+            block.clear_outputs();
+            return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+        };
+        let Ok(audio) = AudioBuffer::separate(inputs, outputs, 0) else {
+            block.clear_outputs();
+            return ProcessStatus::Fault(ProcessError::LayoutMismatch);
+        };
         let mut inner = ProcessBlock {
             audio,
             auxiliary: None,
@@ -434,10 +445,14 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
         let mix = self.bypassed || self.wet != 1.0 || switches > 0;
         if mix && frames > 0 {
             let inputs = block.audio.input_channels();
+            // `validate_block` matched the channels to the prepared layout and
+            // bounded `frames` by the prepared length of each `dry` buffer.
             for (channel, dry) in self.dry.iter_mut().enumerate() {
-                match inputs.checked_sub(1) {
-                    Some(last) => dry[..frames]
-                        .copy_from_slice(block.audio.input(channel.min(last)).expect("input")),
+                let input = inputs
+                    .checked_sub(1)
+                    .and_then(|last| block.audio.input(channel.min(last)));
+                match input {
+                    Some(input) => dry[..frames].copy_from_slice(input),
                     None => dry[..frames].fill(0.0),
                 }
             }
@@ -474,7 +489,10 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
             self.bypassed = bypassed;
         }
         for (channel, dry) in self.dry.iter().enumerate() {
-            let output = block.audio.output_mut(channel).expect("output");
+            // One dry buffer per validated output channel, so this never skips.
+            let Some(output) = block.audio.output_mut(channel) else {
+                continue;
+            };
             for ((sample, dry), gain) in output.iter_mut().zip(&dry[..frames]).zip(&self.gains) {
                 *sample = *sample * gain + dry * (1.0 - gain);
             }

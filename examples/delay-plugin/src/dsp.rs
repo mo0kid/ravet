@@ -194,6 +194,8 @@ impl SyncedDelay {
     fn retarget(&mut self) {
         let targets = self.targets();
         for (smoother, target) in self.smooth.iter_mut().zip(targets) {
+            // Cannot fail: controls are validated finite, and the synced time
+            // is clamped to the finite time range.
             smoother
                 .set_target(target)
                 .expect("validated finite target");
@@ -204,6 +206,7 @@ impl SyncedDelay {
         if let EventData::ParameterValue { id, value } = data
             && (1..=CONTROLS as u32).contains(&id.0)
         {
+            // Cannot fail: `process` checks every known value before applying any.
             self.set(id, value).expect("preflighted control");
         }
     }
@@ -275,6 +278,9 @@ impl Processor for SyncedDelay {
         let rate = config.sample_rate();
         let frames = block.audio.frames();
         let mono = block.audio.input_channels() == 1;
+        // `validate_block` matched the buffer to the prepared mono or stereo
+        // layout, so the channel accessors below always succeed, and a prepared
+        // configuration implies prepared delay lines.
         let mut next = 0;
         for frame in 0..frames {
             while next < block.events.len() && block.events[next].frame_offset == frame {
