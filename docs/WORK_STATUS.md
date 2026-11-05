@@ -7920,7 +7920,7 @@ to `main`.
 ### Generic native AUv2 product adapter (2026-11-05)
 
 Branch `adapter/auv2` implements the native AUBase choice in decision 0281,
-with the contracts recorded in decision 0283. It fast-forwarded
+with the contracts recorded in decision 0284 (numbered 0283 on its branch; renumbered at merge because LV2 took 0283). It fast-forwarded
 `plugin/native-table` through `21088c5` before testing the actual Rust product;
 the adapter itself makes no change to `RavetPlugin.h`. Effects, instruments and
 audio-backed MIDI effects share `adapters/auv2/PluginAU.mm`. Bundle metadata
