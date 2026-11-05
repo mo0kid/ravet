@@ -92,11 +92,12 @@ solely because this licensing decision exists.
 
 ## Contributions and dependency selection
 
-Before accepting external contributions intended for the commercial edition,
-establish contributor terms granting sufficient rights for both the GPL and
-commercial routes, including appropriate patent rights. A contributor may
-retain copyright while granting those permissions; copyright assignment is
-not inherently required. Keep contributor and provenance records.
+External contributions are accepted under the
+[RAVET Contributor Terms](CONTRIBUTOR_TERMS.md), version 1.0, which grant
+sufficient rights for both the GPL and commercial routes, including patent
+rights. Contributors keep their copyright; no assignment is required. Each
+contributed commit carries a `RAVET-Contributor-Terms: 1.0` line, which forms
+the contributor record. Keep provenance records for third-party material.
 
 A DCO sign-off certifies contribution origin and the right to submit under the
 stated licence; it is not, by itself, a grant of proprietary relicensing rights.
