@@ -7747,3 +7747,14 @@ here. The unsigned bundle was not loaded in Pro Tools (that needs Pro Tools
 Developer; nothing was installed into host folders). No Windows build has been
 made. No Pro Tools
 support is claimed.
+
+### Contributor terms (2026-11-05)
+
+The owner approved the [RAVET Contributor Terms](../CONTRIBUTOR_TERMS.md),
+version 1.0: contributors keep copyright and grant a non-exclusive copyright
+and patent licence that includes relicensing under the commercial route; RAVET
+commits to keeping contributions available under the GPL. The licensor is David
+Whiting, trading as DJW Audio; the contact address is support@djwaudio.co; the
+terms are governed by the law of England and Wales. Contributors accept them
+with a `RAVET-Contributor-Terms: 1.0` commit trailer. `CONTRIBUTING.md` and
+`LICENSING.md` now point to them. The text has not had independent legal review.
