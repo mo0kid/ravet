@@ -6,6 +6,91 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+## REAPER delay check on Windows and Linux VST3 — 5 November 2026
+
+Ran the scripted REAPER delay check
+([host validation](host-validation.md#windows)) for VST3 on Linux and for
+CLAP, VST3 and LV2 on Windows. Branch `evidence/reaper-win-linux` from
+`release/0.1.0` (`b0c79ea`). All bundles were built from that source on the
+Linux machine: `bundle-vst3.py --plugin delay --profile release` (VST3 SDK
+3.8.1; its validator: 47 passed, 0 failed), and `bundle-clap.py`,
+`bundle-vst3.py` and `bundle-lv2.py --plugin delay … --target windows` (LV2
+1.18.10 headers; cross-built as in decision 0285).
+
+Machines: Arch Linux x86_64 (kernel 7.2.11-arch1-1, Python 3.14.8), REAPER
+7.82/linux-x86_64 with JACK; Windows 11 Enterprise Evaluation x64 VM
+(NT 10.0.26100.0, Windows PowerShell 5.1.26100.9711, no Python), REAPER
+7.82/x64 at `C:\REAPER` (an installed copy: its configuration is
+`%APPDATA%\REAPER`; `C:\REAPER` holds no ini), audio system WaveOut.
+
+| OS | Format | Discovered as | Runs | Host checks per run | Renders | Normal config |
+| --- | --- | --- | --- | --- | --- | --- |
+| Arch Linux x86_64 | VST3 | `VST3: RAVET Delay (RAVET)` | 3 PASS | 63 PASS | 18 PASS, 0 FAIL | unchanged |
+| Windows 11 x64 | CLAP | `CLAP: RAVET Delay (RAVET)` | 3 PASS (final settings) | 63 PASS | 18 PASS, 0 FAIL | unchanged |
+| Windows 11 x64 | VST3 | `VST3: RAVET Delay (RAVET)` | 3 PASS | 63 PASS | 18 PASS, 0 FAIL | unchanged |
+| Windows 11 x64 | LV2 | `LV2: RAVET Delay (RAVET)` | 3 PASS | 63 PASS | 18 PASS, 0 FAIL | unchanged |
+
+In every passing run the rendered samples (48 kHz, 192000 frames per channel,
+both channels) were: `fixed` and `recalled` echoes at frames 28800 and 100800
+(+4800 frames = 100 ms after the impulses at 24000 and 96000), amplitudes
+0.5000000/−0.2500000, dry 0; `synced` (1/8 at 150 BPM, mix 50) echoes at
+33600 and 105600 (+9600 frames = 200 ms), amplitudes 0.2500000/−0.1250000,
+dry 0.2500000/−0.1250000; maximum residual elsewhere 0. Every edit read back
+exactly and both reopened projects recalled every control and the tempo. VST3
+on both systems reports normalized 0..1 ranges and was driven through the
+formatted readback; CLAP and LV2 reported physical ranges. REAPER quit by
+itself with exit status 0: Linux VST3 in 2.0 and 3.0 s (the two runs whose
+driver output was kept), Windows in 28.2–35.8 s (about 20 s of it before the
+script started). After the changes below, Linux CLAP and LV2
+were run once more from this branch: both PASS (63 host checks, renders as
+above).
+
+Normal configuration: on Linux the driver's check of `~/.config/REAPER`
+passed every run. On Windows, `run-windows.ps1` hashed (SHA-256, size, mtime)
+the 19 top-level files in `%APPDATA%\REAPER` and `C:\REAPER` before and after
+each run; all 19 Windows runs, including failed and killed ones, left them
+unchanged, and the snapshot before the first run equals the one after the last.
+
+Procedure on Windows (the VM has no Python): `delay.py --windows-root
+C:\Users\shine\ravet-reaper` prepared each work directory on Linux, `scp`
+copied it to the VM, `schtasks /create … /it` + `schtasks /run` started
+`run-windows.ps1` in the logged-on user's console session, Linux polled for
+`run-windows.done`, deleted the task, copied the directory back and ran
+`delay.py --check-only`.
+
+Problems found and fixed in the harness (`tools/reaper-validation`):
+
+- Run from the OpenSSH session (session 0, not interactive), REAPER wrote no
+  host log within 120 s and was killed. The scheduled-task route above runs in
+  session 1 and works. No Python is needed on Windows: `--windows-root`
+  rewrites the ini and script paths for the Windows copy and writes the
+  runner; `--check-only` checks a copied-back directory and its guard snapshots.
+- REAPER stopped at "You have not yet selected an audio device" (a VM
+  `screendump`). Windows configurations now get `[audioconfig] mode=2`
+  (WaveOut); `--ini` accepts `[SECTION]KEY=VALUE`. With `mode=5`, REAPER
+  reported no audio system and CLAP edits never reached the plug-in (Time
+  stayed at its 375 ms default after 10 s), so the run failed.
+- With WaveOut, 2 of 6 runs passed. The other 4 stopped mid-script (after a
+  render, before or at a project reopen) and were killed at the timeout; for 3
+  of them a `screendump` taken 60 s in showed REAPER's "New Version
+  Notification" (REAPER 7.84 available) over the main window, and the fourth
+  was not captured. `verchk=0` is now written on every platform; the 9 Windows
+  runs after it all passed.
+- The Windows plug-in path keys are `clap_path_win64`, `lv2path_win64` and
+  `vstpath64` (named in `reaper.exe`; the unconfirmed candidates were removed).
+- The ReaScript logs `Audio system <name>` (`GetAudioDeviceInfo('MODE')`).
+
+`python3 -m unittest tools/reaper-validation/test_delay.py
+tools/reaper-validation/test_checks.py`: 14 tests pass on macOS and Linux (3
+new: ini sections and `verchk`, Windows preparation and runner, guard
+comparison and `--check-only`).
+
+Not run: the in-place driver on Windows with Python, macOS with this branch's
+changes (no REAPER in `/Applications` on the Mac used here; the changes add
+the `verchk=0` ini entry and a log line there), VST3 on macOS, AU, and any live playback,
+device, deadline, editor or automation check. The Windows evaluation "About
+REAPER" window appeared on screen during runs but did not block them.
+
 ## Scripted REAPER delay check — 5 November 2026
 
 Added an unattended REAPER check for the RAVET Delay product
