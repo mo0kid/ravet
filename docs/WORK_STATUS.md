@@ -8383,3 +8383,19 @@ Evidence on macOS 27 arm64:
 Not yet confirmed in Pro Tools: the bundle must be signed by the owner and
 loaded there. If Pro Tools consumes key events before AppKit's local event
 monitors run, this change cannot help.
+
+### Standalone evidence from DW-303 (owner report, 2026-11-05)
+
+The owner reports that the DW-303 standalone application (its own repository,
+built on RAVET's `StandaloneWindow`, the standard Audio/MIDI title-bar popup and
+the Windows/Linux web views merged from `main` in `67ee1d6`) has been run on
+macOS, Windows and Linux, and that audio output and MIDI input were exercised
+on macOS. Device names and dates were not recorded here. This is an owner
+report about a consumer product, not a RAVET-run check; Windows and Linux audio
+and MIDI remain to be exercised.
+
+Also merged into `release/0.1.0`: `main` at `67ee1d6` (Windows and Linux web
+views and standalone windows) and `fix/aax-keyboard` (macOS web editors take key
+status while a text field has focus, decision 0286). The rebuilt macOS AAX delay
+passes its bundle check; a vendor-signed copy is installed for a Pro Tools
+keyboard test.
