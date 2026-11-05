@@ -16,6 +16,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Changelog](../CHANGELOG.md) | User-facing changes since 0.0.1 |
 | [Support matrix](support-matrix.md) | Dated named-host evidence, validators and provisional platforms |
 | [Build and bundle plug-ins](bundle-plugin.md) | One product build, selected format bundles, SDK settings, signing hooks and validation |
+| [0.1.0 upgrade notes](releases/0.1.0-upgrade.md) | Saved-state, preset and parameter-ID changes from 0.0.1, with migration steps |
 | [Plug-in export layer](plugin-export.md) | Product descriptions, format identities and saved state for generic exports (prototype) |
 | [Versioning and compatibility](compatibility.md) | API, state and identity guarantees between releases |
 | [Dependency notices](dependency-notices.md) | Licences of the plug-in export graph and the notices each bundle ships |

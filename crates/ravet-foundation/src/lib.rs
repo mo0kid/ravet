@@ -35,7 +35,7 @@ pub use event::{
 pub use midi::{MidiDecoder, MidiError, MidiKind, MidiMessage};
 pub use parameter::{
     ParameterDescriptor, ParameterError, ParameterRange, ParameterScale, ParameterSchema,
-    ParameterState,
+    ParameterState, parameter_record_version,
 };
 pub use processor::{
     AudioLayout, MAXIMUM_AUXILIARY_BUSES, MAXIMUM_CHANNELS, PrepareError, ProcessBlock,

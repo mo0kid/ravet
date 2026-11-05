@@ -236,6 +236,82 @@ Wet-path phase delay remains frequency dependent; no dry alignment or constant
 integer host latency is claimed. An arbitrary-ratio sinc converter is provided separately; there is no oversampling
 filter coefficient designer. Tests check DC, call counts, reset and partition invariance.
 
+## Stereo block FIR and oversampling
+
+`StereoFir<f32>` and `StereoFir<f64>` filter two channels in place with a fixed
+tap count: one response for both channels (`new`) or one per channel
+(`with_responses`, equal lengths). Preparation copies 1..=16,384 finite taps
+and allocates history for blocks of up to 1..=65,536 frames; `process` accepts
+any block length (longer blocks run in prepared-size pieces) and rejects
+channels of different lengths with `ChannelLengthMismatch` before changing
+anything. Processing and reset never allocate. Latency is zero and the tail is
+`taps - 1`. Each channel keeps `taps - 1` history samples followed by the
+current block in one contiguous buffer. The kernel keeps a register block of
+running sums (64 f32 or 32 f64 outputs on arm64, half that elsewhere), and
+broadcasts one tap at a time across them, then finishes the block with 8-wide
+and single-output steps. The loops are plain safe Rust that the compiler
+vectorises; no intrinsics or fast-math flags are used. Each output is summed
+from the oldest tap to the newest, so results do not depend on block size or
+partitioning. On arm64 each step is a fused multiply-add, so the last bits can
+differ from other targets. Above roughly 1,024 taps, a partitioned FFT engine
+is cheaper if its latency is acceptable.
+
+`StereoOversampler` runs the fixed half-band profile of `HalfBand2x` at 1×, 2×,
+4× or 8× over whole stereo blocks. `upsample(left, right)` returns the high-rate
+left and right buffers for in-place processing, `downsample(left, right)`
+decimates them back, and `process(left, right, |high_left, high_right| …)`
+does both, in prepared-size pieces. Both polyphase branches of both channels
+advance together as one four-lane vector, with exactly the scalar operations of
+`HalfBand2x`, so the output is bit-identical to one `Oversampler` per channel
+applying the same per-sample DSP. Preparation allocates the high-rate buffers
+for 1..=65,536 host frames; processing and reset never allocate. Phase delay is
+frequency dependent and no constant integer latency is reported, as for
+`Oversampler`.
+
+Tests compare `StereoFir` with an independent double-precision convolution for
+1 to 1,024 taps and many block shapes, check partition independence and
+agreement with `FirConvolver`, impulse responses, reset and rejection; compare
+`StereoOversampler` sample-for-sample with `Oversampler` at every factor and
+block shape; and count zero allocations while processing. The x86_64 build was
+also tested under Rosetta 2 on the same Mac.
+
+### Measured cost
+
+`cargo run --release --locked -p ravet-signal --example fir-oversampling-bench`
+prints the median of seven timed runs in nanoseconds per stereo frame (both
+channels) for 512-frame blocks. Measured on 5 November 2026 on an Apple M4 Pro
+(macOS, arm64, rustc 1.99.1, release profile), on a shared machine; figures are
+the best median of three runs. The `vDSP_conv` column comes from a separate
+harness outside the repository (the workspace forbids `unsafe`), which calls
+Apple Accelerate over the same contiguous history and was checked to produce
+the same output.
+
+| Taps | `StereoFir` f32 | `StereoFir` f64 | `vDSP_conv` f32 | `FirConvolver` f64 ×2 | Ring-buffer f32 ×2 | `PartitionedConvolver` f64 ×2 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | 0.91 | 1.81 | 0.78 | 13.5 | 13.5 | 30.2 (partition 16) |
+| 64 | 3.10 | 6.21 | 2.51 | 79.7 | 80.1 | 35.2 (64) |
+| 256 | 12.0 | 24.5 | 11.4 | 389 | 387 | 42.7 (256) |
+| 1,024 | 47.4 | 94.5 | 49.1 | 1,577 | 1,583 | 49.6 (512) |
+
+At 512 frames, the f32 path costs 0.023–0.028 ns per tap per channel sample,
+15–33 times less than the existing `FirConvolver` direct path, and matches
+`vDSP_conv` from 256 taps (within 1.2× at 16–64 taps). The ring-buffer column is
+a straightforward per-sample f32 implementation in the benchmark.
+`PartitionedConvolver` adds latency equal to its partition.
+
+| Factor | `StereoOversampler` | `Oversampler` ×2 (per sample) |
+|---:|---:|---:|
+| 2× | 4.64 | 15.95 |
+| 4× | 13.69 | 38.30 |
+| 8× | 31.22 | 100.31 |
+
+The block oversampler costs about 3.3× less than two per-sample `Oversampler`s
+with an identity closure. No external oversampling library was measured, so
+"competitive" is established only against RAVET's own previous path. Under
+Rosetta 2 the x86_64 build measured 79 ns (f32, 1,024 taps) and 5.35/15.3/35.3 ns
+(2×/4×/8×); this is translated code, not native x86_64 evidence. These figures
+are not a callback-deadline guarantee on any machine.
+
 ## ADSR envelopes
 
 `AdsrConfig` validates finite positive sample rate, nonnegative durations in

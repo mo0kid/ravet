@@ -1,7 +1,8 @@
 //! Explicit preset directories for control/worker threads, outside audio callbacks.
 //! No default path, filesystem watch, host registration, worker or network activity.
+use core::num::NonZeroU32;
 use ravet_runtime::files::{self, FileError};
-use ravet_state::{Limits, Node, NodeId, StateError, Store};
+use ravet_state::{DEFAULT_SCHEMA, Limits, Node, NodeId, StateError, Store};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -55,6 +56,7 @@ pub struct PresetEntry {
 pub struct PresetLibrary {
     directory: PathBuf,
     product: [u8; 8],
+    schema: NonZeroU32,
     limits: Limits,
 }
 impl PresetLibrary {
@@ -73,8 +75,21 @@ impl PresetLibrary {
         Ok(Self {
             directory,
             product,
+            schema: DEFAULT_SCHEMA,
             limits,
         })
+    }
+    /// Use `schema` as the product's current preset schema version (default 1).
+    /// Saves write it; loads reject newer schemas with
+    /// [`StateError::UnsupportedSchema`] and pass older ones to the migration
+    /// hook of [`PresetLibrary::load_into_migrating`].
+    pub fn with_schema(mut self, schema: NonZeroU32) -> Self {
+        self.schema = schema;
+        self
+    }
+    /// The product's current preset schema version.
+    pub fn schema(&self) -> NonZeroU32 {
+        self.schema
     }
     pub fn directory(&self) -> &Path {
         &self.directory
@@ -124,18 +139,32 @@ impl PresetLibrary {
     /// Existing records with the same name are replaced; no history/delete policy.
     pub fn save(&self, name: &str, state: &Store) -> Result<(), PresetError> {
         let path = self.path(name)?;
-        let bytes = state.encode(self.product);
-        Store::decode(&bytes, self.product, self.limits)?;
+        let bytes = state.encode_schema(self.product, self.schema);
+        Store::decode_schema(&bytes, self.product, self.schema, self.limits)?;
         files::atomic_write(path, &bytes)?;
         Ok(())
     }
     /// Read/validate an explicit name before touching the destination store.
     /// Restore is one undoable transaction and also obeys destination limits.
     /// Failures preserve destination state, revision and undo/redo history.
+    /// Presets saved with an older schema are rejected with
+    /// [`StateError::InvalidOperation`]; use
+    /// [`PresetLibrary::load_into_migrating`] to accept them.
     pub fn load_into(&self, name: &str, state: &mut Store) -> Result<bool, PresetError> {
+        self.load_into_migrating(name, state, |_, _| Err(StateError::InvalidOperation))
+    }
+    /// As [`PresetLibrary::load_into`], but presets saved with an older schema
+    /// (including RAVET 0.0.1 version-one records, read as schema 1) are passed
+    /// to `migrate` with their saved schema, which returns the current tree.
+    pub fn load_into_migrating(
+        &self,
+        name: &str,
+        state: &mut Store,
+        migrate: impl FnOnce(u32, Node) -> Result<Node, StateError>,
+    ) -> Result<bool, PresetError> {
         let bytes = files::read(self.path(name)?, self.limits.bytes)?;
-        Store::decode(&bytes, self.product, self.limits)?;
-        Ok(state.restore(&bytes, self.product)?)
+        Store::decode_schema(&bytes, self.product, self.schema, self.limits)?;
+        Ok(state.restore_migrating(&bytes, self.product, self.schema, migrate)?)
     }
 }
 

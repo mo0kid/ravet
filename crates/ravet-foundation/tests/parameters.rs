@@ -154,3 +154,56 @@ fn discrete_state_rejects_unsnapped_records() {
     assert!(schema.state([0.5]).is_err());
     assert_eq!(schema.state([-0.0]).unwrap().values()[0].to_bits(), 0);
 }
+
+#[test]
+fn record_version_selects_schema_for_migration_and_rejects_newer() {
+    use ravet_foundation::parameter_record_version;
+    // Version 1 had parameters 1 and 2; version 2 removed 1 and added 3.
+    let v1 = [descriptor(1, 1.0), descriptor(2, 0.0)];
+    let v2 = [descriptor(2, 0.0), descriptor(3, 1.0)];
+    let (v1, v2) = (
+        ParameterSchema::new(&v1).unwrap(),
+        ParameterSchema::new(&v2).unwrap(),
+    );
+    let mut old = [0; 32];
+    v1.state([3.0, 2.0])
+        .unwrap()
+        .encode(*b"TESTPARM", 1, &mut old)
+        .unwrap();
+    let load = |bytes: &[u8]| -> Result<[f32; 2], ParameterError> {
+        match parameter_record_version(*b"TESTPARM", bytes)? {
+            1 => Ok(*ParameterState::decode(v1, *b"TESTPARM", 1, bytes)?
+                .migrate(v2)?
+                .values()),
+            2 => Ok(*ParameterState::decode(v2, *b"TESTPARM", 2, bytes)?.values()),
+            newer => Err(ParameterError::UnsupportedVersion(newer)),
+        }
+    };
+    assert_eq!(load(&old).unwrap(), [2.0, 1.0]);
+    let mut current = [0; 32];
+    v2.state([0.5, 4.0])
+        .unwrap()
+        .encode(*b"TESTPARM", 2, &mut current)
+        .unwrap();
+    assert_eq!(load(&current).unwrap(), [0.5, 4.0]);
+    let mut newer = current;
+    newer[8..12].copy_from_slice(&3_u32.to_le_bytes());
+    assert!(matches!(
+        load(&newer),
+        Err(ParameterError::UnsupportedVersion(3))
+    ));
+    assert!(matches!(
+        parameter_record_version(*b"OTHERPRD", &current),
+        Err(ParameterError::WrongProduct)
+    ));
+    let mut zero = current;
+    zero[8..12].fill(0);
+    assert!(matches!(
+        parameter_record_version(*b"TESTPARM", &zero),
+        Err(ParameterError::InvalidRecord)
+    ));
+    assert!(matches!(
+        parameter_record_version(*b"TESTPARM", &current[..15]),
+        Err(ParameterError::InvalidRecord)
+    ));
+}
