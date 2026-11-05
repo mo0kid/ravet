@@ -40,6 +40,8 @@ pub mod clap;
 #[cfg(all(feature = "clap", target_os = "macos"))]
 mod clap_gui;
 pub mod editor;
+#[cfg(all(any(feature = "clap", feature = "native"), target_os = "macos"))]
+mod editor_host;
 pub mod export;
 pub mod identity;
 pub mod policy;
@@ -56,6 +58,10 @@ pub use product::{
     derive_parameter_id,
 };
 
+#[cfg(feature = "native")]
+#[allow(unsafe_code)]
+pub mod native;
+
 #[doc(hidden)]
 #[cfg(feature = "clap")]
 pub mod __private {
@@ -65,9 +71,11 @@ pub mod __private {
 /// Export a [`PluginExport`] as a plug-in from this library crate.
 ///
 /// Call it once, at the crate root of a `cdylib`, with the export type in
-/// scope. It currently exports CLAP (feature `clap`); later formats join it.
-/// The calling crate must not `forbid(unsafe_code)`: the CLAP entry point is a
-/// foreign function. `deny` is fine.
+/// scope. With feature `clap` it exports the CLAP entry (`clap_entry`); with
+/// feature `native` it exports `ravet_plugin_v1`, the generic C table
+/// ([`native`], `include/RavetPlugin.h`) that the VST3, AUv2, AAX and LV2
+/// adapters load. The calling crate must not `forbid(unsafe_code)`: the entry
+/// points are foreign functions. `deny` is fine.
 ///
 /// ```ignore
 /// ravet_plugin::export_plugin!(MyPlugin);
@@ -80,11 +88,60 @@ macro_rules! export_plugin {
         pub mod __ravet_plugin_export {
             #[allow(unused_imports)]
             use super::*;
-            $crate::__private::clack_plugin::clack_export_entry!(
-                $crate::__private::clack_plugin::entry::SinglePluginEntry<
-                    $crate::clap::ClapPlugin<$plugin>,
-                >
-            );
+            $crate::__export_clap!($plugin);
+            $crate::__export_native!($plugin);
         }
     };
+}
+
+#[doc(hidden)]
+#[cfg(feature = "clap")]
+#[macro_export]
+macro_rules! __export_clap {
+    ($plugin:ty) => {
+        $crate::__private::clack_plugin::clack_export_entry!(
+            $crate::__private::clack_plugin::entry::SinglePluginEntry<
+                $crate::clap::ClapPlugin<$plugin>,
+            >
+        );
+    };
+}
+#[doc(hidden)]
+#[cfg(not(feature = "clap"))]
+#[macro_export]
+macro_rules! __export_clap {
+    ($plugin:ty) => {};
+}
+
+#[doc(hidden)]
+#[cfg(feature = "native")]
+#[macro_export]
+macro_rules! __export_native {
+    ($plugin:ty) => {
+        /// Connects the export to its static native table data.
+        pub struct NativeExport;
+        impl $crate::native::NativeExport for NativeExport {
+            type Plugin = $plugin;
+            fn statics() -> ::core::option::Option<&'static $crate::native::NativeStatics> {
+                static STATICS: ::std::sync::OnceLock<
+                    ::core::option::Option<$crate::native::NativeStatics>,
+                > = ::std::sync::OnceLock::new();
+                STATICS
+                    .get_or_init($crate::native::NativeStatics::new::<Self>)
+                    .as_ref()
+            }
+        }
+        /// The generic RAVET plug-in table (`include/RavetPlugin.h`), or null
+        /// when the product description is invalid.
+        #[unsafe(no_mangle)]
+        pub extern "C" fn ravet_plugin_v1() -> *const $crate::native::RavetPluginEntryV1 {
+            $crate::native::entry::<NativeExport>()
+        }
+    };
+}
+#[doc(hidden)]
+#[cfg(not(feature = "native"))]
+#[macro_export]
+macro_rules! __export_native {
+    ($plugin:ty) => {};
 }
