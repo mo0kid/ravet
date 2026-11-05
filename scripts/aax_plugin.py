@@ -6,6 +6,10 @@ crates/ravet-plugin/aax is configured with CMake against an external AAX SDK and
 linked with it. The adapter's own mock table is used when no crate is given.
 Builds are unsigned: PACE/Avid wrapping is the plug-in vendor's step, outside
 RAVET. Nothing is installed into host folders.
+
+cross="windows" (--target windows) cross-compiles the Windows .aaxplugin from
+Linux or macOS with cargo-xwin and clang-cl (see windows_cross), with the C
+runtime linked statically. The bundle check runs under Wine when installed.
 """
 from dataclasses import dataclass
 import json
@@ -16,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import windows_cross
 
 # Known products: crate (None = the adapter's C++ mock), bundle name, bundle ID.
 PRODUCTS = {
@@ -85,29 +90,40 @@ def static_library(target, crate, platform):
     return target / "release" / (f"{stem}.lib" if platform == "win32" else f"lib{stem}.a")
 
 
-def build(root, aax, selected, *, platform=None, runner=None, jobs=2):
+def build(root, aax, selected, *, platform=None, runner=None, jobs=2, cross=None):
     platform = platform or sys.platform
-    if platform not in ("darwin", "win32"):
-        raise ValueError("AAX plug-ins are built on macOS and Windows only")
+    if cross not in (None, "windows"):
+        raise ValueError("--target accepts only windows")
+    if platform not in ("darwin", "win32") and not cross:
+        raise ValueError("AAX plug-ins are built on macOS and Windows only (or --target windows)")
     root = Path(root).resolve()
     aax = check_sdk(aax)
     runner = runner or Runner(root)
     metadata = json.loads(runner.run(["cargo", "metadata", "--no-deps", "--locked", "--format-version", "1"], capture=True))
     target = Path(metadata["target_directory"])
     version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-    configure = ["cmake", "-S", root / "crates/ravet-plugin/aax", "-B", target / "aax-plugin" / selected.key,
+    build_dir = target / "aax-plugin" / (f"windows-{selected.key}" if cross else selected.key)
+    toolchain, release, cargo = [], target, ["cargo", "rustc"]
+    if cross:
+        toolchain = windows_cross.prepare(runner, target, platform=platform) + \
+            ["-DCMAKE_BUILD_TYPE=Release", "-DRAVET_AAX_STATIC_CRT=ON"]
+        platform, release, cargo = "win32", target / windows_cross.TRIPLE, windows_cross.cargo("rustc")
+    configure = ["cmake", "-S", root / "crates/ravet-plugin/aax", "-B", build_dir,
                  f"-DRAVET_AAX_SDK={aax}", f"-DRAVET_AAX_NAME={selected.name}",
                  f"-DRAVET_AAX_BUNDLE_ID={selected.identifier}", f"-DRAVET_AAX_VERSION={version}"]
     if selected.crate:
-        notes = runner.run(["cargo", "rustc", "-p", selected.crate, "--lib", "--release", "--locked",
+        notes = runner.run([*cargo, "-p", selected.crate, "--lib", "--release", "--locked",
                             "--crate-type", "staticlib", "--", "--print", "native-static-libs"], capture_errors=True)
-        library = static_library(target, selected.crate, platform)
+        library = static_library(release, selected.crate, platform)
         configure += [f"-DRAVET_PLUGIN_LIBRARY={library}", f"-DRAVET_PLUGIN_LINK_LIBRARIES={native_libraries(notes or '')}"]
-    configure += ["-A", "x64"] if platform == "win32" else ["-DCMAKE_BUILD_TYPE=Release"]
-    build_dir = target / "aax-plugin" / selected.key
+    if cross:
+        configure += toolchain
+    else:
+        configure += ["-A", "x64"] if platform == "win32" else ["-DCMAKE_BUILD_TYPE=Release"]
     runner.run(configure)
     runner.run(["cmake", "--build", build_dir, "--config", "Release", "--parallel", str(jobs)])
-    runner.run(["ctest", "--test-dir", build_dir, "-C", "Release", "--output-on-failure"])
+    if not cross or windows_cross.emulator_available(toolchain):
+        runner.run(["ctest", "--test-dir", build_dir, "-C", "Release", "--output-on-failure"])
     artifact = build_dir / f"{selected.name}.aaxplugin"
     notices = artifact / "Contents" / "Resources" / "notices"
     notices.mkdir(parents=True, exist_ok=True)

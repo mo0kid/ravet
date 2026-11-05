@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("ravet_aax_plugin", SCRIPTS / "aax_plugin.py")
@@ -16,6 +17,7 @@ spec.loader.exec_module(plugin)
 class Runner:
     def __init__(self, target):
         self.target, self.calls = target, []
+        self.environment = {"PATH": "/usr/bin"}
 
     def run(self, arguments, *, capture=False, capture_errors=False):
         args = [str(value) for value in arguments]
@@ -87,6 +89,20 @@ class AaxPluginTests(unittest.TestCase):
             self.assertEqual(configure[-2:], ["-A", "x64"])
             self.assertFalse(any(item.startswith("-DRAVET_PLUGIN_LIBRARY") for item in configure))
             self.assertEqual(runner.calls[2][-4:], ["--config", "Release", "--parallel", "2"])
+
+    def test_windows_cross_build(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch("shutil.which", return_value=None):
+            root, aax, runner = self.fixture(temporary)
+            built = plugin.build(root, aax, plugin.product("delay"), platform="linux", runner=runner, cross="windows")
+            rustc = next(call for call in runner.calls if call[:3] == ["cargo", "xwin", "rustc"])
+            self.assertIn("x86_64-pc-windows-msvc", rustc)
+            configure = next(call for call in runner.calls if call[:2] == ["cmake", "-S"])
+            library = root / "target/x86_64-pc-windows-msvc/release/ravet_delay_plugin.lib"
+            self.assertIn(f"-DRAVET_PLUGIN_LIBRARY={library}", configure)
+            self.assertIn("-DRAVET_AAX_STATIC_CRT=ON", configure)
+            self.assertNotIn("-A", configure)
+            self.assertFalse(any(call[0] == "ctest" for call in runner.calls), "no emulator, no tests")
+            self.assertEqual(built.build.name, "windows-delay")
 
     def test_native_library_note(self):
         self.assertEqual(plugin.native_libraries("x\nnote: native-static-libs: kernel32.lib ntdll.lib\n"), "kernel32.lib ntdll.lib")

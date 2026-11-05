@@ -84,30 +84,22 @@ negotiation, timed DSP/automation, note/CC/bend/aftertouch delivery, unchanged
 state bytes and rejection, zero-frame flush, delayed latency restart, editor
 resize/gestures and retained-view teardown. Editor tests use the mock callbacks,
 not a real web view. The real table is merged from `plugin/native-table`; actual product web editors,
-DAWs and Windows/Linux runtime evidence remain separate requirements. The current
-Rust table accepts Cocoa editors only, so Windows/Linux views reject attachment
-until their table backends land. See [work status](WORK_STATUS.md).
+DAWs remain separate requirements; Linux x86_64 and Windows x64 validator runs
+are recorded below. The current Rust table accepts Cocoa editors only, so
+Windows/Linux views reject attachment until their table backends land. See [work status](WORK_STATUS.md).
 
 ### Windows and Linux commands
 
-Install Rust, Python 3, CMake 3.25+ and a complete external VST3 SDK. On Windows
-run from an x64 Native Tools Command Prompt with MSVC, or configure the CMake
-build with Ninja and `clang-cl`. On Linux install the SDK's native X11, xcb and
-fontconfig development dependencies as required by that SDK distribution.
-
-```powershell
-# Windows / MSVC (the script uses CMake's default configured native generator):
-py -3 scripts/bundle-vst3.py --plugin delay --sdk C:/SDKs/vst3sdk
-# Independent mock and contracts:
-py -3 scripts/bundle-vst3.py --mock --sdk C:/SDKs/vst3sdk
-# clang-cl: preconfigure the same build directory, then run the script above:
-cmake -S crates/ravet-plugin/adapters/vst3 -B target/vst3/generic/delay/release -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Release -DRAVET_VST3_SDK=C:/SDKs/vst3sdk -DRAVET_VST3_NAME=ravet_delay_vst3 -DRAVET_PRODUCT_LIBRARY=C:/path/to/target/release/ravet_delay_plugin.dll
-```
+Install Rust, Python 3, CMake 3.25+ and a complete external VST3 SDK. The adapter
+turns off the SDK's hosting examples, so Linux builds do not need GTK or gtkmm;
+the SDK's `validator` is built regardless.
 
 ```sh
-# Linux / GCC (or set CC=clang CXX=clang++ before first configure):
+# Linux (GCC, or set CC=clang CXX=clang++ before first configure):
 python3 scripts/bundle-vst3.py --plugin delay --sdk /opt/vst3sdk
 python3 scripts/bundle-vst3.py --mock --sdk /opt/vst3sdk
+# Bundle: target/vst3/generic/delay/release/VST3/Release/ravet_delay_vst3.vst3
+# (Contents/x86_64-linux/ holds the adapter and libravet_delay_plugin.so).
 # Standalone C++ mock, without Cargo:
 cmake -S crates/ravet-plugin/adapters/vst3 -B target/vst3-mock -DCMAKE_BUILD_TYPE=Release -DRAVET_VST3_SDK=/opt/vst3sdk -DRAVET_VST3_MOCK=ON
 cmake --build target/vst3-mock --config Release --target ravet_plugin_vst3 ravet_generic_vst3_contracts validator --parallel 2
@@ -115,9 +107,34 @@ ctest --test-dir target/vst3-mock -C Release --output-on-failure
 target/vst3-mock/bin/Release/validator target/vst3-mock/VST3/Release/ravet_plugin_vst3.vst3
 ```
 
-These are build instructions, not Windows/Linux support claims. The CMake-only
-mock commands also work on Windows with `validator.exe` and the bundle path
-printed by the build. The bundler locates the platform bundle automatically.
+Windows bundles can be cross-compiled from Linux (see
+[Windows cross-builds](plugin-export.md#windows-cross-builds)):
+
+```sh
+python3 scripts/bundle-vst3.py --plugin delay --sdk /opt/vst3sdk --target windows
+# Bundle: target/vst3/generic/delay/windows-release/VST3/Release/ravet_delay_vst3.vst3
+# Windows tools: target/vst3/generic/delay/windows-release/bin/{validator,moduleinfotool}.exe
+```
+
+The cross-build links the C runtime statically (`SMTG_USE_STATIC_CRT=ON`) and
+does not run the validator; copy the bundle and `validator.exe` to Windows and
+run `validator.exe ravet_delay_vst3.vst3` there. `--mock --target windows` runs
+the contract test under Wine when it is installed.
+
+Natively on Windows, run from an x64 Native Tools Command Prompt with MSVC:
+
+```powershell
+py -3 scripts/bundle-vst3.py --plugin delay --sdk C:/SDKs/vst3sdk
+py -3 scripts/bundle-vst3.py --mock --sdk C:/SDKs/vst3sdk
+```
+
+Native MSVC builds use the DLL C runtime (`/MD`), so the bundle and validator
+need the Visual C++ Redistributable on the machine that loads them; configure
+with `-DSMTG_USE_STATIC_CRT=ON` (and build the product with
+`-C target-feature=+crt-static`) to avoid that. The native Windows path has not
+been run; the cross-build has. Evidence (Linux x86_64 and Windows 11 x64:
+Delay and mock 47 passed, 0 failed) is in [work status](WORK_STATUS.md). No DAW
+has loaded these bundles on either platform, and editors do not open there.
 
 ## Legacy 0.0.1 gain reference
 

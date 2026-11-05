@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
+# Windows: compile the adapter's own SDK sources with the C runtime the SDK uses
+# (/MD unless SMTG_USE_STATIC_CRT). Cross toolchains such as cargo-xwin's
+# clang-cl file leave this unset, and clang-cl would otherwise default to /MT.
+if(SMTG_USE_STATIC_CRT)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
 project(ravet_plugin_vst3 VERSION 0.1.0 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJCXX)
@@ -12,7 +20,9 @@ if(NOT RAVET_VST3_MOCK AND NOT EXISTS "${RAVET_PRODUCT_LIBRARY}")
     message(FATAL_ERROR "Set RAVET_PRODUCT_LIBRARY to the product cdylib, or RAVET_VST3_MOCK=ON")
 endif()
 set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES ON CACHE BOOL "" FORCE)
+# The SDK builds the validator and sdk_hosting regardless; the hosting examples
+# (editorhost) would add GTK/gtkmm on Linux, which the adapter does not need.
+set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
 set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "" FORCE)
@@ -22,6 +32,13 @@ set(SMTG_ENABLE_AUV2_BUILDS OFF CACHE BOOL "" FORCE)
 set(SMTG_ENABLE_AAX_BUILDS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${RAVET_VST3_SDK}" sdk-build)
 set(public_sdk_SOURCE_DIR "${RAVET_VST3_SDK}/public.sdk")
+# The SDK places the Windows module inside <name>.vst3/Contents/x86_64-win
+# through per-configuration output directories for CMAKE_CONFIGURATION_TYPES,
+# which it sets only in its own directory. Single-configuration generators
+# (Ninja, Makefiles, e.g. clang-cl cross builds) need the same list here.
+if(WIN32 AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_CONFIGURATION_TYPES Debug Release)
+endif()
 smtg_add_vst3plugin(${RAVET_VST3_NAME} adapter.cpp)
 smtg_target_add_library_main(${RAVET_VST3_NAME})
 function(ravet_adapter_target target)

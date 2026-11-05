@@ -514,3 +514,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0282](0282-plugin-policies-and-native-table.md) | Plug-in automation and bypass policies, and the generic native table | Prototype in `ravet-plugin`; offline Rust evidence and separate VST3 SDK qualification |
 | [0283](0283-generic-lv2-adapter.md) | Generic LV2 adapter: generated Turtle, one port set, mirror-instance UI | Prototype; macOS arm64 contracts, lilv and validator evidence; no DAW, Linux or Windows run |
 | [0284](0284-native-auv2-product-adapter.md) | Native AUv2 product adapter contracts | Prototype; macOS arm64 mock auval and real-delay in-process evidence, no DAW claim |
+| [0285](0285-linux-windows-plugin-builds.md) | Linux builds and Windows cross-builds of plug-in exports | Prototype; Linux x86_64 and Windows 11 x64 validator evidence for the Delay, no DAW claim |

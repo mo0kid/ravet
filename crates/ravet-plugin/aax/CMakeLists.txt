@@ -88,6 +88,11 @@ if(RAVET_PLUGIN_LIBRARY)
             set(framework OFF)
         elseif(token STREQUAL "-framework")
             set(framework ON)
+        elseif(WIN32 AND token MATCHES "^/[A-Za-z]+:")
+            # rustc notes MSVC options such as /defaultlib:libcmt; CMake would
+            # take the slash form for a path on non-Windows hosts.
+            string(REGEX REPLACE "^/" "-" token "${token}")
+            list(APPEND product_links "${token}")
         else()
             list(APPEND product_links "${token}")
         endif()

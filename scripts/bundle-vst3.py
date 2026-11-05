@@ -15,6 +15,8 @@ def main():
     parser.add_argument("--manifest-path", type=Path, help="External product Cargo.toml")
     parser.add_argument("--legacy-reference", action="store_true", help="Use the 0.0.1 Gain/Performance wrapper")
     parser.add_argument("--profile", choices=["debug", "release"], default="release")
+    parser.add_argument("--target", choices=["windows"],
+                        help="cross-compile for x86_64 Windows with cargo-xwin and clang-cl (generic adapter)")
     parser.add_argument("--native-editor", action="store_true", help="Include the macOS Rust-owned Gain WebKit editor")
     parser.add_argument("--factory-programs", action="store_true", help="Include the optional macOS validated Gain program list/selector")
     args = parser.parse_args()
@@ -22,14 +24,14 @@ def main():
         try:
             artifacts = build_generic(Path(__file__).resolve().parents[1], args.sdk, args.plugin,
                                       args.profile, mock=args.mock, package=args.package,
-                                      manifest_path=args.manifest_path)
+                                      manifest_path=args.manifest_path, cross=args.target)
         except ValueError as error:
             parser.error(str(error))
         for artifact in artifacts:
             print(artifact)
         return
-    if args.mock or args.package or args.manifest_path:
-        parser.error("mock/package/manifest-path require the generic adapter")
+    if args.mock or args.package or args.manifest_path or args.target:
+        parser.error("mock/package/manifest-path/target require the generic adapter")
     try:
         context = prepare_context(Path(__file__).resolve().parents[1], args.sdk, args.plugin,
                                   args.profile, native_editor=args.native_editor,

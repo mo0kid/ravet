@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
@@ -18,6 +19,7 @@ spec.loader.exec_module(generic)
 class Runner:
     def __init__(self, target, fail=None):
         self.target, self.calls, self.fail = target, [], fail
+        self.environment = {"PATH": "/usr/bin"}
 
     def run(self, arguments, *, capture=False):
         args = [str(item) for item in arguments]
@@ -93,6 +95,30 @@ class GenericLv2Tests(unittest.TestCase):
             generic.build_generic(context)
             configure = next(args for args in runner.calls if args[0] == "cmake" and "-S" in args)
             self.assertIn(f"-DRAVET_PLUGIN_LIBRARY={target / 'release/my_product.dll'}", configure)
+
+    def test_windows_cross_build(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch("shutil.which", return_value="/usr/bin/wine"):
+            root, sdk, target = self.fixture(temporary)
+            runner = Runner(target)
+            context = generic.prepare_generic(root, sdk, "delay", platform="linux", runner=runner, cross="windows")
+            built_target, build = generic.build_generic(context)
+            self.assertEqual(build, target / "lv2/windows/generic-ravet_delay")
+            self.assertIn(["cargo", "xwin", "build", "--target", "x86_64-pc-windows-msvc", "--release", "--locked",
+                           "-p", "ravet-delay-plugin"], runner.calls)
+            configure = next(args for args in runner.calls if args[0] == "cmake" and "-S" in args)
+            library = target / "x86_64-pc-windows-msvc/release/ravet_delay_plugin.dll"
+            self.assertIn(f"-DRAVET_PLUGIN_LIBRARY={library}", configure)
+            self.assertIn("-DCMAKE_CROSSCOMPILING_EMULATOR=/usr/bin/wine", configure)
+            self.assertEqual(runner.calls[-1][0], "ctest")
+            self.built_bundle(build, "ravet_delay")
+            artifact = generic.package_generic(context, built_target, build)
+            self.assertEqual(artifact, target / "lv2/windows/ravet_delay.lv2")
+
+    def test_windows_cross_needs_wine(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch("shutil.which", return_value=None):
+            root, sdk, target = self.fixture(temporary)
+            with self.assertRaisesRegex(ValueError, "Wine"):
+                generic.prepare_generic(root, sdk, "delay", platform="linux", runner=Runner(target), cross="windows")
 
     def test_failures_precede_commands(self):
         with tempfile.TemporaryDirectory() as temporary:
