@@ -244,6 +244,179 @@ The denormal release criterion is checked. The MIDI/timing criterion remains
 open: AAX SDK 2.8 has no native tail report and macOS instrument host execution
 remains blocked. No blanket platform, editor, device or deadline claim is added.
 
+<a id="release-010-macos-architectures"></a>
+
+## 0.1.0 macOS slices, Rosetta checks and external oversampler baseline — 5 November 2026
+
+Branch `platform/macos-x86-64`, reset from `release/0.1.0` at `eb4d2f5` in its
+own worktree. Main/release checkouts were not modified and nothing was pushed.
+Environment: Apple M4 Pro, macOS 27.0.1 (26A434), Rust 1.99.1
+(`58cf8f9c3`), Apple Clang 21.0.0 (`clang-2100.3.34.2`). Both
+`aarch64-apple-darwin` and `x86_64-apple-darwin` Rust targets were already
+installed; **no Rust target was installed**. Every x86_64 result below is
+**Rosetta 2 on Apple silicon**, not native Intel hardware.
+
+Implementation: unified `--arch arm64|x86_64|universal` defaults to the running
+host architecture, builds Rust once per target, combines universal cdylib/AAX
+staticlib with `lipo`, and supplies `CMAKE_OSX_ARCHITECTURES` to all C++ adapter,
+SDK and helper builds. Explicit architecture outputs and adapter caches are
+separate; omitted `--arch` retains the previous native output directory.
+Final notices cover the union of selected target dependency graphs. Validators
+select each requested slice. LV2's optional pkg-config lilv check is disabled
+for universal/non-host builds to avoid its thin arm64 Homebrew dependency;
+actual-module contracts still run for each slice. See [decision 0288](decisions/0288-unified-product-bundling-and-foundry.md#macos-architecture-selection--5-november-2026).
+
+SDK environment: `RAVET_VST3_SDK` supplied Steinberg `v3.8.1_build_84`,
+`RAVET_AUDIO_UNIT_SDK` supplied `AudioUnitSDK-1.4.0`, `RAVET_AAX_SDK` supplied
+SDK 2.8.0 (`AAX_SDK_VERSION 0x0208`), and `RAVET_LV2_SDK` supplied Homebrew
+LV2 1.18.10 headers. Downloaded the repository's official checksum-pinned
+universal clap-validator 0.4.1 (`152b982`) with
+`python3 scripts/fetch-clap-validator.py target/tools/clap-validator`.
+
+Commands from this worktree, with those SDK variables set:
+
+```sh
+python3 scripts/bundle-plugin.py --package ravet-delay-plugin \
+  --formats clap,vst3,au,aax,lv2 --release --arch universal --validate \
+  --clap-validator target/tools/clap-validator/clap-validator
+python3 scripts/bundle-plugin.py --package ravet-delay-plugin \
+  --formats clap,vst3,au,aax,lv2 --release --arch x86_64 --validate \
+  --clap-validator target/tools/clap-validator/clap-validator
+python3 scripts/bundle-plugin.py --package ravet-delay-plugin \
+  --formats clap --release --arch arm64 --validate \
+  --clap-validator target/tools/clap-validator/clap-validator
+```
+
+All five universal and all five thin-x86_64 bundles built. `lipo -archs` checked
+every shipped Mach-O (nine per architecture selection): universal images have
+arm64+x86_64, thin images x86_64 only. External VST3 SDK archives, AU SDK archive
+and AAX SDK archive also contain both universal slices. Strict/deep ad hoc
+signature verification passed for all 14 final bundles/LV2 images.
+
+| Format | Recorded x86_64 execution, including universal slice |
+|---|---|
+| CLAP | `arch -x86_64 .../clap-validator validate ...`: 33 passed, 0 failed, 0 warnings, 11 skipped |
+| VST3 | SDK validator built with selected CMake architecture(s), run with `arch -x86_64`: 47 passed, 0 failed |
+| AUv2 | Exact final component native contracts pass, including retained-view cycles; delay contracts pass. `arch -x86_64 /usr/bin/env ... ravet-auvaltool -v aufx QFKS TYDS`: AU Validation Tool 1.10.0 succeeds |
+| AAX | `arch -x86_64 .../ravet_aax_check <final bundle>` passes mono/stereo rendering, eight parameters and saved/corrupt state checks. CTest 1/1; no Avid/PACE validation |
+| LV2 | `arch -x86_64 .../ravet_lv2_contracts <final bundle> ...`: 46 checks, 0 failures. CTest 2/2; `lv2_validate`: 0 errors among 84 files, 2,064 restrictions |
+
+Universal CLAP/VST3/AAX/LV2 checks also pass their explicitly selected arm64
+slices. AU arm64 exact-bundle contracts pass; system `auval` succeeds but its
+registrar may select the already-installed same-identity component. Initial
+system-registrar Intel checks could not find the component. Intel validation
+now uses a RAVET constructor to register the **exact final component** inside
+an ad-hoc-signed build-directory copy of Apple's auvaltool, with original
+FourCC/name/version. The system tool and installed component are untouched;
+no Apple executable is shipped. The arm64 system validator is arm64e and
+cannot load an arm64 constructor, so its earlier temporary-installation path
+and documented same-identity caveat remain. Temporary copies were removed.
+
+### REAPER 7.82 / OSX64 under Rosetta
+
+The supplied REAPER.app is universal. The harness's new `--arch x86_64` wraps
+its private copy with `arch -x86_64` and selects x86_64 scan keys. A process
+sample explicitly reports `Code Type: X86-64 (translated)`. The existing
+normal-resource snapshots and foreign-resource abort remain enabled.
+
+Initial CLAP/LV2 runs timed out in `Init_Audio`'s modal without reaching Lua.
+Setting **only disposable ini keys** to Mac mini Speakers, 48 kHz, 512 frames
+resolved that blocker. Successful VST3 execution additionally used the
+per-process `sandbox-exec` wrapper documented in [host validation](host-validation.md#macos-rosetta-2)
+to deny the two system VST3 folders; the initial unrestricted scan timed out.
+Its fresh private cache names `ravet_delay_plugin.vst3` with the product UID,
+not the installed arm64 reference. No installed plug-in was moved or replaced.
+AU used the documented process-local registration wrapper pointing to the
+new **thin x86_64** component; it needed no global installation. The AU default
+FX prefix was corrected to REAPER's `AU: RAVET Delay` after the first AU attempt
+logged that candidate but did not match the older prefix.
+
+| Harness run / local log stem | Result |
+|---|---|
+| `reaper-clap-device` (universal CLAP) | 63 host checks; fixed, recalled and synced renders pass |
+| `reaper-lv2-device` (universal LV2) | 63 host checks; all three renders pass |
+| `reaper-vst3-private` (universal VST3) | 63 host checks; all three renders pass |
+| `reaper-au-local-2` (thin x86_64 AU) | Discovery, parameter edits/readback and recall: 63 checks pass. **Strict renders fail**: fixed/recalled echoes +6,848 frames instead of +4,800 (2,048 late), synced +12,672 instead of +9,600 (3,072 late) |
+
+Every run reports the normal REAPER resource directory unchanged. Renders are
+48 kHz stereo impulses, with 100 ms fixed/recalled delay and 200 ms synced delay
+at 150 BPM; passing cases include exact amplitudes, dry mix and silence
+elsewhere. The harness removes master hardware sends. These runs establish no
+live-device, custom-editor or deadline support. AAX is not a REAPER format;
+Pro Tools x86_64 was not run. The AU REAPER timing failure remains open.
+
+### External oversampler comparison
+
+A separately authored scratch harness outside RAVET invokes Apple's optimized
+`vDSP_biquadm` for the same rounded halfband coefficients, stereo polyphase
+branches, branch delays and cascaded 2× stages. It combines pairs of first-order
+allpasses into two biquads per branch and processes four branch/channel streams
+per library call. The earlier single-channel `vDSP_biquad` baseline was slower;
+the recorded verdict uses the faster multichannel variant. There is no imported
+implementation code or new RAVET dependency. This qualifies cost relative to
+this library-kernel baseline, not all independently designed oversamplers.
+
+| Factor | arm64 RAVET / vDSP ns per stereo frame | Rosetta x86_64 RAVET / vDSP ns per stereo frame |
+|---:|---:|---:|
+| 2× | 4.658 / 31.301 | 5.241 / 31.886 |
+| 4× | 13.481 / 95.794 | 15.183 / 96.304 |
+| 8× | 31.137 / 218.174 | 34.704 / 226.529 |
+
+512-frame blocks, f32 planar stereo, identity high-rate processing, persistent
+state and prepared buffers; identical timed input copies and no timed heap
+operations. Each figure is a median of nine × 4,000 blocks after 1,000 warm-up
+blocks. Rust release uses default target features; C++ uses `-O3`, system
+Accelerate, and the matching `-arch`; no cross-machine comparison. Continuous
+random input over 80 blocks per factor agreed within 9.83e-7 upsampled and
+3.69e-7 round-trip. The harness asserts maximum error <1e-5 before timing.
+
+Quality: a 65,536-low-frame impulse run per direction/phase, with a 131,072-point
+float64 NumPy 2.4.4 FFT, measured the same filter profile in both implementations.
+Up pass/stop bands: 0..0.225 / 0.275..0.5; down: 0..0.22 / 0.28..0.5, in cycles
+per high-rate stage sample. RAVET ripple up/down 6.29e-7/8.67e-7 dB and stop
+rejection 93.261/85.261 dB on both targets. Accelerate arm64:
+1.83e-6/2.54e-7 dB ripple and 93.261/85.262 dB rejection; Rosetta:
+1.21e-6/1.18e-6 dB and 93.267/85.261 dB. Impulse tails below 8e-45; these are
+finite-grid observations. See the [full method](signal-processing.md#external-oversampler-baseline--5-november-2026)
+and [decision 0290](decisions/0290-stereo-block-dsp-kernels.md#external-baseline-evidence--5-november-2026).
+Verdict: **competitive at matched quality against the measured external baseline**,
+6.7–7.1× cheaper on arm64 and 6.1–6.5× under Rosetta. Native Intel, nonlinear
+aliasing and real-time deadlines remain unqualified.
+
+The scratch sources/results are retained outside the repository at
+`/Users/davewhiting/.t3/scratch/ravet-macos-010-validation/baseline/` (original
+execution directory `/tmp/ravet-macos-010-baseline`). Reproduce with
+`cargo build --release --target <apple-triple>`, then
+`arch -arm64 target/aarch64-apple-darwin/release/ravet-external-baseline` or
+`arch -x86_64 target/x86_64-apple-darwin/release/ravet-external-baseline`.
+`--response <directory>` emits each implementation's impulse phases;
+`response_quality.py` measures them and `quality.py` computes the ideal rounded
+coefficient response on 100,001 points per band. Source SHA-256:
+
+- `baseline.cpp`: `e83fbca30a654639155315c3424d5f4ea35efa2c099fbcd43468ed722d49e514`
+- `src/main.rs`: `afc465414ff4479a8646adf6f8005867bfd729d83dbfd1c7ab93492701296199`
+- `build.rs`: `39a94526ad9a41bccade08ccc7ab8c4fb83d3f4602ce4d69b20aeedaa320656e`
+- `response_quality.py`: `83e589b3bc929df2aee74b78a78a59694fd3742e520f8984f876fbf9fca81f55`
+
+### Checks and remaining scope
+
+- Python script suite: **127 passed**; REAPER harness suite: **15 passed**.
+- Stereo block DSP test: **6 passed per target**, arm64 and Rosetta x86_64.
+- Workspace Rustdoc: **66 passed**; warnings-denied workspace `cargo doc
+  --workspace --no-deps --locked` passed. `cargo fmt --all -- --check` passed.
+- `python3 scripts/check-docs.py --write` and `python3 scripts/check-docs.py`
+  passed. Final validator/host logs and slice inventory are local under
+  `target/evidence/macos-arch/`; release bundles under
+  `target/plugins/macos-{universal,x86_64}/release/`. Generated REAPER resource
+  payloads and expendable x86_64 intermediates are cleaned after validation;
+  logs, final WAVs/projects, validators and bundles are retained. Cleanup
+  removed **2.79 GiB**; the retained worktree target directory is about 729 MiB.
+
+Open: native Intel hardware, Rosetta AU strict render timing, x86_64 Pro Tools,
+Avid validator, x86_64 lilv/lv2lint, arbitrary product/vendor signing and
+live-device/deadline qualification. The release architecture and DSP cost items
+are checked only within the explicitly recorded Rosetta/benchmark scope.
+
 <a id="release-010-docs-ci"></a>
 
 ## 0.1.0 release documentation, checklist audit and hosted CI — 5 November 2026

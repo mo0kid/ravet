@@ -35,7 +35,44 @@ libraries. The workspace forbids `unsafe`, so intrinsics are not available.
 ## Consequences
 
 - f32 FIR cost matches Apple Accelerate `vDSP_conv` at 256–1,024 taps on the
-  test machine; the oversampler costs about 3.3× less than before. No external
-  oversampling baseline or native x86_64 measurement exists yet.
+  test machine; the original oversampler measurement costs about 3.3× less than
+  before. The external evidence below supersedes its original lack of an
+  external baseline. Native Intel measurements remain absent.
 - Direct convolution stays O(taps); long responses should use
   `PartitionedConvolver`.
+
+## External baseline evidence — 5 November 2026
+
+The follow-up scratch harness uses Apple's external `vDSP_biquadm` implementation
+for the same rounded halfband IIR coefficients and polyphase/stage topology.
+Pairs of first-order allpasses form two biquads per branch; four channels carry
+the two stereo branches. This is a library-kernel baseline with original
+oversampling glue, not a claim about all independent resampler designs. The
+harness and all comparison implementation code stay outside the repository.
+No Accelerate dependency or DSP source change is introduced.
+
+With 512-frame f32 stereo blocks and identity processing, median nanoseconds per
+host stereo frame (nine × 4,000 blocks, 1,000 warm-ups) on an Apple M4 Pro,
+macOS 27.0.1, Rust 1.99.1 release and Apple Clang 21.0.0 `-O3`:
+
+| Factor | arm64 RAVET / Accelerate | Rosetta x86_64 RAVET / Accelerate |
+|---:|---:|---:|
+| 2× | 4.658 / 31.301 | 5.241 / 31.886 |
+| 4× | 13.481 / 95.794 | 15.183 / 96.304 |
+| 8× | 31.137 / 218.174 | 34.704 / 226.529 |
+
+Quality is matched: per-stage up pass/stop bands 0..0.225 / 0.275..0.5 and down
+0..0.22 / 0.28..0.5, in cycles per high-rate sample. Float64 FFTs of 65,536-frame
+f32 impulse executions measured RAVET up/down ripple 6.29e-7/8.67e-7 dB and
+stop rejection 93.261/85.261 dB on both architectures. Accelerate arm64 measured
+1.83e-6/2.54e-7 dB ripple and 93.261/85.262 dB rejection; Rosetta measured
+1.21e-6/1.18e-6 dB and 93.267/85.261 dB. These finite-grid figures include runtime
+rounding, unlike the ideal-coefficient response. Continuous random streams
+agreed within 9.83e-7 upsampled and 3.69e-7 round-trip over 80 blocks per factor.
+
+The cost is competitive against this matched external baseline: RAVET is
+6.7–7.1× cheaper on arm64 and 6.1–6.5× cheaper under Rosetta. The release §4 cost
+item can be checked within this measured scope. This does not qualify native
+Intel performance, all oversampler implementations, nonlinear aliasing, or
+callback deadlines. See the [full method and quality table](../signal-processing.md#external-oversampler-baseline--5-november-2026)
+and [source/hash receipt](../WORK_STATUS.md#release-010-macos-architectures).

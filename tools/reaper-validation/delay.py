@@ -76,7 +76,7 @@ FORMATS = {
         'env': None,
     },
     'au': {
-        'prefix': 'AU: RAVET: RAVET Delay',
+        'prefix': 'AU: RAVET Delay',
         'keys': {},
         'env': None,
         'system_installed': True,
@@ -207,12 +207,12 @@ def lua_value(value) -> str:
 
 def prepare(work: Path, fmt: str, bundle: Path | None, fx_name: str, quit_after: bool,
             extra_ini: list[str], env_path: bool = False,
-            windows_work: PureWindowsPath | None = None) -> tuple[Path, Path, dict]:
+            windows_work: PureWindowsPath | None = None, mac_arch: str | None = None) -> tuple[Path, Path, dict]:
     """Write the work directory. With `windows_work`, every path written into
     the ini and the script names that Windows location instead (the directory
     is copied there and run with run-windows.ps1)."""
     spec = FORMATS[fmt]
-    key_platform = 'windows' if windows_work is not None else platform_key()
+    key_platform = 'windows' if windows_work is not None else 'mac-' + mac_arch if mac_arch else platform_key()
 
     def host(path: Path) -> str:
         if windows_work is None:
@@ -428,7 +428,7 @@ def run(arguments: argparse.Namespace) -> int:
     work = (arguments.work or ROOT / 'target' / 'reaper-delay' / f'{fmt}-{stamp}').resolve()
     windows_work = PureWindowsPath(arguments.windows_root) / work.name if arguments.windows_root else None
     ini, script, env = prepare(work, fmt, arguments.bundle.resolve() if arguments.bundle else None, fx_name,
-                               not arguments.no_quit, arguments.ini, arguments.env_path, windows_work)
+                               not arguments.no_quit, arguments.ini, arguments.env_path, windows_work, arguments.arch)
     output = script.parent
     if windows_work is not None:
         reaper = PureWindowsPath(str(arguments.reaper) if arguments.reaper else r'C:\REAPER\reaper.exe')
@@ -444,6 +444,8 @@ def run(arguments: argparse.Namespace) -> int:
     if reaper.suffix == '.app' and not arguments.no_isolate and not arguments.dry_run:
         reaper = isolated_app(reaper)
     command = [str(executable(reaper)), '-cfgfile', str(ini), '-nosplash', '-ignoreerrors', '-newinst', str(script)]
+    if arguments.arch:
+        command = ['arch', '-' + arguments.arch, *command]
     print('work directory:', work)
     print('command:', ' '.join(f'"{c}"' if ' ' in c else c for c in command))
     if arguments.dry_run:
@@ -508,6 +510,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--format', choices=sorted(FORMATS), help='plug-in format (required unless --check-only)')
     parser.add_argument('--bundle', type=Path, help='built bundle (.clap, .lv2, .vst3 directory or file)')
     parser.add_argument('--reaper', type=Path, help='REAPER executable or REAPER.app (default: platform search)')
+    parser.add_argument('--arch', choices=['arm64', 'x86_64'],
+                        help='macOS: launch REAPER in this slice and select its plug-in scan keys')
     parser.add_argument('--work', type=Path, help='new work directory (default: target/reaper-delay/<format>-<time>)')
     parser.add_argument('--fx-name', help='REAPER FX name prefix to insert (default: per format)')
     parser.add_argument('--timeout', type=float, default=240.0, help='seconds before REAPER is terminated')
@@ -529,6 +533,8 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     if arguments.check_only:
         return check_only(arguments.check_only.resolve())
+    if arguments.arch and (sys.platform != 'darwin' or arguments.windows_root):
+        parser.error('--arch requires a local macOS run')
     if not arguments.format:
         parser.error('--format is required')
     return run(arguments)

@@ -305,12 +305,73 @@ a straightforward per-sample f32 implementation in the benchmark.
 | 4× | 13.69 | 38.30 |
 | 8× | 31.22 | 100.31 |
 
-The block oversampler costs about 3.3× less than two per-sample `Oversampler`s
-with an identity closure. No external oversampling library was measured, so
-"competitive" is established only against RAVET's own previous path. Under
-Rosetta 2 the x86_64 build measured 79 ns (f32, 1,024 taps) and 5.35/15.3/35.3 ns
-(2×/4×/8×); this is translated code, not native x86_64 evidence. These figures
-are not a callback-deadline guarantee on any machine.
+The original block oversampler measurement costs about 3.3× less than two
+per-sample `Oversampler`s with an identity closure. The following external
+baseline now qualifies the cost claim within the measured scope. Neither table
+is a callback-deadline guarantee.
+
+### External oversampler baseline — 5 November 2026
+
+A separately written scratch harness outside this repository compared
+`StereoOversampler` against Apple Accelerate
+[`vDSP_biquadm`](https://developer.apple.com/documentation/accelerate/vdsp_biquadm).
+The baseline uses the **same rounded f32 halfband coefficients**, branch delays,
+stage order and 2×/4×/8× cascades. It pairs first-order allpasses into two
+biquads per branch and filters the two stereo polyphase branches as four
+channels with one multichannel library call in each direction per stage.
+This measures an external optimized filtering implementation with original glue;
+it is not an independent coefficient designer or a general resampler-library
+ranking. An initial single-channel `vDSP_biquad` variant was slower; the table
+uses the faster multichannel baseline. No external implementation code was
+copied into RAVET, and Accelerate is not a RAVET dependency.
+
+Both implementations were measured with f32 planar stereo, 512 host frames,
+identity high-rate processing, persistent histories, prepared storage, identical
+input copies and no timed allocations. Each entry is the median of nine runs
+of 4,000 blocks after 1,000 warm-up blocks, on one shared Apple M4 Pro,
+macOS 27.0.1 (26A434), Rust 1.99.1 release/default target features, Apple Clang
+21.0.0 `-O3` and system Accelerate. x86_64 executables ran with
+`arch -x86_64` under **Rosetta 2**, not on Intel hardware.
+
+| Factor | arm64 RAVET | arm64 Accelerate | Rosetta x86_64 RAVET | Rosetta x86_64 Accelerate |
+|---:|---:|---:|---:|---:|
+| 2× | 4.658 | 31.301 | 5.241 | 31.886 |
+| 4× | 13.481 | 95.794 | 15.183 | 96.304 |
+| 8× | 31.137 | 218.174 | 34.704 | 226.529 |
+
+Units are **nanoseconds per host stereo frame**, including both upsampling and
+downsampling. Multiply by 512 for block cost. RAVET costs 2.38/6.90/15.94 µs per
+arm64 block and 2.68/7.77/17.77 µs per Rosetta block: 6.7–7.1× and 6.1–6.5× less
+than this matched external baseline, respectively.
+
+Filter quality was checked separately, outside timing. Frequencies below are
+cycles per high-rate stage sample (Nyquist = 0.5). The same profile is repeated
+at each stage for 4× and 8×. Impulse responses span 65,536 low-rate frames;
+NumPy 2.4.4 computes a 131,072-point float64 FFT, reconstructing decimator even
+and odd phases. The final 1,024 impulse samples were below 8e-45 in magnitude.
+These are finite-grid f32 execution observations, not universal error bounds.
+
+| Implementation / execution | Up ripple / stop rejection | Down ripple / stop rejection |
+|---|---:|---:|
+| RAVET arm64 and Rosetta x86_64 | 0.00000063 dB / 93.261 dB | 0.00000087 dB / 85.261 dB |
+| Accelerate arm64 | 0.00000183 dB / 93.261 dB | 0.00000025 dB / 85.262 dB |
+| Accelerate Rosetta x86_64 | 0.00000121 dB / 93.267 dB | 0.00000118 dB / 85.261 dB |
+
+Up passband: 0..0.225, stopband: 0.275..0.5. Down passband: 0..0.22,
+stopband: 0.28..0.5. The analytical response of the shared rounded coefficients
+on 100,001 points per band gives 93.269/85.259 dB stop rejection and less than
+1.3e-8 dB ripple. Independent continuous random-stream checks covered 80 blocks
+per factor: maximum upsample disagreement was 9.83e-7 and round-trip
+disagreement 3.69e-7 across both executions. Last-bit differences are expected
+from the biquad arithmetic arrangement.
+
+**Verdict:** competitive against this external baseline at matched quality for
+all three factors on this arm64 Mac and its translated x86_64 execution. This
+closes the release cost criterion within that scope. Native Intel performance,
+other oversampler designs, nonlinear aliasing quality and real-time deadlines
+remain unqualified. The [receipt](WORK_STATUS.md#release-010-macos-architectures)
+records scratch sources, commands and hashes; [decision 0290](decisions/0290-stereo-block-dsp-kernels.md#external-baseline-evidence--5-november-2026)
+records the evidence and limits.
 
 ## ADSR envelopes
 

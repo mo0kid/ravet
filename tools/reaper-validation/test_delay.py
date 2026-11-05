@@ -149,6 +149,26 @@ class DelayChecks(unittest.TestCase):
             self.assertIn('key=1\n', reaper)
             self.assertEqual(rest, 'mode=3\n[other]\na=b\n')
 
+    def test_macos_arch_selects_scan_keys_and_launch_prefix(self):
+        from unittest.mock import patch
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'RAVET Delay.clap'
+            bundle.mkdir()
+            output = io.StringIO()
+            with patch.object(delay.sys, 'platform', 'darwin'), contextlib.redirect_stdout(output):
+                self.assertEqual(delay.main(['--format', 'clap', '--bundle', str(bundle),
+                                             '--work', str(root / 'run'), '--arch', 'x86_64',
+                                             '--reaper', '/test/REAPER.app', '--dry-run']), 0)
+            ini = (root / 'run/resource/reaper.ini').read_text()
+            self.assertIn('clap_path_macos-x86_64=', ini)
+            self.assertIn('vstpath64=', ini)
+            self.assertNotIn('vstpath_arm64=', ini)
+            self.assertIn('command: arch -x86_64 /test/REAPER.app/Contents/MacOS/REAPER -cfgfile', output.getvalue())
+            self.assertIn('resource =', (root / 'run/output/ravet-delay-check.lua').read_text())
+
     def test_windows_preparation_rewrites_paths_and_writes_runner(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

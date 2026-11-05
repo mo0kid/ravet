@@ -60,6 +60,21 @@ class BundleTests(unittest.TestCase):
                                  writer=lambda *a, **k: calls.append((a, k)))
             self.assertEqual(len(calls), 1)
 
+    def test_universal_notices_cover_both_target_dependency_graphs(self):
+        calls = []
+        runner = Runner(Path("/target"))
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = Path(temporary) / "product.lv2"
+            artifact.mkdir()
+            (artifact / "THIRD-PARTY-NOTICES.txt").write_text("host-only adapter notices")
+            bundle.write_notices(artifact, "lv2", "darwin", "my-product", None, runner, None,
+                                 arch="universal", writer=lambda *a, **k: calls.append(a))
+        self.assertEqual(calls[0][3], ("aarch64-apple-darwin", "x86_64-apple-darwin"))
+        def tree(arguments, **kwargs):
+            return "shared v1.0.0\n" + ("intel v2.0.0\n" if arguments[-1].startswith("x86") else "arm v3.0.0\n")
+        self.assertEqual(bundle.third_party_notices.linked_packages(tree, "my-product", calls[0][3]),
+                         [("arm", "3.0.0"), ("intel", "2.0.0"), ("shared", "1.0.0")])
+
     def test_argument_selection(self):
         args = bundle.parser().parse_args(["--package", "my-product", "--formats", "lv2,clap", "--release"])
         self.assertEqual(args.formats, ["lv2", "clap"])
@@ -68,6 +83,69 @@ class BundleTests(unittest.TestCase):
         for selection in ("", "clap,clap", "vst2", "clap,unknown", "clap,"):
             with self.assertRaises(Exception):
                 bundle.formats(selection)
+
+    def test_macos_arch_defaults_and_platform_rejection(self):
+        args = bundle.parser().parse_args(["--package", "my-product"])
+        with patch.object(bundle.sys, "platform", "darwin"), patch.object(bundle.host_platform, "machine", return_value="x86_64"):
+            self.assertEqual(bundle.macos_arch(args), "x86_64")
+        args.arch = "universal"
+        self.assertEqual(bundle.cmake_arch(args.arch), ["-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"])
+        for platform, target in (("linux", None), ("win32", None), ("darwin", "windows")):
+            args.target = target
+            with self.assertRaisesRegex(ValueError, "--arch requires macOS"):
+                bundle.preflight(args, {}, platform)
+
+    def test_macos_rust_targets_and_universal_lipo(self):
+        for arch in ("arm64", "x86_64", "universal"):
+            with tempfile.TemporaryDirectory() as temporary:
+                args = bundle.parser().parse_args(["--package", "my-product", "--arch", arch,
+                                                  "--formats", "clap,aax", "--release"])
+                runner = Runner(Path(temporary))
+                with patch.object(bundle.sys, "platform", "darwin"):
+                    _, library, archive, _ = bundle.build_product(args, runner)
+                builds = [c for c in runner.calls if c[:2] == ["cargo", "rustc"]]
+                triples = (["aarch64-apple-darwin", "x86_64-apple-darwin"] if arch == "universal" else
+                           ["aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin"])
+                self.assertEqual([c[c.index("--target") + 1] for c in builds], triples)
+                self.assertTrue(all(c.index("--target") < c.index("--") for c in builds))
+                self.assertTrue(all("cdylib,staticlib" in c for c in builds))
+                lipos = [c for c in runner.calls if c[0] == "lipo"]
+                self.assertEqual(len(lipos), 2 if arch == "universal" else 0)
+                if arch == "universal":
+                    self.assertEqual([Path(c[-1]) for c in lipos], [library, archive])
+                    self.assertIn("universal-apple-darwin", str(library))
+
+    def test_universal_validation_selects_both_slices(self):
+        runner = Runner(Path("/target"))
+        bundle.validate("clap", Path("/out/product.clap"), runner, arch="universal",
+                        clap_validator=Path("/tools/validator"))
+        self.assertEqual([c[:3] for c in runner.calls],
+                         [["arch", "-arm64", "/tools/validator"], ["arch", "-x86_64", "/tools/validator"]])
+
+    def test_auval_registers_exact_x86_bundle_and_cleans_arm64_installation(self):
+        import plistlib
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "product.component"
+            (artifact / "Contents").mkdir(parents=True)
+            (artifact / "Contents/Info.plist").write_bytes(plistlib.dumps({"AudioComponents": [
+                {"type": "aufx", "subtype": "Test", "manufacturer": "RvET"}]}))
+            runner = Runner(root)
+            with patch.object(bundle.shutil, "copyfile", side_effect=lambda a, b: Path(b).write_bytes(b"tool")) as copy, \
+                 patch.object(bundle.Path, "home", return_value=root / "home"), \
+                 patch.object(bundle.shutil, "copytree"):
+                bundle.validate("au", artifact, runner, build=root, arch="universal")
+            copy.assert_called_once_with("/usr/bin/auvaltool", root / "ravet-auvaltool")
+            commands = [c for c in runner.calls if "/usr/bin/env" in c]
+            self.assertEqual([c[:3] for c in commands],
+                             [["arch", "-x86_64", "/usr/bin/env"]])
+            self.assertIn(["arch", "-arm64", "auval", "-v", "aufx", "Test", "RvET"], runner.calls)
+            self.assertFalse((root / "home/Library/Audio/Plug-Ins/Components/ravet-validation-product.component").exists())
+            for command in commands:
+                self.assertIn("RAVET_AUVAL_BUNDLE=" + str(artifact), command)
+                self.assertIn("DYLD_INSERT_LIBRARIES=" + str(root / "libravet_auval_registration.dylib"), command)
+                self.assertEqual(command[-4:], ["-v", "aufx", "Test", "RvET"])
+            self.assertEqual(len([c for c in runner.calls if "ravet_au_plugin_contracts" in c[-3]]), 2)
 
     def test_sdk_layers_and_relative_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -169,11 +247,12 @@ class BundleTests(unittest.TestCase):
             library, archive = root / "custom.dylib", root / "custom.a"
             library.write_bytes(b"fake")
             args = bundle.parser().parse_args(["--package", "my-product", "--manifest-path", str(root / "Cargo.toml"),
-                                              "--formats", "clap,vst3,au,aax,lv2"])
+                                              "--formats", "clap,vst3,au,aax,lv2", "--arch", "universal"])
             paths = {name: root for name in sdks.ENVIRON}
             product = {"name":"My product", "plugin_id":"com.vendor.product", "version":"1.2.3"}
             with patch.object(bundle.plugin_sdks, "discover", return_value=(paths, None)), \
                  patch.object(bundle, "preflight"), \
+                 patch.object(bundle, "macos_arch", return_value="universal"), \
                  patch.object(bundle, "build_product", return_value=(root, library, archive, "system-libs")) as build, \
                  patch.object(bundle, "product_metadata", return_value=product), \
                  patch.object(bundle, "sign") as signer, \
@@ -194,6 +273,12 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(aax.call_args.kwargs["link_libraries"], "system-libs")
             self.assertEqual(lv2.call_args.kwargs["product_library"], library)
             self.assertEqual(au.call_args.args[1].product_library, library)
+            expected = "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+            for builder in (vst3, aax, lv2):
+                self.assertIn(expected, builder.call_args.kwargs["cmake_options"])
+                self.assertIn("macos-universal", str(builder.call_args.kwargs["target_directory"]))
+            self.assertIn(expected, au.call_args.args[1].cmake_options)
+            self.assertIn("-DRAVET_LV2_LILV=OFF", lv2.call_args.kwargs["cmake_options"])
 
     def test_clap_metadata_and_cross_platform_replacement(self):
         import plistlib

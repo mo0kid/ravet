@@ -7,7 +7,7 @@
 
 Complete the build-tool delivery step of [0281](0281-generic-export-layer.md)
 with one Python entry point, `scripts/bundle-plugin.py`, and importable format
-builders. Cargo compiles the selected product once per command, emitting both
+builders. Cargo compiles the selected product once per Rust target, emitting both
 cdylib and staticlib when AAX is requested. AAX links the staticlib; the other
 adapters use the same build's cdylib. Adapter builders accept prebuilt library,
 target directory and profile inputs while preserving their direct CLI behavior.
@@ -47,3 +47,29 @@ support, or change the release tag/default now. Per-format reference fixtures
 remain available for historical tests. See the [bundle guide](../bundle-plugin.md)
 for exact flags, settings and validation limits, and [work status](../WORK_STATUS.md)
 for executed evidence rather than prospective platform claims.
+
+## macOS architecture selection — 5 November 2026
+
+`--arch arm64|x86_64|universal` selects explicit macOS Rust targets and passes
+`CMAKE_OSX_ARCHITECTURES` to every adapter, SDK library and helper. Universal
+Rust cdylibs and AAX staticlibs are combined by `lipo` before adaptation; no
+second product implementation is built. Target-specific dependency notices
+cover the union of both target graphs. Architecture caches and explicitly
+selected output directories are isolated; omitted `--arch` retains the earlier
+native output path while selecting the running host architecture.
+
+Validators execute each requested slice explicitly. The optional Homebrew lilv
+host test is disabled for universal/non-host builds because it can resolve a
+thin host library; LV2's own actual-module checks still execute both slices.
+Intel AU validation uses a RAVET constructor to register the exact signed
+component in a private ad-hoc-signed copy of Apple's auvaltool, avoiding global
+registration and installed-identity collisions. No Apple executable is shipped.
+The arm64 system validator is arm64e on this OS and cannot load an arm64
+constructor; it retains exclusive temporary installation and the documented
+same-identity registrar caveat. Exact in-process component contracts still
+check the selected artifact in both slices.
+
+The [receipt](../WORK_STATUS.md#release-010-macos-architectures) records all
+five-format universal/thin-Intel builds and Rosetta execution. Rosetta evidence
+is distinct from native Intel hardware support. Production signing and Avid
+validation remain vendor-owned.
