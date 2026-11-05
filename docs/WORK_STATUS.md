@@ -9022,3 +9022,20 @@ ravet-delay-plugin --formats clap,vst3,au,aax,lv2 --release --validate`:
 clap-validator 33 passed, 0 failed, 11 skipped; Steinberg validator 47 passed,
 0 failed; `auval` succeeds; AAX bundle check 1/1; LV2 4/4 and `lv2_validate`
 0 errors.
+
+### macOS REAPER harness blocked on this machine (2026-11-05)
+
+After the MIDI merge, the macOS REAPER harness no longer starts its script on
+this Mac for any product: a control re-run of the delay CLAP check, which had
+passed here earlier the same day, timed out after 120 s, as did the instrument
+CLAP check (also with the delay harness's app identity). Window titles during a
+stuck run showed REAPER's "Scanning VST plugins..." window over the main
+window; the earlier instrument agent's stack trace showed an alert during audio
+initialisation. Choosing BlackHole 16ch as the CoreAudio device, and seeding the
+disposable directory with a read-only copy of the normal VST scan cache, did not
+help (the latter experiment was not kept). The harness's guard confirmed the
+normal REAPER directory unchanged in every attempt. This is treated as a
+machine-specific environment issue: the same harness passes on Linux and
+Windows, and macOS host evidence for each format comes from Ableton Live 12,
+Logic Pro, Pro Tools 26.4 and the earlier REAPER runs. macOS instrument
+MIDI evidence in a host is therefore still missing.
