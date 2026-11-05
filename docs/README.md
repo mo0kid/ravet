@@ -12,6 +12,9 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Live documentation site](documentation-site.md) | Searchable portal, automatic rebuilding and integrated API reference |
 | [0.0.1 source preview](releases/0.0.1.md) | Release scope, licensing and publication limits |
 | [0.1.0 release plan](releases/0.1.0.md) | Criteria for the next release; not yet released |
+| [0.1.0 draft release notes](releases/0.1.0-notes.md) | Highlights, limits and upgrade steps; not released |
+| [Changelog](../CHANGELOG.md) | User-facing changes since 0.0.1 |
+| [Support matrix](support-matrix.md) | Dated named-host evidence, validators and provisional platforms |
 | [Plug-in export layer](plugin-export.md) | Product descriptions, format identities and saved state for generic exports (prototype) |
 | [Versioning and compatibility](compatibility.md) | API, state and identity guarantees between releases |
 | [Getting started](getting-started.md) | Requirements, offline example, CLAP bundle, and local API documentation |

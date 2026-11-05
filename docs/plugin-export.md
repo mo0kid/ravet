@@ -204,9 +204,9 @@ the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
   cache itself, so `editor_idle` currently does nothing.
 
 Limits for now: main bus only; product extra state is not saved; no Windows or
-Linux editor. Through the generic LV2 adapter, lilv (`lv2apply` and a lilv test
-host) has loaded the delay and gain tables on macOS; no DAW has loaded the table
-yet. The table's own evidence is offline: unit tests drive every function through the
+Linux editor. Named-host runs of the Delay through the native adapters are
+recorded separately in the [support matrix](support-matrix.md); those runs do
+not qualify arbitrary products. The table's own unit tests drive every function through the
 table (including a C99 compile of the header that checks every record offset
 against the Rust definitions), and `examples/delay-plugin/tests/native.rs` uses
 the delay's exported table end to end.
@@ -349,8 +349,7 @@ the editor closes. Several parameters may have gestures open at once.
 `sequence` increases with each snapshot or change message, so editors can drop
 stale updates.
 
-The message transport inside each web view, and a JavaScript client for editor
-pages, arrive with the first format adapter.
+The macOS transport and injected JavaScript client are described below.
 
 ## Editors
 

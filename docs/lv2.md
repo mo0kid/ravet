@@ -274,8 +274,9 @@ out — with a test probe. Any adapter can test against it.
   `lv2apply` renders; Linux x86_64 — the contracts, lilv checks and
   `lv2_validate`; Windows 11 x64 (cross-built) — the contracts run natively
   and `lv2_validate` of its Turtle. Counts are in [work status](WORK_STATUS.md).
-  lv2lint was not available on either machine. No DAW has loaded these
-  bundles.
+  lv2lint was not available on either machine. Subsequent REAPER 7.82 Delay
+  renders/readback/project recall on macOS, Linux and Windows are recorded in
+  the [support matrix](support-matrix.md); those runs do not check the editor.
 
 ## Gain reference (0.0.1)
 
