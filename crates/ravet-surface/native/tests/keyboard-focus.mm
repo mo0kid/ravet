@@ -7,6 +7,7 @@
 #import <WebKit/WebKit.h>
 #include "RavetWebView.h"
 #include <iostream>
+#include <utility>
 #include <stdexcept>
 #include <string>
 
@@ -26,6 +27,16 @@ static void pump(double seconds) {
     }
 }
 static void message(void*, const char*) {}
+// Like Pro Tools: the window's own event handling takes Return, Enter and
+// Escape before they reach the first responder.
+@interface SwallowingWindow : NSWindow
+@end
+@implementation SwallowingWindow
+- (void)sendEvent:(NSEvent*)event {
+    if (event.type == NSEventTypeKeyDown && (event.keyCode == 36 || event.keyCode == 76 || event.keyCode == 53)) return;
+    [super sendEvent:event];
+}
+@end
 static size_t snapshot(void*, char*, size_t) { return 0; }
 static std::string evaluate(WKWebView* web, NSString* script) {
     __block std::string out; __block bool done = false;
@@ -162,6 +173,33 @@ int main() { @autoreleasepool {
         [plain close];
         [host close];
         pass("key window");
+
+        // A host that takes Return and Escape in its own event handling while
+        // the editor window is key: the keys still reach the field, and the
+        // field is blurred (so the page commits) when the window stops being key.
+        NSWindow* swallowing = window(SwallowingWindow.class, NSMakeRect(260, 260, 300, 200));
+        [swallowing makeKeyAndOrderFront:nil];
+        Editor d = open(swallowing);
+        pump(0.2);
+        evaluate(d.web, @"document.getElementById('t').addEventListener('keydown',e=>{window.keys=(window.keys||'')+e.key+','}),''");
+        evaluate(d.web, @"document.getElementById('t').focus(),''");
+        pump(0.3);
+        for (auto [text, code] : {std::pair{@"\r", 36}, std::pair{@"\x1b", 53}}) {
+            NSEvent* down = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+                timestamp:0 windowNumber:swallowing.windowNumber context:nil characters:text
+                charactersIgnoringModifiers:text isARepeat:NO keyCode:(unsigned short)code];
+            [NSApp postEvent:down atStart:NO];
+            pump(0.3);
+        }
+        require(evaluate(d.web, @"window.keys||''") == "Enter,Escape,", "Return and Escape reach the field");
+        NSWindow* other = window(NSWindow.class, NSMakeRect(300, 300, 200, 100));
+        [other makeKeyAndOrderFront:nil];
+        pump(0.4);
+        require(evaluate(d.web, @"String(window.blurred||0)") == "1", "losing key status blurred the field");
+        ravet_web_destroy(d.view);
+        [swallowing close];
+        [other close];
+        pass("host that takes Return and Escape");
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << "\n";
         return 1;

@@ -1,7 +1,9 @@
 # 0286: Keyboard focus for web-editor text fields in hosts that keep key status
 
-Status: implemented in the Cocoa/WebKit backend; macOS AppKit fixture evidence,
-and confirmed by the owner in Pro Tools 26.4 on macOS arm64 (5 November 2026).
+Status: implemented in the Cocoa/WebKit backend; macOS AppKit fixture evidence.
+In Pro Tools 26.4 (owner, 5 November 2026) characters reached the field but
+Return, Enter and Escape did not, and clicking away did not commit; the
+amendment below addresses both and awaits a Pro Tools re-check.
 
 ## Context
 
@@ -51,3 +53,16 @@ backends are unchanged.
 
 See the [native editor guide](../native-editor.md#keyboard-focus) and
 [AAX](../aax.md).
+
+## Amendment (5 November 2026)
+
+Pro Tools takes Return, Enter and Escape in its own event handling even while
+the editor window is key, and WebKit keeps a field focused when its window
+stops being key, so the page never sees a blur. While a field has focus, the
+web view now always installs its local key monitor and sends every key without
+the Command modifier straight to the web view (the monitor runs before the
+application dispatches the event), and it ends editing, blurring the field, when
+the editor window resigns key status, as well as on a click in another window or
+the application resigning active. Command shortcuts still reach the host. A new
+fixture group (a window whose `sendEvent:` swallows Return, Enter and Escape)
+fails on the previous code and passes with this change.

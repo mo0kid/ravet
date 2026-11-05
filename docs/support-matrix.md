@@ -24,7 +24,7 @@ dated WORK_STATUS entry.
 | VST3 | Ableton Live 12 Suite on macOS 27 arm64 (point version not recorded): manual fixed/synced exports match the strict sample checker ([run](WORK_STATUS.md#release-010-live-delay)) | REAPER 7.82/x64, WaveOut: edits/readback, project recall and fixed/synced renders, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) | REAPER 7.82/linux-x86_64, JACK: same harness, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) |
 | LV2 | REAPER 7.82/macOS-arm64 on macOS 27.0.1: edits/readback, project recall and fixed/synced renders ([run](WORK_STATUS.md#release-010-reaper-delay)) | REAPER 7.82/x64, WaveOut: same harness, three passing runs ([run](WORK_STATUS.md#release-010-reaper-win-linux)) | REAPER 7.82/linux-x86_64, JACK: same harness ([run](WORK_STATUS.md#release-010-reaper-delay), [rerun](WORK_STATUS.md#release-010-reaper-win-linux)) |
 | AUv2 | Logic Pro on macOS 27 arm64 (Logic version not recorded): manual fixed/synced bounces, typed values, editor reopening and saved-project recall ([run](WORK_STATUS.md#release-010-logic-delay)); REAPER 7.82/macOS-arm64 on macOS 27.0.1: edits/readback, project recall and fixed/synced renders after the transport-residue fix ([run](WORK_STATUS.md#release-010-reaper-au-timing)) | Not applicable | Not applicable |
-| AAX | Pro Tools 26.4, macOS arm64 (OS version not recorded in this entry): manual fixed/synced bounces, mouse editor use; keyboard typing failed in this run and works after the decision 0286 fix (owner check, same day) ([run](WORK_STATUS.md#release-010-pro-tools-delay)) | **Provisional**, owner decision on 5 November 2026: Windows bundle built and adapter-checked; **not run in Pro Tools for Windows** ([build/checks](WORK_STATUS.md#release-010-platform-builds), [decision recorded in release plan](releases/0.1.0.md#5-platform-and-host-evidence)) | Not applicable |
+| AAX | Pro Tools 26.4, macOS arm64 (OS version not recorded in this entry): manual fixed/synced bounces, mouse editor use; keyboard typing failed in this run; characters work after the decision 0286 fix, Return/Escape and click-away commit await a re-check ([run](WORK_STATUS.md#release-010-pro-tools-delay)) | **Provisional**, owner decision on 5 November 2026: Windows bundle built and adapter-checked; **not run in Pro Tools for Windows** ([build/checks](WORK_STATUS.md#release-010-platform-builds), [decision recorded in release plan](releases/0.1.0.md#5-platform-and-host-evidence)) | Not applicable |
 
 The REAPER harness checks 48 kHz offline master-mix renders, 63 host checks per
 run, two project recalls and exact echo positions/mix/silence. It does not
@@ -147,9 +147,11 @@ custom editor, polyphony or live deadline.
   needs X11/XWayland and refuses GTK 2/GTK 4 and Wayland GTK hosts.
 - **Pro Tools keyboard typing** failed in the first recorded run (mouse editing
   worked). With the fix ([decision 0286](decisions/0286-editor-keyboard-focus.md):
-  the web view takes key status while a text field has focus), the owner
-  confirmed typing in Pro Tools 26.4 on macOS arm64, with Pro Tools shortcuts
-  still working outside text fields. Windows Pro Tools is not covered.
+  the web view takes key status while a text field has focus), characters
+  reached the field in Pro Tools 26.4, but Return, Enter and Escape did not and
+  clicking away did not commit. A follow-up fix forwards those keys and commits
+  when the editor window loses key status; it passes AppKit fixtures and awaits
+  a Pro Tools re-check. Windows Pro Tools is not covered.
 - Generic processing is **f32 and main bus only**. CLAP and LV2 use the first
   declared layout. This page does not qualify the separate f64/auxiliary
   reference adapters or AUv3/mobile integrations.
