@@ -2756,7 +2756,7 @@ Copied checked flat button/slider/static-text snapshots, native AppKit protocol 
 
 **Limits:** macOS native API only; portable allocating model1..64nodes/65536combinedUTF8bytes and bounded finite local rectangles. Consumer supplies complete semantics/geometry/reported focus; no HTML inference, implicit focus, host parameter gestures, editable text or nested roles. Native direct-protocol getter/action and owned injected-key/WebKit consumer evidence does not certify system AX discovery, notification delivery, VoiceOver or other screen readers. Default Audio/MIDI title-bar popup remains independent.
 
-**Source:** [`crates/ravet-webview/src/accessibility.rs`](../crates/ravet-webview/src/accessibility.rs), [`crates/ravet-webview/src/macos.rs`](../crates/ravet-webview/src/macos.rs), [`crates/ravet-surface/native/RavetAccessibility.inc`](../crates/ravet-surface/native/RavetAccessibility.inc), [`examples/tutorials/src/bin/native_semantics.rs`](../examples/tutorials/src/bin/native_semantics.rs).
+**Source:** [`crates/ravet-webview/src/accessibility.rs`](../crates/ravet-webview/src/accessibility.rs), [`crates/ravet-webview/src/native.rs`](../crates/ravet-webview/src/native.rs), [`crates/ravet-surface/native/RavetAccessibility.inc`](../crates/ravet-surface/native/RavetAccessibility.inc), [`examples/tutorials/src/bin/native_semantics.rs`](../examples/tutorials/src/bin/native_semantics.rs).
 
 **Tests:** [`crates/ravet-webview/native/tests/native-semantics-protocol.mm`](../crates/ravet-webview/native/tests/native-semantics-protocol.mm), [`crates/ravet-webview/native/tests/native-semantics-owner.rs`](../crates/ravet-webview/native/tests/native-semantics-owner.rs), [`examples/tutorials/src/native_semantics/model.rs`](../examples/tutorials/src/native_semantics/model.rs), [`scripts/check-native-semantics.py`](../scripts/check-native-semantics.py).
 
@@ -4060,9 +4060,9 @@ An explicit native crate builds Cocoa/WebKit through Xcode, checks main-thread c
 
 **Limits:** macOS only; Xcode build host required, native deployment target 12. View is not Send/Sync; caller supplies run loop and a valid live NSView parent through a documented unsafe attach. macOS owned-view resizing is available. No portable widgets, x86_64/macOS-12 runtime, native heap or DAW support claim.
 
-**Source:** [`crates/ravet-webview/src/lib.rs`](../crates/ravet-webview/src/lib.rs), [`crates/ravet-webview/src/macos.rs`](../crates/ravet-webview/src/macos.rs), [`crates/ravet-webview/build.rs`](../crates/ravet-webview/build.rs).
+**Source:** [`crates/ravet-webview/src/lib.rs`](../crates/ravet-webview/src/lib.rs), [`crates/ravet-webview/src/native.rs`](../crates/ravet-webview/src/native.rs), [`crates/ravet-webview/build.rs`](../crates/ravet-webview/build.rs).
 
-**Tests:** [`crates/ravet-webview/src/macos.rs`](../crates/ravet-webview/src/macos.rs), [`tools/editor-smoke/src/main.rs`](../tools/editor-smoke/src/main.rs), [`crates/ravet-surface/native/tests/lifecycle.mm`](../crates/ravet-surface/native/tests/lifecycle.mm).
+**Tests:** [`crates/ravet-webview/src/native.rs`](../crates/ravet-webview/src/native.rs), [`tools/editor-smoke/src/main.rs`](../tools/editor-smoke/src/main.rs), [`crates/ravet-surface/native/tests/lifecycle.mm`](../crates/ravet-surface/native/tests/lifecycle.mm).
 
 **Documentation:** [`docs/native-editor.md`](../docs/native-editor.md), [`docs/decisions/0013-cargo-native-gain-editor.md`](../docs/decisions/0013-cargo-native-gain-editor.md).
 
@@ -4074,7 +4074,7 @@ Native consumers create/attach/resize/show/destroy Rust-owned WebViews with coun
 
 **Limits:** macOS/Xcode only; trusted HTML 1 MiB, snapshot 65536 bytes, dimensions <=16384. Consumers provide valid live handles/buffers/NSView parents and nonthrowing callbacks; host owns window/run loop. Wrong-thread destroy retains ownership; accepted destroy consumes. No format/product policy, other-OS/assistive-tech/DAW support claim.
 
-**Source:** [`crates/ravet-webview/src/editor_abi.rs`](../crates/ravet-webview/src/editor_abi.rs), [`crates/ravet-webview/include/RavetWebEditor.h`](../crates/ravet-webview/include/RavetWebEditor.h), [`crates/ravet-webview/src/macos.rs`](../crates/ravet-webview/src/macos.rs), [`examples/gain-native/Cargo.toml`](../examples/gain-native/Cargo.toml), [`examples/gain-native/src/lib.rs`](../examples/gain-native/src/lib.rs).
+**Source:** [`crates/ravet-webview/src/editor_abi.rs`](../crates/ravet-webview/src/editor_abi.rs), [`crates/ravet-webview/include/RavetWebEditor.h`](../crates/ravet-webview/include/RavetWebEditor.h), [`crates/ravet-webview/src/native.rs`](../crates/ravet-webview/src/native.rs), [`examples/gain-native/Cargo.toml`](../examples/gain-native/Cargo.toml), [`examples/gain-native/src/lib.rs`](../examples/gain-native/src/lib.rs).
 
 **Tests:** [`crates/ravet-webview/src/editor_abi.rs`](../crates/ravet-webview/src/editor_abi.rs), [`tools/native-validation/editor.cpp`](../tools/native-validation/editor.cpp), [`tools/native-validation/CMakeLists.txt`](../tools/native-validation/CMakeLists.txt), [`tools/editor-smoke/src/probe.mm`](../tools/editor-smoke/src/probe.mm).
 
@@ -5109,4 +5109,4 @@ roles; feature records above determine implementation status.
 | `ravet-state` | Explicit control-thread observable trees, transactions, undo and preset records | [`crates/ravet-state/Cargo.toml`](../crates/ravet-state/Cargo.toml) |
 | `ravet-surface` | Editors, controls, and visualisation for RAVET | [`crates/ravet-surface/Cargo.toml`](../crates/ravet-surface/Cargo.toml) |
 | `ravet-vst3-reference-native` | Portable keyed-sidechain and event-probe references behind the RAVET reference VST3 modules | [`examples/vst3-reference-native/Cargo.toml`](../examples/vst3-reference-native/Cargo.toml) |
-| `ravet-webview` | Main-thread macOS Cocoa/WebKit binding for RAVET editors | [`crates/ravet-webview/Cargo.toml`](../crates/ravet-webview/Cargo.toml) |
+| `ravet-webview` | Main-thread native web view binding for RAVET editors: Cocoa/WebKit, Win32/WebView2 and GTK/WebKitGTK | [`crates/ravet-webview/Cargo.toml`](../crates/ravet-webview/Cargo.toml) |
