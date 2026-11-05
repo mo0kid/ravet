@@ -189,6 +189,23 @@ impl<'a, const N: usize> ParameterSchema<'a, N> {
     }
 }
 
+/// Read the version of a complete parameter record without decoding it.
+///
+/// Use this to select the schema the record was written with, decode it with
+/// [`ParameterState::decode`] at that version, then [`ParameterState::migrate`]
+/// to the current schema. Products reject versions newer than they understand.
+/// Checks the product ID and the 16-byte header only; zero is reserved.
+pub fn parameter_record_version(product: [u8; 8], input: &[u8]) -> Result<u32, ParameterError> {
+    let header = input.get(..16).ok_or(ParameterError::InvalidRecord)?;
+    if header[..8] != product {
+        return Err(ParameterError::WrongProduct);
+    }
+    match u32::from_le_bytes(header[8..12].try_into().unwrap()) {
+        0 => Err(ParameterError::InvalidRecord),
+        version => Ok(version),
+    }
+}
+
 /// Complete validated physical values tied to their schema. No DSP history.
 #[derive(Clone, Copy, Debug)]
 pub struct ParameterState<'a, const N: usize> {

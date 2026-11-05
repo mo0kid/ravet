@@ -1,5 +1,7 @@
+use core::num::NonZeroU32;
 use ravet_state::{
-    Change, Limits, Mutation, Node, NodeId, Notifications, StateError, Store, Value,
+    Change, DEFAULT_SCHEMA, Limits, Mutation, Node, NodeId, Notifications, StateError, Store,
+    TREE_FORMAT_VERSION, TREE_MAGIC, TreeHeader, Value, read_header,
 };
 fn root() -> Node {
     Node::new(NodeId(1), "session")
@@ -143,8 +145,11 @@ fn deterministic_strict_preset_and_every_truncated_prefix() {
     trailing.push(0);
     assert!(Store::decode(&trailing, *b"TESTTREE", Limits::default()).is_err());
     let mut version = bytes;
-    version[16] = 2;
-    assert!(Store::decode(&version, *b"TESTTREE", Limits::default()).is_err());
+    version[16] = 3;
+    assert_eq!(
+        Store::decode(&version, *b"TESTTREE", Limits::default()).err(),
+        Some(StateError::UnsupportedVersion(3))
+    );
 }
 #[test]
 fn preset_duplicate_property_nonfinite_and_depth_capacity() {
@@ -255,9 +260,164 @@ fn undoable_preset_restore_and_payload_bounds() {
     )
     .unwrap();
     let mut duplicate = simple.encode(*b"TESTTREE");
-    duplicate[41..49].copy_from_slice(&1u64.to_le_bytes());
+    duplicate[45..53].copy_from_slice(&1u64.to_le_bytes());
     assert!(matches!(
         Store::decode(&duplicate, *b"TESTTREE", Limits::default()),
         Err(StateError::DuplicateId(NodeId(1)))
     ));
+}
+
+const PRODUCT: [u8; 8] = *b"TESTTREE";
+fn schema(value: u32) -> NonZeroU32 {
+    NonZeroU32::new(value).unwrap()
+}
+
+/// A version-one record exactly as RAVET 0.0.1 wrote it: root node 1 "r" with
+/// property "g" = Real(0.5) and no children.
+fn v1_fixture() -> Vec<u8> {
+    let mut bytes = b"RVETTREETESTTREE".to_vec();
+    bytes.extend(1u32.to_le_bytes());
+    bytes.extend(1u64.to_le_bytes());
+    bytes.extend(1u32.to_le_bytes());
+    bytes.push(b'r');
+    bytes.extend(1u32.to_le_bytes());
+    bytes.extend(1u32.to_le_bytes());
+    bytes.push(b'g');
+    bytes.push(3);
+    bytes.extend(0.5f64.to_le_bytes());
+    bytes.extend(0u32.to_le_bytes());
+    bytes
+}
+
+#[test]
+fn records_carry_format_and_schema_versions() {
+    let store = Store::new(root(), Limits::default()).unwrap();
+    let bytes = store.encode_schema(PRODUCT, schema(7));
+    assert_eq!(&bytes[..8], &TREE_MAGIC);
+    assert_eq!(bytes[16..20], TREE_FORMAT_VERSION.to_le_bytes());
+    assert_eq!(bytes[20..24], 7u32.to_le_bytes());
+    assert_eq!(
+        read_header(&bytes, PRODUCT).unwrap(),
+        TreeHeader {
+            format: 2,
+            schema: schema(7)
+        }
+    );
+    // The default schema is 1.
+    assert_eq!(
+        read_header(&store.encode(PRODUCT), PRODUCT).unwrap().schema,
+        DEFAULT_SCHEMA
+    );
+    // Schema zero is reserved and malformed.
+    let mut zero = bytes.clone();
+    zero[20..24].fill(0);
+    assert_eq!(
+        read_header(&zero, PRODUCT).err(),
+        Some(StateError::InvalidRecord)
+    );
+}
+
+#[test]
+fn newer_formats_and_schemas_are_rejected_not_misread() {
+    let store = Store::new(root(), Limits::default()).unwrap();
+    let bytes = store.encode_schema(PRODUCT, schema(3));
+    assert_eq!(
+        Store::decode(&bytes, PRODUCT, Limits::default()).err(),
+        Some(StateError::UnsupportedSchema(3))
+    );
+    assert_eq!(
+        Store::decode_schema(&bytes, PRODUCT, schema(2), Limits::default()).err(),
+        Some(StateError::UnsupportedSchema(3))
+    );
+    let (decoded, saved) =
+        Store::decode_schema(&bytes, PRODUCT, schema(3), Limits::default()).unwrap();
+    assert_eq!(saved, schema(3));
+    assert_eq!(decoded.root(), store.root());
+    for format in [0u32, 3, u32::MAX] {
+        let mut newer = bytes.clone();
+        newer[16..20].copy_from_slice(&format.to_le_bytes());
+        assert_eq!(
+            Store::decode_schema(&newer, PRODUCT, schema(9), Limits::default()).err(),
+            Some(StateError::UnsupportedVersion(format))
+        );
+    }
+    // A rejected newer record leaves the live store untouched.
+    let mut live = Store::new(Node::new(NodeId(1), "r"), Limits::default()).unwrap();
+    let before = live.root().clone();
+    assert_eq!(
+        live.restore(&bytes, PRODUCT).err(),
+        Some(StateError::UnsupportedSchema(3))
+    );
+    assert_eq!(live.root(), &before);
+    assert_eq!(live.revision(), 0);
+}
+
+#[test]
+fn version_one_records_from_0_0_1_still_load() {
+    let bytes = v1_fixture();
+    assert_eq!(
+        read_header(&bytes, PRODUCT).unwrap(),
+        TreeHeader {
+            format: 1,
+            schema: DEFAULT_SCHEMA
+        }
+    );
+    let decoded = Store::decode(&bytes, PRODUCT, Limits::default()).unwrap();
+    assert_eq!(
+        decoded.root().properties().get("g"),
+        Some(&Value::Real(0.5))
+    );
+    // Re-encoding upgrades to the current record format.
+    let upgraded = decoded.encode(PRODUCT);
+    assert_eq!(upgraded[16..20], 2u32.to_le_bytes());
+    assert_eq!(upgraded.len(), bytes.len() + 4);
+    assert_eq!(upgraded[24..], bytes[20..]);
+    for length in 0..bytes.len() {
+        assert!(Store::decode(&bytes[..length], PRODUCT, Limits::default()).is_err());
+    }
+}
+
+#[test]
+fn migration_runs_only_for_older_schemas_and_is_atomic() {
+    let rename = |saved: u32, root: Node| {
+        assert_eq!(saved, 1);
+        let gain = root.properties().get("g").cloned().unwrap();
+        Ok(Node::new(root.id(), root.name()).with_property("level", gain))
+    };
+    let mut live = Store::new(Node::new(NodeId(1), "r"), Limits::default()).unwrap();
+    assert!(
+        live.restore_migrating(&v1_fixture(), PRODUCT, schema(2), rename)
+            .unwrap()
+    );
+    assert_eq!(
+        live.root().properties().get("level"),
+        Some(&Value::Real(0.5))
+    );
+    assert!(live.can_undo());
+    // Current-schema records skip the hook.
+    let current = live.encode_schema(PRODUCT, schema(2));
+    live.undo().unwrap();
+    live.restore_migrating(&current, PRODUCT, schema(2), |_, _| {
+        panic!("current schema must not migrate")
+    })
+    .unwrap();
+    assert_eq!(
+        live.root().properties().get("level"),
+        Some(&Value::Real(0.5))
+    );
+    // A failing or invalid migration preserves state, revision and history.
+    let revision = live.revision();
+    assert_eq!(
+        live.restore_migrating(&v1_fixture(), PRODUCT, schema(2), |_, _| {
+            Err(StateError::InvalidOperation)
+        }),
+        Err(StateError::InvalidOperation)
+    );
+    assert_eq!(
+        live.restore_migrating(&v1_fixture(), PRODUCT, schema(2), |_, root| {
+            Ok(root.with_child(Node::new(NodeId(1), "duplicate")))
+        }),
+        Err(StateError::DuplicateId(NodeId(1)))
+    );
+    assert_eq!(live.revision(), revision);
 }

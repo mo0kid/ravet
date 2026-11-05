@@ -142,3 +142,47 @@ fn explicit_directory_name_policy_and_total_scan_bound() {
     }
     assert!(matches!(library.discover(), Err(PresetError::Capacity)));
 }
+
+#[test]
+fn schema_versions_reject_newer_and_migrate_older_presets() {
+    use core::num::NonZeroU32;
+    use ravet_state::StateError;
+    let two = NonZeroU32::new(2).unwrap();
+    let directory = Directory::new();
+    let v1 = PresetLibrary::open(&directory.0, *b"PRODUCT1", Limits::default()).unwrap();
+    let v2 = PresetLibrary::open(&directory.0, *b"PRODUCT1", Limits::default())
+        .unwrap()
+        .with_schema(two);
+    assert_eq!(v2.schema(), two);
+    v1.save("Old", &state(0.25)).unwrap();
+    v2.save("New", &state(0.75)).unwrap();
+    // An older build rejects the newer schema without touching its store.
+    let mut destination = state(1.);
+    assert!(matches!(
+        v1.load_into("New", &mut destination),
+        Err(PresetError::State(StateError::UnsupportedSchema(2)))
+    ));
+    assert_eq!(destination.revision(), 0);
+    // A newer build needs an explicit migration for older presets.
+    assert!(matches!(
+        v2.load_into("Old", &mut destination),
+        Err(PresetError::State(StateError::InvalidOperation))
+    ));
+    assert_eq!(destination.revision(), 0);
+    assert!(
+        v2.load_into_migrating("Old", &mut destination, |saved, root| {
+            assert_eq!(saved, 1);
+            Ok(root.with_property("migrated", Value::Bool(true)))
+        })
+        .unwrap()
+    );
+    assert_eq!(
+        destination.root().properties().get("migrated"),
+        Some(&Value::Bool(true))
+    );
+    assert!(v2.load_into("New", &mut destination).unwrap());
+    assert_eq!(
+        destination.root().properties().get("gain"),
+        Some(&Value::Real(0.75))
+    );
+}
