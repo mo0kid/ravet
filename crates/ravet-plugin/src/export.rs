@@ -2,7 +2,7 @@
 //! shared parameter cache that every format adapter reads and writes.
 use crate::{
     Product, ResolvedProduct,
-    state::{SavedState, StateError},
+    state::{self, SavedState, StateError, StateHooks},
 };
 use ravet_foundation::Processor;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -43,6 +43,35 @@ pub trait PluginExport: 'static {
     /// A returned value is sent back to the editor as a `product` message.
     fn editor_message(_data: &serde_json::Value) -> Option<serde_json::Value> {
         None
+    }
+}
+
+/// Largest state accepted from a host: the envelope's parameter and extra limits.
+pub const MAXIMUM_STATE_BYTES: u64 =
+    28 + 8 * state::MAXIMUM_SAVED_PARAMETERS as u64 + 4 + state::MAXIMUM_EXTRA_BYTES as u64;
+
+/// A product's state hooks as function pointers, so format adapters can keep
+/// them without being generic over the product.
+#[derive(Clone, Copy)]
+pub struct FnHooks {
+    migrate: fn(&mut SavedState) -> Result<(), StateError>,
+    import: fn(&[u8]) -> Option<SavedState>,
+}
+impl FnHooks {
+    /// The hooks of export `P`.
+    pub fn of<P: PluginExport>() -> Self {
+        Self {
+            migrate: P::migrate_state,
+            import: P::import_state,
+        }
+    }
+}
+impl StateHooks for FnHooks {
+    fn migrate(&self, saved: &mut SavedState) -> Result<(), StateError> {
+        (self.migrate)(saved)
+    }
+    fn import(&self, bytes: &[u8]) -> Option<SavedState> {
+        (self.import)(bytes)
     }
 }
 
