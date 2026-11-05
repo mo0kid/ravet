@@ -8,8 +8,9 @@
 //! output and product extra state are not exported, and there is no editor yet.
 use crate::{
     Category, ParameterRole, ResolvedProduct,
-    export::{Edit, EditQueue, ParameterCache, PluginExport},
-    state::{self, SavedState, StateError, StateHooks},
+    export::{Edit, EditQueue, FnHooks, MAXIMUM_STATE_BYTES, ParameterCache, PluginExport},
+    policy::{Wrapped, wrap},
+    state,
 };
 use clack_extensions::{
     audio_ports::{
@@ -38,19 +39,13 @@ use clack_plugin::{
     utils::Cookie,
 };
 use ravet_clap::{MAXIMUM_EVENTS, MainBusBridge};
-use ravet_foundation::{ParameterScale, ProcessConfig, Processor as _, Tail};
-use ravet_native_dsp::{DenormalMode, DenormalProcessor};
+use ravet_foundation::{ProcessConfig, Processor as _, Tail};
 use std::{
     ffi::CStr,
-    fmt::Write as _,
     io::{Read, Write as _},
     marker::PhantomData,
     sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
-
-/// Largest state accepted from a host: the envelope's parameter and extra limits.
-const MAXIMUM_STATE_BYTES: u64 =
-    28 + 8 * state::MAXIMUM_SAVED_PARAMETERS as u64 + 4 + state::MAXIMUM_EXTRA_BYTES as u64;
 
 /// The CLAP plug-in type for processor `P`.
 pub struct ClapPlugin<P>(PhantomData<fn() -> P>);
@@ -120,10 +115,7 @@ impl<P: PluginExport> DefaultPluginFactory for ClapPlugin<P> {
         Ok(ClapShared {
             product,
             parameters,
-            hooks: FnHooks {
-                migrate: P::migrate_state,
-                import: P::import_state,
-            },
+            hooks: FnHooks::of::<P>(),
             edits: EditQueue::new(),
             editor_message: P::editor_message,
             latency: AtomicU32::new(0),
@@ -163,19 +155,6 @@ pub struct ClapShared {
 }
 impl PluginShared<'_> for ClapShared {}
 
-/// The product's state hooks, captured without making shared state generic.
-struct FnHooks {
-    migrate: fn(&mut SavedState) -> Result<(), StateError>,
-    import: fn(&[u8]) -> Option<SavedState>,
-}
-impl StateHooks for FnHooks {
-    fn migrate(&self, saved: &mut SavedState) -> Result<(), StateError> {
-        (self.migrate)(saved)
-    }
-    fn import(&self, bytes: &[u8]) -> Option<SavedState> {
-        (self.import)(bytes)
-    }
-}
 impl ClapShared {
     pub fn product(&self) -> &ResolvedProduct<'static> {
         &self.product
@@ -396,35 +375,12 @@ impl PluginMainThreadParams for ClapMain<'_> {
     ) -> std::fmt::Result {
         let index = self.shared.index(id).ok_or(std::fmt::Error)?;
         let parameter = &self.shared.product.product().parameters()[index];
-        let value = parameter
-            .range()
-            .canonicalize(value as f32)
-            .ok_or(std::fmt::Error)?;
-        if parameter.role() == ParameterRole::Bypass {
-            return write!(writer, "{}", if value >= 0.5 { "On" } else { "Off" });
-        }
-        let decimals = match (parameter.range().intervals(), parameter.range().scale()) {
-            (Some(_), _) if value.fract() == 0.0 => 0,
-            (_, ParameterScale::Logarithmic) if value.abs() >= 100.0 => 0,
-            _ => 2,
-        };
-        write!(writer, "{value:.decimals$}")?;
-        if !parameter.unit().is_empty() {
-            write!(writer, " {}", parameter.unit())?;
-        }
-        Ok(())
+        crate::text::write_value(parameter, value, writer)
     }
     fn text_to_value(&self, id: ClapId, text: &CStr) -> Option<f64> {
         let index = self.shared.index(id)?;
         let parameter = &self.shared.product.product().parameters()[index];
-        let text = text.to_str().ok()?.trim();
-        let number = text.strip_suffix(parameter.unit()).unwrap_or(text).trim();
-        let value = match (parameter.role(), number) {
-            (ParameterRole::Bypass, "On" | "on") => 1.0,
-            (ParameterRole::Bypass, "Off" | "off") => 0.0,
-            _ => number.parse::<f32>().ok()?,
-        };
-        parameter.range().canonicalize(value).map(f64::from)
+        crate::text::parse_value(parameter, text.to_str().ok()?).map(f64::from)
     }
     fn flush(&self, input: &InputEvents, output: &mut OutputEvents) {
         // Inactive: editor values are already cached; report them to the host.
@@ -491,7 +447,7 @@ impl PluginLatencyImpl for ClapMain<'_> {
 pub struct ClapAudio<'a, P: PluginExport> {
     host: HostAudioProcessorHandle<'a>,
     shared: &'a ClapShared,
-    bridge: MainBusBridge<DenormalProcessor<P::Processor>>,
+    bridge: MainBusBridge<Wrapped<P::Processor>>,
     /// Canonicalized copy of the host's input events.
     events: EventBuffer,
     generation: u64,
@@ -562,8 +518,8 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
             MAXIMUM_EVENTS,
             product.layouts()[0],
         )?;
-        let processor = DenormalProcessor::new(P::create(), DenormalMode::FlushBoth)
-            .map_err(|_| PluginError::Message("denormal flushing is unavailable"))?;
+        let processor = wrap(P::create(), &shared.product)
+            .ok_or(PluginError::Message("denormal flushing is unavailable"))?;
         let note_port = product.notes().input.then_some(0);
         let bridge = MainBusBridge::prepare(processor, config, note_port)
             .map_err(|_| PluginError::Message("RAVET processor rejected activation"))?;
