@@ -123,8 +123,12 @@ One-time setup, with names only (values are never stored in either repository):
   link to that `current` directory. The website deployment excludes
   `ravet/docs` and never writes through the link.
 
-A snapshot is about 90 MB in 2,105 files. The server holds up to three copies
-during a publish.
+A snapshot is about 100 MB in 2,400 files, and the FTPS upload sends each file
+separately, so a publish can take 45 minutes or more; the job allows 120. If a
+publish stops part-way, running it again for the same commit resumes the upload:
+`next-commit.txt` in the release root names the commit staged in `next/`, and
+files already there with the right size are kept. Staging for another commit is
+discarded. The server holds up to three copies during a publish.
 
 Run the documentation checker and the hosted-navigation regression checks:
 
