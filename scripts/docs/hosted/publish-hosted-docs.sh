@@ -12,7 +12,8 @@
 #   next/      upload staging; never served
 # Publishing uploads the complete snapshot to next/, checks it, then renames
 # current/ -> previous/ and next/ -> current/. A failure before the renames
-# leaves the live snapshot untouched. Rollback swaps current/ and previous/, so
+# leaves the live snapshot untouched, and running the same commit again resumes
+# the upload instead of starting over. Rollback swaps current/ and previous/, so
 # running it twice restores the original snapshot.
 #
 # Environment:
@@ -105,12 +106,36 @@ publish() {
   dir=$(cd "$1" && pwd)
   plain "$dir" "the snapshot path"
   check_snapshot "$dir"
-  # Discard staging left by an interrupted run; current/ is not touched.
-  remote "rm -r -f next"
-  remote "mkdir next"
-  # version.json goes last: its presence marks a complete upload.
-  remote "mirror --reverse --no-perms --parallel=$parallel --exclude-glob version.json $dir next"
+  local commit
+  commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$dir/version.json")
+  # An interrupted upload of the same commit is resumed: next-commit.txt in the
+  # release root names the commit being staged in next/. Files already there
+  # with the right size are kept (a cut-off file has the wrong size and is sent
+  # again). Staging for any other commit is discarded; current/ is not touched.
+  local staged=''
+  # Check first: lftp's cat of a missing file can hang instead of failing.
+  if remote_exists next-commit.txt; then
+    staged=$(remote "cat next-commit.txt" 2>/dev/null || true)
+  fi
+  if [ "$staged" = "$commit" ] && remote_exists next; then
+    echo "Resuming the upload of $commit in next/"
+    remote "rm -f next/version.json"
+  else
+    remote "rm -r -f next; rm -f next-commit.txt"
+    remote "mkdir next"
+    local marker
+    marker=$(mktemp)
+    printf '%s\n' "$commit" > "$marker"
+    remote "put $marker -o next-commit.txt"
+    rm -f "$marker"
+  fi
+  # Sizes only: the snapshot's file times are new on every build. Each sent
+  # file is logged, so a slow run shows its progress. version.json goes last:
+  # its presence marks a complete upload.
+  local started=$SECONDS
+  remote "mirror --reverse --no-perms --ignore-time --delete --verbose=1 --parallel=$parallel --exclude-glob version.json $dir next"
   remote "put $dir/version.json -o next/version.json"
+  echo "Upload finished in $(( (SECONDS - started) / 60 )) min $(( (SECONDS - started) % 60 )) s"
   remote "cls -d next/index.html next/version.json next/manifest.json next/search.json" > /dev/null
   # Free space only once the new snapshot is complete.
   remote "rm -r -f previous"
@@ -122,6 +147,7 @@ publish() {
     remote_exists previous && remote "mv previous current"
     return 1
   fi
+  remote "rm -f next-commit.txt"
   echo "Published to current/; the replaced snapshot is in previous/"
 }
 

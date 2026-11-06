@@ -108,7 +108,10 @@ jobs:
     # Self-hosted Arch Linux runner `omarchy`. The hosted-docs environment's
     # secrets are passed to the job at run time; the runner stores none.
     runs-on: [self-hosted, linux, omarchy]
-    timeout-minutes: 45
+    # The FTPS upload sends each of about 2,400 files separately and has taken
+    # over 45 minutes. A run that still times out can be re-run: the publisher
+    # resumes the same commit's upload.
+    timeout-minutes: 120
     # Credentials live in this environment; restrict it to main in repository settings.
     environment: hosted-docs
     # Queue rather than cancel: a cancelled swap could leave no live snapshot.
