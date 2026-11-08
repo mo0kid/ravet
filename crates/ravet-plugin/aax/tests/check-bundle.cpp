@@ -113,6 +113,12 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
               << " type " << fourcc(uint32_t(p.at(AAX_eProperty_PlugInID_Native)))
               << " category 0x" << std::hex << descriptor.category << std::dec
               << " midi-nodes " << component.midi.size() << " editor " << (descriptor.createGui ? "yes" : "no") << "\n";
+    if (component.sideChain >= 0 || !component.aux.empty()) {
+        std::cout << "  side-chain " << (component.sideChain >= 0 ? "field " + std::to_string(component.sideChain) : std::string("none"));
+        for (const auto &stem : component.aux) std::cout << ", aux output \"" << stem.name << "\" " << fake::stemChannels(stem.stem) << "ch";
+        std::cout << "\n";
+    }
+    require(component.sideChain < 0 || (inputs > 0 && p.at(AAX_eProperty_SupportsSideChainInput) == 1), id + ": side-chain declaration");
 
     TransportControllerHost host;
     host.effect = id;
@@ -143,6 +149,8 @@ void exercise(const std::string &id, fake::Descriptor &descriptor) {
     const bool synth = descriptor.name == "RAVET Evidence Synth";
     if (synth) require(component.midi.size()==2 && inputs==0 && outputs==2,"synth MIDI nodes/layout");
     fake::Context context(component, inputs, outputs);
+    // The key (filled with the inputs below) is connected for every block.
+    context.connectKey(component.sideChain >= 0);
     require(model->ResetFieldData(0, &context.owner, sizeof(void *)) == AAX_SUCCESS && context.owner, id + ": private owner");
     for (int block = 0; block < 8; ++block) {
         for (auto &channel : context.inputs)

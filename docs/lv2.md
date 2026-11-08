@@ -224,8 +224,11 @@ jalv.gtk3 urn:org.ravet.delay
 `lv2apply` hosts plug-ins without any features: the adapter then runs without
 `urid:map`, ignoring the Atom ports and state. For a DAW such as REAPER, link
 or copy the bundles into `~/.lv2` and rescan. Expected CTest output is
-`ravet_lv2_mock_contracts`, `ravet_<name>_smoke` and, with lilv development
-files, `ravet_lv2_mock_lilv` and `ravet_<name>_lilv`, all passing.
+`ravet_lv2_mock_contracts`, `ravet_lv2_mock_aux_contracts` (a mock with a
+sidechain and an auxiliary output), `ravet_lv2_mock_turtle_unchanged` (the
+plain mock's Turtle against a golden file), `ravet_<name>_smoke` and, with lilv
+development files, `ravet_lv2_mock_lilv`, `ravet_lv2_mock_aux_lilv` and
+`ravet_<name>_lilv`, all passing.
 
 ### Windows cross-build
 
@@ -270,12 +273,25 @@ out — with a test probe. Any adapter can test against it.
 
 ### Limits of the generic export
 
-- One port set: the first layout only, main bus only, f32.
+- One port set: the first layout only, f32. [Auxiliary
+  buses](plugin-export.md#auxiliary-buses-and-sidechains) are extra audio ports
+  after every existing port (`aux<B>_in_<C>`, `aux<B>_out_<C>`, optional;
+  sidechain inputs carry `lv2:isSideChain`). Each direction of each bus is a
+  port group (`aux<B>_in`/`aux<B>_out`, mono or stereo groups with channel
+  designations; wider buses have none), and sidechain groups are
+  `pg:sideChainOf` a main group (`main_in`, or `main_out` without main inputs)
+  declared only for products with a sidechain. Products without auxiliary buses
+  get no port-group metadata. Buses are always present; a disconnected port is
+  the only inactive state (silent input; each disconnected output gets its own
+  scratch channel). Port and group symbols take precedence over parameter keys
+  and follow bus order, so reordering a product's buses breaks saved host
+  connections.
 - MIDI 1 short messages only; no SysEx, MIDI 2 or note expressions. At most
   1,024 events per sub-block reach the processor.
 - Transport is extrapolated between host positions; tempo ramps, loops and
   recording state are not reported.
-- No `lv2:hardRTCapable`, presets, port groups or `rsz:minimumSize` declaration.
+- No `lv2:hardRTCapable`, presets or `rsz:minimumSize` declaration; port groups
+  only for auxiliary buses and the main group a sidechain refers to.
 - The LV2 editor shows parameter values only (mirror instance). The X11 widget
   is found as the parent's newest child window, because `editor_open` does not
   return it.

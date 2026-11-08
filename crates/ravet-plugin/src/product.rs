@@ -259,6 +259,7 @@ pub struct Product<'a> {
     url: &'a str,
     category: Category,
     layouts: &'a [AudioLayout],
+    auxiliary_buses: &'a [AuxiliaryBus<'a>],
     notes: NotePorts,
     precision: Precision,
     parameters: &'a [Parameter<'a>],
@@ -268,6 +269,58 @@ pub struct Product<'a> {
     editor_assets: &'a [EditorAsset<'a>],
     automation: AutomationPolicy,
     bypass: BypassPolicy,
+    maximum_latency: u32,
+}
+
+/// Most bytes in an [`AuxiliaryBus`] name.
+pub const MAXIMUM_BUS_NAME_BYTES: usize = 64;
+
+/// An audio bus in addition to the main bus, such as a sidechain input or an
+/// extra output of a multi-output instrument.
+///
+/// A bus may have inputs, outputs or both (at most 64 channels each, at least
+/// one channel in total). An input-only bus is a **sidechain**: formats that
+/// distinguish sidechains (LV2, AAX) mark it as one. The processor receives
+/// every auxiliary bus in declaration order in [`ProcessBlock::auxiliary`],
+/// prepared with the same layouts through
+/// [`ProcessConfig::with_auxiliary_buses`]. A bus the host leaves disconnected
+/// or inactive carries silence, and its outputs are discarded.
+///
+/// [`ProcessBlock::auxiliary`]: ravet_foundation::ProcessBlock::auxiliary
+/// [`ProcessConfig::with_auxiliary_buses`]: ravet_foundation::ProcessConfig::with_auxiliary_buses
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuxiliaryBus<'a> {
+    /// Shown by hosts: nonblank, at most [`MAXIMUM_BUS_NAME_BYTES`], no
+    /// control characters, unique among the product's auxiliary buses.
+    pub name: &'a str,
+    pub inputs: usize,
+    pub outputs: usize,
+}
+
+impl<'a> AuxiliaryBus<'a> {
+    pub const fn new(name: &'a str, inputs: usize, outputs: usize) -> Self {
+        Self {
+            name,
+            inputs,
+            outputs,
+        }
+    }
+    /// An input-only sidechain bus.
+    pub const fn sidechain(name: &'a str, channels: usize) -> Self {
+        Self::new(name, channels, 0)
+    }
+    /// An output-only bus, for example an extra instrument output.
+    pub const fn output(name: &'a str, channels: usize) -> Self {
+        Self::new(name, 0, channels)
+    }
+    /// Whether the bus is input-only.
+    pub const fn is_sidechain(&self) -> bool {
+        self.inputs > 0 && self.outputs == 0
+    }
+    /// The bus's channel counts as a processor layout; `None` when invalid.
+    pub fn layout(&self) -> Option<AudioLayout> {
+        AudioLayout::new(self.inputs, self.outputs).ok()
+    }
 }
 
 /// A web editor: one HTML page and its size in logical pixels.
@@ -362,6 +415,7 @@ impl<'a> Product<'a> {
                 Category::Instrument => &[AudioLayout::STEREO_INSTRUMENT],
                 _ => &[AudioLayout::STEREO],
             },
+            auxiliary_buses: &[],
             notes: NotePorts {
                 input: matches!(category, Category::Instrument | Category::MidiEffect),
                 output: matches!(category, Category::MidiEffect),
@@ -374,11 +428,21 @@ impl<'a> Product<'a> {
             editor_assets: &[],
             automation: AutomationPolicy::SampleAccurate,
             bypass: BypassPolicy::Processor,
+            maximum_latency: 0,
         }
     }
     /// Supported main-bus layouts, preferred first. Hosts may choose any of them.
     pub const fn with_layouts(mut self, layouts: &'a [AudioLayout]) -> Self {
         self.layouts = layouts;
+        self
+    }
+    /// Audio buses beyond the main bus, in the order the processor receives
+    /// them (at most [`MAXIMUM_AUXILIARY_BUSES`]); see [`AuxiliaryBus`]. Every
+    /// main layout uses the same auxiliary buses.
+    ///
+    /// [`MAXIMUM_AUXILIARY_BUSES`]: ravet_foundation::MAXIMUM_AUXILIARY_BUSES
+    pub const fn with_auxiliary_buses(mut self, buses: &'a [AuxiliaryBus<'a>]) -> Self {
+        self.auxiliary_buses = buses;
         self
     }
     pub const fn with_notes(mut self, notes: NotePorts) -> Self {
@@ -426,6 +490,18 @@ impl<'a> Product<'a> {
         self.bypass = bypass;
         self
     }
+    /// The most latency, in samples, the processor can report while active
+    /// (at most [`MAXIMUM_BYPASS_LATENCY`]). Bypass policies other than
+    /// [`BypassPolicy::Processor`] size their latency-compensating dry delay
+    /// for the larger of this and the latency reported after `prepare`;
+    /// declare it when parameters or state can raise the latency after
+    /// preparation. Unused with [`BypassPolicy::Processor`]. The default is 0.
+    ///
+    /// [`MAXIMUM_BYPASS_LATENCY`]: crate::policy::MAXIMUM_BYPASS_LATENCY
+    pub const fn with_maximum_latency(mut self, samples: u32) -> Self {
+        self.maximum_latency = samples;
+        self
+    }
     pub fn name(&self) -> &'a str {
         self.name
     }
@@ -446,6 +522,18 @@ impl<'a> Product<'a> {
     }
     pub fn layouts(&self) -> &'a [AudioLayout] {
         self.layouts
+    }
+    pub fn auxiliary_buses(&self) -> &'a [AuxiliaryBus<'a>] {
+        self.auxiliary_buses
+    }
+    /// The auxiliary buses' layouts, in order, for
+    /// [`ProcessConfig::with_auxiliary_buses`](ravet_foundation::ProcessConfig::with_auxiliary_buses).
+    /// Invalid buses are skipped; [`Product::resolve`] rejects them.
+    pub fn auxiliary_layouts(&self) -> Vec<AudioLayout> {
+        self.auxiliary_buses
+            .iter()
+            .filter_map(AuxiliaryBus::layout)
+            .collect()
     }
     pub fn notes(&self) -> NotePorts {
         self.notes
@@ -473,6 +561,10 @@ impl<'a> Product<'a> {
     }
     pub fn bypass_policy(&self) -> BypassPolicy {
         self.bypass
+    }
+    /// The declared maximum latency; see [`Product::with_maximum_latency`].
+    pub fn maximum_latency(&self) -> u32 {
+        self.maximum_latency
     }
 
     /// Validate the description and resolve parameter IDs and format identities.
@@ -529,6 +621,21 @@ impl<'a> Product<'a> {
             }
             if self.category == Category::Effect && layout.input_channels() == 0 {
                 return Err(ProductError::EffectWithoutInput);
+            }
+        }
+        if self.auxiliary_buses.len() > ravet_foundation::MAXIMUM_AUXILIARY_BUSES {
+            return Err(ProductError::TooManyAuxiliaryBuses);
+        }
+        for (index, bus) in self.auxiliary_buses.iter().enumerate() {
+            if bus.layout().is_none()
+                || bus.name.trim().is_empty()
+                || bus.name.len() > MAXIMUM_BUS_NAME_BYTES
+                || bus.name.chars().any(char::is_control)
+                || self.auxiliary_buses[..index]
+                    .iter()
+                    .any(|other| other.name == bus.name)
+            {
+                return Err(ProductError::InvalidAuxiliaryBus(index));
             }
         }
         if self.parameters.len() > MAXIMUM_PARAMETERS {
@@ -589,6 +696,9 @@ impl<'a> Product<'a> {
                     && milliseconds > 0.0
                     && milliseconds <= crate::policy::MAXIMUM_CROSSFADE_MS) =>
             {
+                return Err(ProductError::InvalidBypassPolicy);
+            }
+            _ if self.maximum_latency > crate::policy::MAXIMUM_BYPASS_LATENCY => {
                 return Err(ProductError::InvalidBypassPolicy);
             }
             _ => {}
@@ -673,7 +783,16 @@ pub enum ProductError {
     /// A bypass policy other than [`BypassPolicy::Processor`] needs a
     /// [`Parameter::bypass`] parameter.
     BypassPolicyWithoutParameter,
-    /// A crossfade time is not finite or outside 0 (exclusive) to 1000 ms.
+    /// More than [`MAXIMUM_AUXILIARY_BUSES`](ravet_foundation::MAXIMUM_AUXILIARY_BUSES)
+    /// auxiliary buses.
+    TooManyAuxiliaryBuses,
+    /// An auxiliary bus has no channels or more than 64 in a direction, or an
+    /// invalid or repeated name.
+    InvalidAuxiliaryBus(usize),
+    /// A crossfade time is not finite or outside 0 (exclusive) to 1000 ms, or
+    /// a bypass policy other than [`BypassPolicy::Processor`] is combined with
+    /// a declared maximum latency above
+    /// [`MAXIMUM_BYPASS_LATENCY`](crate::policy::MAXIMUM_BYPASS_LATENCY).
     InvalidBypassPolicy,
 }
 impl core::fmt::Display for ProductError {

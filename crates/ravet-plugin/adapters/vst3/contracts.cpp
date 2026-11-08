@@ -20,7 +20,9 @@ void operator delete(void* memory) noexcept { std::free(memory); }
 void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
 namespace ravet_mock {
 extern std::array<RavetNativeEventV1, 1024> received;
-extern uint32_t receivedCount, processCalls, closed, idled;
+extern uint32_t receivedCount, processCalls, closed, idled, preparedBuses;
+extern RavetPluginProductV1 product;
+extern const RavetPluginAuxiliaryBusV1 auxiliaries[2];
 }
 using namespace ravet::plugin::vst3;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); std::abort(); } } while (0)
@@ -36,6 +38,96 @@ public:
     DEFINE_INTERFACES DEF_INTERFACE(IComponentHandler) END_DEFINE_INTERFACES(FObject)
     REFCOUNT_METHODS(FObject)
 };
+// A stereo sidechain and a stereo auxiliary output after the main bus: kAux
+// buses, not default-active, fixed arrangements, every bus passed to the table
+// with silent inputs and discarded scratch outputs for buses the host leaves out.
+static void auxiliaryContracts(FUnknown* host) {
+    ravet_mock::product.auxiliary_count = 2; ravet_mock::product.auxiliaries = ravet_mock::auxiliaries;
+    CHECK(validTable(entry()));
+    auto component = owned(new ravet::plugin::vst3::Component);
+    CHECK(component->initialize(host) == kResultOk);
+    CHECK(component->getBusCount(kAudio, kInput) == 2 && component->getBusCount(kAudio, kOutput) == 2);
+    BusInfo bus{};
+    CHECK(component->getBusInfo(kAudio, kInput, 0, bus) == kResultOk && bus.busType == kMain && (bus.flags & BusInfo::kDefaultActive));
+    CHECK(component->getBusInfo(kAudio, kInput, 1, bus) == kResultOk && bus.busType == kAux &&
+          !(bus.flags & BusInfo::kDefaultActive) && bus.channelCount == 2 && utf8(bus.name) == "Sidechain");
+    CHECK(component->getBusInfo(kAudio, kOutput, 1, bus) == kResultOk && bus.busType == kAux &&
+          !(bus.flags & BusInfo::kDefaultActive) && bus.channelCount == 2 && utf8(bus.name) == "Aux Out");
+    SpeakerArrangement mono = SpeakerArr::kMono, stereo = SpeakerArr::kStereo, arrangement = 0;
+    SpeakerArrangement ins[] = {mono, stereo}, outs[] = {mono, stereo}, monoSidechain[] = {mono, mono};
+    // Main-only lists set the main bus and keep the declared auxiliary arrangements.
+    CHECK(component->setBusArrangements(&mono, 1, &mono, 1) == kResultOk);
+    CHECK(component->getBusArrangement(kInput, 0, arrangement) == kResultOk && arrangement == mono);
+    CHECK(component->getBusArrangement(kInput, 1, arrangement) == kResultOk && arrangement == stereo);
+    CHECK(component->getBusArrangement(kOutput, 0, arrangement) == kResultOk && arrangement == mono);
+    CHECK(component->getBusArrangement(kOutput, 1, arrangement) == kResultOk && arrangement == stereo);
+    CHECK(component->setBusArrangements(&stereo, 1, &stereo, 1) == kResultOk);
+    CHECK(component->getBusArrangement(kInput, 0, arrangement) == kResultOk && arrangement == stereo);
+    // Wrong auxiliary arrangements, a mismatched main bus, and partial lists reject.
+    SpeakerArrangement threeIns[] = {mono, stereo, stereo};
+    CHECK(component->setBusArrangements(monoSidechain, 2, outs, 2) == kResultFalse);
+    CHECK(component->setBusArrangements(&mono, 1, &stereo, 1) == kResultFalse);
+    CHECK(component->setBusArrangements(ins, 2, &mono, 1) == kResultFalse);
+    CHECK(component->setBusArrangements(threeIns, 3, outs, 2) == kResultFalse);
+    CHECK(component->getBusArrangement(kInput, 0, arrangement) == kResultOk && arrangement == stereo);
+    CHECK(component->setBusArrangements(ins, 2, outs, 2) == kResultOk);
+    CHECK(component->getBusArrangement(kInput, 0, arrangement) == kResultOk && arrangement == mono);
+    CHECK(component->getBusArrangement(kInput, 1, arrangement) == kResultOk && arrangement == stereo);
+    CHECK(component->getBusArrangement(kOutput, 1, arrangement) == kResultOk && arrangement == stereo);
+    ProcessSetup setup{}; setup.sampleRate = 48000.; setup.maxSamplesPerBlock = 16; setup.symbolicSampleSize = kSample32;
+    CHECK(component->setupProcessing(setup) == kResultOk && ravet_mock::preparedBuses == 3);
+    CHECK(component->activateBus(kAudio, kInput, 1, true) == kResultTrue);
+    CHECK(component->activateBus(kAudio, kOutput, 1, true) == kResultTrue);
+    CHECK(component->activateBus(kAudio, kInput, 2, true) != kResultTrue);
+    CHECK(component->setActive(true) == kResultOk && component->setProcessing(true) == kResultOk);
+    float mainIn[17], mainOut[17], left[17], right[17], auxLeft[17], auxRight[17];
+    std::fill_n(mainIn, 17, 2.f); std::fill_n(left, 17, 3.f); std::fill_n(right, 17, 4.f);
+    auto refill = [&] { std::fill_n(mainOut, 17, 99.f); std::fill_n(auxLeft, 17, 99.f); std::fill_n(auxRight, 17, 99.f); };
+    float* mainInputs[] = {mainIn}; float* mainOutputs[] = {mainOut};
+    float* sidechain[] = {left, right}; float* auxOutputs[] = {auxLeft, auxRight};
+    AudioBusBuffers inputs[2]{}, outputs[2]{};
+    inputs[0].numChannels = outputs[0].numChannels = 1; inputs[0].channelBuffers32 = mainInputs; outputs[0].channelBuffers32 = mainOutputs;
+    inputs[1].numChannels = outputs[1].numChannels = 2; inputs[1].channelBuffers32 = sidechain; outputs[1].channelBuffers32 = auxOutputs;
+    ProcessData data{}; data.numSamples = 16; data.symbolicSampleSize = kSample32; data.numInputs = data.numOutputs = 2;
+    data.inputs = inputs; data.outputs = outputs;
+    auto unchanged = [&] { return auxLeft[0] == 99.f && auxLeft[15] == 99.f && auxRight[15] == 99.f; };
+    // Active buses: host buffers reach the processor (aux output copies the sidechain).
+    refill(); outputs[1].silenceFlags = 3;
+    CHECK(component->process(data) == kResultOk);
+    CHECK(mainOut[0] == 2.f && mainOut[15] == 2.f && mainOut[16] == 99.f);
+    CHECK(auxLeft[0] == 3.f && auxLeft[15] == 3.f && auxRight[15] == 4.f && auxLeft[16] == 99.f && outputs[1].silenceFlags == 0);
+    // Inactive sidechain: the processor receives silence.
+    CHECK(component->activateBus(kAudio, kInput, 1, false) == kResultTrue);
+    refill(); CHECK(component->process(data) == kResultOk);
+    CHECK(auxLeft[0] == 0.f && auxRight[15] == 0.f && auxLeft[16] == 99.f);
+    // Fewer buses than declared: the omitted ones use prepared buffers.
+    CHECK(component->activateBus(kAudio, kInput, 1, true) == kResultTrue);
+    data.numInputs = data.numOutputs = 1;
+    refill(); CHECK(component->process(data) == kResultOk && mainOut[15] == 2.f && unchanged());
+    data.numInputs = data.numOutputs = 2;
+    // Inactive auxiliary output: its host buffer is left alone, scratch is discarded.
+    CHECK(component->activateBus(kAudio, kOutput, 1, false) == kResultTrue);
+    refill(); CHECK(component->process(data) == kResultOk && mainOut[15] == 2.f && unchanged());
+    // Null channel pointers on an active sidechain fall back to silence.
+    CHECK(component->activateBus(kAudio, kOutput, 1, true) == kResultTrue);
+    inputs[1].channelBuffers32 = nullptr;
+    refill(); CHECK(component->process(data) == kResultOk && auxLeft[0] == 0.f && auxRight[15] == 0.f);
+    inputs[1].channelBuffers32 = sidechain;
+    // An auxiliary output aliasing the main output is rejected and silenced.
+    auxOutputs[1] = mainOut;
+    refill(); CHECK(component->process(data) == kResultFalse && mainOut[0] == 0.f && mainOut[15] == 0.f && auxLeft[15] == 0.f);
+    auxOutputs[1] = auxRight;
+    // Zero-frame flush with omitted audio directions.
+    ProcessData flush{}; flush.symbolicSampleSize = kSample32;
+    CHECK(component->process(flush) == kResultOk);
+    CHECK(component->setProcessing(false) == kResultOk && component->setActive(false) == kResultOk);
+    // Re-arranging the main bus keeps the auxiliary buses and their activation.
+    SpeakerArrangement stereoIns[] = {stereo, stereo}, stereoOuts[] = {stereo, stereo};
+    CHECK(component->setBusArrangements(stereoIns, 2, stereoOuts, 2) == kResultOk);
+    CHECK(component->getBusInfo(kAudio, kInput, 1, bus) == kResultOk && bus.busType == kAux && utf8(bus.name) == "Sidechain");
+    CHECK(component->terminate() == kResultOk);
+    ravet_mock::product.auxiliary_count = 0; ravet_mock::product.auxiliaries = nullptr;
+}
 int main() {
     CHECK(validTable(entry()));
     auto host = owned(new HostApplication);
@@ -161,5 +253,6 @@ int main() {
     CHECK(ravet_mock::closed == 1);
     CHECK(view->onSize(&rect) == kResultFalse); CHECK(view->removed() == kResultOk);
     CHECK(component->terminate() == kResultOk);
-    std::puts("PASS: generic VST3 contracts (metadata, layouts, timed audio/automation, MIDI/notes, envelope, edits, retained view)");
+    auxiliaryContracts(host);
+    std::puts("PASS: generic VST3 contracts (metadata, layouts, auxiliary buses, timed audio/automation, MIDI/notes, envelope, edits, retained view)");
 }

@@ -11,15 +11,21 @@ import windows_cross
 
 def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
                   manifest_path=None, package=None, runner=None, platform=None, cross=None,
-                  product_library=None, target_directory=None, validate=True, sign=True, run_validation=True, bundle_name=None, cmake_options=()):
+                  product_library=None, target_directory=None, validate=True, sign=True, run_validation=True, bundle_name=None, cmake_options=(),
+                  auxiliary_mock=False):
     """Build only the selected product; package locally and run SDK validation.
 
     cross="windows" cross-compiles for x86_64 Windows (see windows_cross); the
     SDK validator and moduleinfotool are then built for Windows but not run.
+    mock=True also builds and validates a second fixture module with a
+    sidechain and an auxiliary output (RAVET_VST3_MOCK_AUXILIARY), returned
+    after the plain one; auxiliary_mock=True builds only that module.
     """
     root, sdk = Path(root).resolve(), Path(sdk).resolve()
-    platform = platform or sys.platform
+    platform = host_platform = platform or sys.platform
     runner = runner or CommandRunner(root)
+    if auxiliary_mock and not mock:
+        raise ValueError("auxiliary_mock requires mock")
     if cross not in (None, "windows"):
         raise ValueError("--target accepts only windows")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", plugin):
@@ -37,9 +43,12 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
     target = Path(metadata["target_directory"])
     config = "Release" if profile == "release" else "Debug"
     name = bundle_name or ("ravet_mock_vst3" if mock else f"ravet_{plugin}_vst3")
+    if auxiliary_mock:
+        name += "_auxiliary"
+        cmake_options = (*cmake_options, "-DRAVET_VST3_MOCK_AUXILIARY=ON")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         raise ValueError("VST3 bundle name must be a simple product name")
-    build = target / "vst3/generic" / ("mock" if mock else plugin) / profile
+    build = target / "vst3/generic" / (("mock-auxiliary" if auxiliary_mock else "mock") if mock else plugin) / profile
     toolchain = []
     if cross:
         toolchain = windows_cross.prepare(runner, target, platform=platform) + ["-DSMTG_USE_STATIC_CRT=ON"]
@@ -68,9 +77,9 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
                 f"-DRAVET_PRODUCT_LIBRARY={product_library or ''}",
                 f"-DRAVET_VST3_INSTRUMENT_TESTS={'ON' if instrument else 'OFF'}", *toolchain, *cmake_options])
     targets = [name] + (["validator"] if validate else []) + (["moduleinfotool"] if cross else []) + \
-        (["ravet_generic_vst3_contracts"] if mock else []) + (["ravet_vst3_instrument_contracts"] if instrument else [])
+        (["ravet_generic_vst3_contracts"] if mock and not auxiliary_mock else []) + (["ravet_vst3_instrument_contracts"] if instrument else [])
     runner.run(["cmake", "--build", build, "--config", config, "--target", *targets, "--parallel", "2"])
-    if (mock or instrument) and (not cross or windows_cross.emulator_available(toolchain)):
+    if ((mock and not auxiliary_mock) or instrument) and (not cross or windows_cross.emulator_available(toolchain)):
         test = "ravet_generic_vst3_contracts" if mock else "ravet_vst3_instrument_contracts"
         runner.run(["ctest", "--test-dir", build, "-C", config, "--output-on-failure", "-R", "^" + test + "$"])
     artifacts = sorted(p for p in build.rglob(name + ".vst3") if p.is_dir())
@@ -98,4 +107,11 @@ def build_generic(root, sdk, plugin="gain", profile="release", *, mock=False,
             continue
         validator = build / "bin" / config / ("validator.exe" if platform == "win32" else "validator")
         runner.run([validator, artifact])
+    if mock and not auxiliary_mock:
+        # The contracts above already cover both fixtures; this adds the module.
+        artifacts += build_generic(root, sdk, plugin, profile, mock=True, runner=runner,
+                                   platform=host_platform, cross=cross,
+                                   target_directory=target, validate=validate, sign=sign,
+                                   run_validation=run_validation, bundle_name=bundle_name,
+                                   cmake_options=cmake_options, auxiliary_mock=True)
     return artifacts

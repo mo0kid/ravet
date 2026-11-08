@@ -17,9 +17,20 @@ struct Instance {
     std::vector<RavetPluginEditV1> edits;
 };
 const RavetPluginLayoutV1 layouts[] = {{2, 2, 0, 0}, {1, 1, 0, 0}};
-const RavetPluginProductV1 product = {
+// A stereo sidechain and a stereo auxiliary output. The product declares none
+// unless built with RAVET_VST3_MOCK_AUXILIARY (for validator runs); contracts
+// switch them on for their auxiliary-bus checks.
+extern const RavetPluginAuxiliaryBusV1 auxiliaries[2];
+const RavetPluginAuxiliaryBusV1 auxiliaries[2] = {{"Sidechain", 2, 0}, {"Aux Out", 0, 2}};
+#ifdef RAVET_VST3_MOCK_AUXILIARY
+constexpr uint32_t defaultAuxiliaries = 2;
+#else
+constexpr uint32_t defaultAuxiliaries = 0;
+#endif
+RavetPluginProductV1 product = {
     "RAVET Generic Mock", "RAVET", "0.1.0", "org.ravet.generic.mock", "https://ravet.org",
-    RAVET_PLUGIN_EFFECT, 1, 1, 2, layouts, 5, 1, "org.ravet.generic.mock",
+    RAVET_PLUGIN_EFFECT, 1, 1, 2, layouts, defaultAuxiliaries, defaultAuxiliaries ? auxiliaries : nullptr,
+    5, 1, "org.ravet.generic.mock",
     {0x4a18eac1, 0xac247439, 0xb642f713, 0x26fd0fd1},
     {0x4a18eac2, 0xac247439, 0xb642f713, 0x26fd0fd1},
     0, 0, 0, 0, 0, "urn:ravet:generic-mock", 400, 240, 1, 0
@@ -80,10 +91,14 @@ int32_t load(void* p, const uint8_t* data, uint32_t length) {
     for (uint32_t i = 0; i < 5; ++i) if (!std::isfinite(values[i]) || snap(i, values[i]) != values[i]) return 1;
     static_cast<Instance*>(p)->values = values; return 0;
 }
+uint32_t preparedBuses = 0;
 int32_t prepare(void* p, const RavetNativeProcessorConfigV1* c) {
-    if (!c || c->version != 1 || c->bus_count != 1 || !c->maximum_frames || c->maximum_frames > 65536 ||
+    if (!c || c->version != 1 || c->bus_count != 1 + product.auxiliary_count || !c->maximum_frames || c->maximum_frames > 65536 ||
         !std::isfinite(c->sample_rate) || c->sample_rate <= 0. || c->sample_rate > 768000. ||
         c->buses[0].inputs != c->buses[0].outputs || c->buses[0].inputs < 1 || c->buses[0].inputs > 2) return 1;
+    for (uint32_t i = 0; i < product.auxiliary_count; ++i)
+        if (c->buses[1 + i].inputs != product.auxiliaries[i].inputs || c->buses[1 + i].outputs != product.auxiliaries[i].outputs) return 1;
+    preparedBuses = c->bus_count;
     auto& s = *static_cast<Instance*>(p); s.config = *c; s.active = true; return 0;
 }
 // These test observations are control-thread-only after callbacks return.
@@ -93,7 +108,10 @@ int32_t process(void* p, const RavetNativeProcessorBusV1* b, uint32_t buses, uin
     const RavetNativeEventV1* input, uint32_t count, const RavetNativeTransportV1*,
     RavetNativeEventV1* output, uint32_t cap, RavetNativeProcessorResultV1* result) {
     auto& s = *static_cast<Instance*>(p);
-    if (!s.active || buses != 1 || frames > s.config.maximum_frames || count > 1024 || cap < 1024) return 1;
+    if (!s.active || buses != s.config.bus_count || frames > s.config.maximum_frames || count > 1024 || cap < 1024) return 1;
+    for (uint32_t i = 0; i < buses; ++i)
+        if (b[i].input_channels != s.config.buses[i].inputs || b[i].output_channels != s.config.buses[i].outputs ||
+            (frames && ((b[i].input_channels && !b[i].inputs) || (b[i].output_channels && !b[i].outputs)))) return 1;
     ++processCalls; receivedCount = count; std::copy_n(input, count, received.begin());
     result->status = 0; result->event_count = 0; uint32_t cursor = 0;
     for (uint32_t frame = 0; frame <= frames; ++frame) {
@@ -110,6 +128,9 @@ int32_t process(void* p, const RavetNativeProcessorBusV1* b, uint32_t buses, uin
             auto out = static_cast<float* const*>(b->outputs)[channel];
             out[frame] = in[frame] * float(s.values[1] >= .5 ? 1. : s.values[0]);
         }
+        // With auxiliary buses: the auxiliary output copies the sidechain.
+        if (buses == 3) for (uint32_t channel = 0; channel < 2; ++channel)
+            static_cast<float* const*>(b[2].outputs)[channel][frame] = static_cast<float* const*>(b[1].inputs)[channel][frame];
     }
     return 0;
 }

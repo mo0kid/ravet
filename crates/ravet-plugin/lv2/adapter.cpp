@@ -7,6 +7,13 @@
 //
 // run() never allocates, locks or blocks: every buffer is sized at
 // instantiate/activate. Denormal handling is inside the table's process.
+//
+// Auxiliary buses (sidechains and extra outputs) are prepared and processed on
+// every block, main bus first, as RavetPlugin.h requires. Their ports are
+// lv2:connectionOptional: a disconnected (NULL) input reads the prepared
+// silence buffer (shared: inputs may alias) and a disconnected output writes to
+// its own prepared scratch channel, whose contents are discarded, so outputs
+// passed to the table never overlap. The same applies to main-bus ports.
 #include "RavetLv2Product.hpp"
 #include "RavetNativeMidiOutput.hpp"
 
@@ -38,6 +45,7 @@ constexpr uint32_t maxEvents = 1024;          // RavetNativeProcessor event limi
 constexpr uint32_t defaultBlock = 4096;        // without bufsz options
 constexpr uint32_t maxBlockLimit = 65536;
 constexpr uint32_t maxPositions = 32;          // time:Position objects per run
+constexpr uint32_t maxAuxiliaries = 8;         // RavetPlugin.h auxiliary_count limit
 
 struct Library {
     const RavetPluginEntryV1 *entry = nullptr;
@@ -142,7 +150,19 @@ struct Instance {
     int32_t eventsIn = -1, midiOut = -1, latency = -1;
     std::vector<const float *> inPointers;
     std::vector<float *> outPointers;
-    std::vector<float> silence, discard;
+    // Auxiliary buses: ports and pointer arrays are flat, bus by bus; bus b's
+    // channels start at auxInStart[b] / auxOutStart[b].
+    uint32_t auxCount = 0;
+    std::array<RavetNativeBusLayoutV1, maxAuxiliaries> auxLayout{};
+    std::array<uint32_t, maxAuxiliaries> auxInStart{}, auxOutStart{};
+    std::vector<uint32_t> auxIn, auxOut;
+    std::vector<const float *> auxInPointers;
+    std::vector<float *> auxOutPointers;
+    std::array<RavetNativeProcessorBusV1, 1 + maxAuxiliaries> buses{};
+    std::vector<float> silence;
+    // One maxFrames scratch channel per output port: main outputs, then
+    // auxiliary outputs in port order.
+    std::vector<float> discard;
     std::vector<RavetNativeEventV1> events, output, midi;
     uint32_t midiCount = 0;
     struct Position { uint32_t offset; Clock clock; };
@@ -199,6 +219,15 @@ LV2_Handle instantiate(const LV2_Descriptor *, double rate, const char *, const 
         const auto &layout = entry->product->layouts[0];
         self->inputs = layout.inputs;
         self->outputs = layout.outputs;
+        self->auxCount = entry->product->auxiliary_count;  // <= 8, checked by checkEntry
+        for (uint32_t b = 0, in = 0, out = 0; b < self->auxCount; ++b) {
+            const auto &bus = entry->product->auxiliaries[b];
+            self->auxLayout[b] = {bus.inputs, bus.outputs};
+            self->auxInStart[b] = in;
+            self->auxOutStart[b] = out;
+            in += bus.inputs;
+            out += bus.outputs;
+        }
         self->ports = portLayout(*entry);
         self->data.assign(self->ports.size(), nullptr);
         for (uint32_t i = 0; i < self->ports.size(); ++i) {
@@ -206,6 +235,8 @@ LV2_Handle instantiate(const LV2_Descriptor *, double rate, const char *, const 
             switch (port.kind) {
             case PortKind::AudioIn: self->audioIn.push_back(i); break;
             case PortKind::AudioOut: self->audioOut.push_back(i); break;
+            case PortKind::AuxIn: self->auxIn.push_back(i); break;
+            case PortKind::AuxOut: self->auxOut.push_back(i); break;
             case PortKind::EventsIn: self->eventsIn = int32_t(i); break;
             case PortKind::MidiOut: self->midiOut = int32_t(i); break;
             case PortKind::Latency: self->latency = int32_t(i); break;
@@ -220,6 +251,8 @@ LV2_Handle instantiate(const LV2_Descriptor *, double rate, const char *, const 
         }
         self->inPointers.assign(self->inputs, nullptr);
         self->outPointers.assign(self->outputs, nullptr);
+        self->auxInPointers.assign(self->auxIn.size(), nullptr);
+        self->auxOutPointers.assign(self->auxOut.size(), nullptr);
         self->events.assign(maxEvents, RavetNativeEventV1{});
         self->output.assign(maxEvents, RavetNativeEventV1{});
         self->midi.assign(maxEvents, RavetNativeEventV1{});
@@ -240,7 +273,7 @@ void activate(LV2_Handle handle) {
     auto *self = static_cast<Instance *>(handle);
     try {
         self->silence.assign(self->maxFrames, 0.f);
-        self->discard.assign(self->maxFrames, 0.f);
+        self->discard.assign((size_t(self->outputs) + self->auxOut.size()) * self->maxFrames, 0.f);
     } catch (...) {
         self->prepared = false;
         return;
@@ -250,9 +283,10 @@ void activate(LV2_Handle handle) {
     config.maximum_frames = self->maxFrames;
     config.maximum_events = maxEvents;
     config.maximum_output_events = self->entry->product->note_output ? maxEvents : 0;
-    config.bus_count = 1;
+    config.bus_count = 1 + self->auxCount;
     config.sample_rate = self->rate;
     config.buses[0] = {self->inputs, self->outputs};
+    for (uint32_t b = 0; b < self->auxCount; ++b) config.buses[1 + b] = self->auxLayout[b];
     self->prepared = self->entry->prepare(self->plugin, &config) == 0;
     self->clock = Clock{};
     // Resend every connected control value after activation.
@@ -382,8 +416,9 @@ struct MidiWriter {
 };
 
 void silenceOutputs(Instance &self, uint32_t start, uint32_t frames) {
-    for (auto port : self.audioOut)
-        if (auto *out = static_cast<float *>(self.data[port])) std::fill(out + start, out + start + frames, 0.f);
+    for (const auto *ports : {&self.audioOut, &self.auxOut})
+        for (auto port : *ports)
+            if (auto *out = static_cast<float *>(self.data[port])) std::fill(out + start, out + start + frames, 0.f);
 }
 
 void run(LV2_Handle handle, uint32_t frames) {
@@ -443,16 +478,32 @@ void run(LV2_Handle handle, uint32_t frames) {
                 }
                 for (uint32_t c = 0; c < self->outputs; ++c) {
                     auto *out = static_cast<float *>(self->data[self->audioOut[c]]);
-                    self->outPointers[c] = length ? (out ? out + start : self->discard.data()) : nullptr;
+                    self->outPointers[c] = length ? (out ? out + start : self->discard.data() + size_t(c) * self->maxFrames) : nullptr;
                 }
-                RavetNativeProcessorBusV1 bus{self->inputs, self->outputs,
-                                              self->inputs ? static_cast<const void *>(self->inPointers.data()) : nullptr,
-                                              static_cast<const void *>(self->outPointers.data())};
+                for (size_t c = 0; c < self->auxIn.size(); ++c) {
+                    const auto *in = static_cast<const float *>(self->data[self->auxIn[c]]);
+                    self->auxInPointers[c] = length ? (in ? in + start : self->silence.data()) : nullptr;
+                }
+                for (size_t c = 0; c < self->auxOut.size(); ++c) {
+                    auto *out = static_cast<float *>(self->data[self->auxOut[c]]);
+                    self->auxOutPointers[c] =
+                        length ? (out ? out + start : self->discard.data() + (self->outputs + c) * self->maxFrames) : nullptr;
+                }
+                self->buses[0] = {self->inputs, self->outputs,
+                                  self->inputs ? static_cast<const void *>(self->inPointers.data()) : nullptr,
+                                  static_cast<const void *>(self->outPointers.data())};
+                for (uint32_t b = 0; b < self->auxCount; ++b) {
+                    const auto &layout = self->auxLayout[b];
+                    self->buses[1 + b] = {
+                        layout.inputs, layout.outputs,
+                        layout.inputs ? static_cast<const void *>(self->auxInPointers.data() + self->auxInStart[b]) : nullptr,
+                        layout.outputs ? static_cast<const void *>(self->auxOutPointers.data() + self->auxOutStart[b]) : nullptr};
+                }
                 RavetNativeTransportV1 transport{};
                 const bool hasTransport = self->clock.snapshot(transport);
                 RavetNativeProcessorResultV1 result{};
                 const uint32_t capacity = self->midiOut >= 0 ? maxEvents : 0;
-                const int32_t code = entry->process(self->plugin, &bus, 1, length, count ? self->events.data() : nullptr, count,
+                const int32_t code = entry->process(self->plugin, self->buses.data(), 1 + self->auxCount, length, count ? self->events.data() : nullptr, count,
                                                     hasTransport ? &transport : nullptr,
                                                     capacity ? self->output.data() : nullptr, capacity, &result);
                 if (code != 0 || result.status != 0) {

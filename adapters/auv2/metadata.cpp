@@ -27,7 +27,11 @@ int main(int argc, char **argv) {
         std::cout << "{\"name\":" << quoted(p.name) << ",\"vendor\":" << quoted(p.vendor)
                   << ",\"version\":" << quoted(p.version) << ",\"plugin_id\":" << quoted(p.plugin_id)
                   << ",\"au_type\":" << p.au_type << ",\"au_subtype\":" << p.au_subtype
-                  << ",\"au_manufacturer\":" << p.au_manufacturer << "}\n";
+                  << ",\"au_manufacturer\":" << p.au_manufacturer << ",\"auxiliaries\":[";
+        for (uint32_t i = 0; i < p.auxiliary_count; ++i)
+            std::cout << (i ? "," : "") << "{\"name\":" << quoted(p.auxiliaries[i].name)
+                      << ",\"inputs\":" << p.auxiliaries[i].inputs << ",\"outputs\":" << p.auxiliaries[i].outputs << '}';
+        std::cout << "]}\n";
         // Some Rust runtimes retain process-global state: keep the loaded image
         // alive until exit, just as the actual component does.
         return 0;

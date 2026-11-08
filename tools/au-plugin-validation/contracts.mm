@@ -52,6 +52,175 @@ static OSStatus synthMidi(void *data, const AudioTimeStamp *, UInt32, const MIDI
     }
     return noErr;
 }
+static OSStatus sidechainInput(void *, AudioUnitRenderActionFlags *, const AudioTimeStamp *, UInt32, UInt32 frames, AudioBufferList *buffers) {
+    for (UInt32 c = 0; c < buffers->mNumberBuffers; ++c) std::fill_n(static_cast<float *>(buffers->mBuffers[c].mData), frames, .5f);
+    return noErr;
+}
+static OSStatus failingInput(void *, AudioUnitRenderActionFlags *, const AudioTimeStamp *, UInt32, UInt32, AudioBufferList *) { return -1; }
+static UInt32 elementCount(AudioUnit unit, AudioUnitScope scope) {
+    UInt32 count = 0, size = sizeof(count);
+    okay(AudioUnitGetProperty(unit, kAudioUnitProperty_ElementCount, scope, 0, &count, &size), "element count");
+    return count;
+}
+// Input element 0 is the main input only when the product has one; otherwise
+// it is absent or the first auxiliary input. The adapter leaves main elements
+// unnamed and names auxiliary elements after their buses.
+static bool mainInput(AudioUnit unit) {
+    if (!elementCount(unit, kAudioUnitScope_Input)) return false;
+    CFStringRef name = nullptr; UInt32 size = sizeof(name);
+    if (AudioUnitGetProperty(unit, kAudioUnitProperty_ElementName, kAudioUnitScope_Input, 0, &name, &size) || !name) return true;
+    CFRelease(name); return false;
+}
+static std::vector<AUChannelInfo> channelInfo(AudioUnit unit) {
+    UInt32 size = 0; Boolean writable = false;
+    okay(AudioUnitGetPropertyInfo(unit, kAudioUnitProperty_SupportedNumChannels, kAudioUnitScope_Global, 0, &size, &writable), "channel info size");
+    std::vector<AUChannelInfo> info(size / sizeof(AUChannelInfo));
+    okay(AudioUnitGetProperty(unit, kAudioUnitProperty_SupportedNumChannels, kAudioUnitScope_Global, 0, info.data(), &size), "channel info");
+    return info;
+}
+// Products without a main input (aumu instrument, aumf MIDI effect) whose one
+// stereo "Sidechain" bus is therefore input element 0. Main output is
+// (.25 + sidechain) * gain; see mock.cpp. withSidechain false: the aumf
+// generator mock, which has no input element at all.
+static void inputlessContracts(AudioComponent component, void (*stats)(uint32_t *), bool withSidechain) {
+    AudioUnit unit = nullptr; okay(AudioComponentInstanceNew(component, &unit), "inputless create");
+    require(!mainInput(unit), "no main input element");
+    // AUChannelInfo describes input element 0, here the stereo sidechain.
+    const auto info = channelInfo(unit);
+    const SInt16 in = withSidechain ? 2 : 0;
+    require(info.size() == 2 && info[0].inChannels == in && info[0].outChannels == 2 && info[1].inChannels == in && info[1].outChannels == 1,
+        "channel info reports input element 0 and the main outputs");
+    require(elementCount(unit, kAudioUnitScope_Input) == (withSidechain ? 1u : 0u) && elementCount(unit, kAudioUnitScope_Output) == 1,
+        "sidechain is the only input element");
+    AudioStreamBasicDescription format{}; format.mSampleRate = 48000.; format.mFormatID = kAudioFormatLinearPCM;
+    format.mFormatFlags = UInt32(kAudioFormatFlagsNativeFloatPacked) | UInt32(kAudioFormatFlagIsNonInterleaved);
+    format.mBytesPerPacket = format.mBytesPerFrame = 4; format.mFramesPerPacket = 1; format.mChannelsPerFrame = 2; format.mBitsPerChannel = 32;
+    auto mono = format; mono.mChannelsPerFrame = 1;
+    if (withSidechain) {
+        CFStringRef name = nullptr; UInt32 size = sizeof(name);
+        okay(AudioUnitGetProperty(unit, kAudioUnitProperty_ElementName, kAudioUnitScope_Input, 0, &name, &size), "sidechain name");
+        require(name && CFEqual(name, CFSTR("Sidechain")), "input element 0 named from the sidechain bus"); CFRelease(name);
+        require(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &mono, sizeof(mono)) != noErr,
+            "mono rejected on a stereo sidechain");
+    }
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &format, sizeof(format)), "inputless output format");
+    if (withSidechain) {
+        AudioStreamBasicDescription value{}; UInt32 size = sizeof(value);
+        okay(AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &value, &size), "sidechain format");
+        require(value.mSampleRate == 48000 && value.mChannelsPerFrame == 2, "sidechain follows the main sample rate");
+    }
+    UInt32 maximum = 64;
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximum, sizeof(maximum)), "inputless maximum frames");
+    okay(AudioUnitInitialize(unit), "inputless prepare");
+    std::array<float, 65> left{}, right{};
+    struct Stereo { UInt32 count; AudioBuffer buffers[2]; } buffers{2, {{1, 256, left.data()}, {1, 256, right.data()}}};
+    AudioTimeStamp time{}; time.mFlags = kAudioTimeStampSampleTimeValid;
+    uint32_t counts[8]{}; stats(counts); auto calls = counts[6];
+    auto render = [&](float expected, const char *message) {
+        left.fill(99); right.fill(99); AudioUnitRenderActionFlags flags = 0;
+        okay(AudioUnitRender(unit, &flags, &time, 0, 64, reinterpret_cast<AudioBufferList *>(&buffers)), "inputless render");
+        time.mSampleTime += 64;
+        require(left[64] == 99 && right[64] == 99, "inputless tails untouched");
+        for (int i = 0; i < 64; ++i) require(left[i] == expected && right[i] == expected, message);
+        stats(counts); require(counts[6] == ++calls, "one process call per render");
+    };
+    render(.25f, withSidechain ? "unconnected sidechain is silence" : "inputless render");
+    if (withSidechain) {
+        AURenderCallbackStruct callback{sidechainInput, nullptr};
+        okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback)), "sidechain callback");
+        render(.75f, "connected sidechain reaches the product");
+        callback = {failingInput, nullptr};
+        okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback)), "failing sidechain");
+        render(.25f, "a failing sidechain pull becomes silence");
+    }
+    okay(AudioUnitUninitialize(unit), "inputless uninitialize");
+    okay(AudioComponentInstanceDispose(unit), "inputless dispose");
+    std::cout << "PASS AUv2 without a main input" << (withSidechain ? " (sidechain = input element 0: name, fixed format, shared rate, silent/connected/failing)" : " (no input elements)") << '\n';
+}
+// Auxiliary-bus mock: input elements main/"Sidechain" (1 ch)/"Duplex" (1 ch),
+// output elements main/"Aux Out" (2 ch)/"Duplex" (1 ch). See mock.cpp.
+static void sidechainContracts(AudioComponent component, void (*stats)(uint32_t *)) {
+    AudioUnit unit = nullptr; okay(AudioComponentInstanceNew(component, &unit), "aux create");
+    for (const auto scope : {kAudioUnitScope_Input, kAudioUnitScope_Output}) {
+        UInt32 count = 0, size = sizeof(count);
+        okay(AudioUnitGetProperty(unit, kAudioUnitProperty_ElementCount, scope, 0, &count, &size), "aux element count");
+        require(count == 3, "main plus one element per auxiliary bus direction");
+        const CFStringRef expected[]{nullptr, scope == kAudioUnitScope_Input ? CFSTR("Sidechain") : CFSTR("Aux Out"), CFSTR("Duplex")};
+        for (UInt32 k = 1; k < 3; ++k) {
+            CFStringRef name = nullptr; size = sizeof(name);
+            okay(AudioUnitGetProperty(unit, kAudioUnitProperty_ElementName, scope, k, &name, &size), "aux element name");
+            require(name && CFEqual(name, expected[k]), "element names from bus names"); CFRelease(name);
+        }
+    }
+    AudioStreamBasicDescription format{}; format.mSampleRate = 48000.; format.mFormatID = kAudioFormatLinearPCM;
+    format.mFormatFlags = UInt32(kAudioFormatFlagsNativeFloatPacked) | UInt32(kAudioFormatFlagIsNonInterleaved);
+    format.mBytesPerPacket = format.mBytesPerFrame = 4; format.mFramesPerPacket = 1; format.mChannelsPerFrame = 2; format.mBitsPerChannel = 32;
+    auto get = [&](AudioUnitScope scope, UInt32 element) {
+        AudioStreamBasicDescription value{}; UInt32 size = sizeof(value);
+        okay(AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, scope, element, &value, &size), "aux format"); return value;
+    };
+    require(get(kAudioUnitScope_Input, 1).mChannelsPerFrame == 1 && get(kAudioUnitScope_Output, 1).mChannelsPerFrame == 2 &&
+        get(kAudioUnitScope_Output, 2).mChannelsPerFrame == 1, "fixed auxiliary channel counts");
+    require(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 1, &format, sizeof(format)) != noErr,
+        "stereo rejected on a mono sidechain");
+    auto mono = format; mono.mChannelsPerFrame = 1;
+    require(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &mono, sizeof(mono)) != noErr,
+        "mono rejected on a stereo auxiliary output");
+    require(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 3, &mono, sizeof(mono)) != noErr,
+        "no element past the declared buses");
+    UInt32 channelInfoSize = 0; Boolean writable = false;
+    okay(AudioUnitGetPropertyInfo(unit, kAudioUnitProperty_SupportedNumChannels, kAudioUnitScope_Global, 0, &channelInfoSize, &writable), "channel info");
+    require(channelInfoSize == 2 * sizeof(AUChannelInfo), "channel info describes the main bus");
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, sizeof(format)), "aux main input format");
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &format, sizeof(format)), "aux main output format");
+    require(get(kAudioUnitScope_Input, 1).mSampleRate == 48000 && get(kAudioUnitScope_Output, 2).mSampleRate == 48000,
+        "auxiliary elements follow the main sample rate");
+    AURenderCallbackStruct callback{input, nullptr};
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback)), "aux main callback");
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 2, &callback, sizeof(callback)), "duplex callback");
+    UInt32 maximum = 64;
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maximum, sizeof(maximum)), "aux maximum frames");
+    // A mismatched auxiliary rate is rejected, then restored.
+    Float64 rate = 44100;
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 1, &rate, sizeof(rate)), "aux rate");
+    require(AudioUnitInitialize(unit) != noErr, "mismatched auxiliary sample rate rejects");
+    rate = 48000;
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SampleRate, kAudioUnitScope_Input, 1, &rate, sizeof(rate)), "aux rate restore");
+    okay(AudioUnitInitialize(unit), "aux prepare");
+    std::array<float, 65> l0{}, r0{}, l1{}, r1{}, d{};
+    struct Stereo { UInt32 count; AudioBuffer buffers[2]; };
+    Stereo main{2, {{1, 256, l0.data()}, {1, 256, r0.data()}}}, aux{2, {{1, 256, l1.data()}, {1, 256, r1.data()}}};
+    AudioBufferList duplex{1, {{1, 256, d.data()}}};
+    AudioTimeStamp time{}; time.mFlags = kAudioTimeStampSampleTimeValid;
+    auto pull = [&](UInt32 bus) {
+        AudioUnitRenderActionFlags flags = 0;
+        auto *list = bus == 0 ? reinterpret_cast<AudioBufferList *>(&main) : bus == 1 ? reinterpret_cast<AudioBufferList *>(&aux) : &duplex;
+        for (UInt32 c = 0; c < list->mNumberBuffers; ++c) std::fill_n(static_cast<float *>(list->mBuffers[c].mData), 65, 99.f);
+        okay(AudioUnitRender(unit, &flags, &time, bus, 64, list), "aux render");
+        for (UInt32 c = 0; c < list->mNumberBuffers; ++c) require(static_cast<float *>(list->mBuffers[c].mData)[64] == 99, "aux tails untouched");
+    };
+    uint32_t counts[8]{}; stats(counts); const auto before = counts[6];
+    pull(0); pull(1); pull(2);
+    stats(counts); require(counts[6] == before + 1, "one process call serves every output element of a cycle");
+    require(l0[0] == .25f && r0[63] == -.5f, "main bus audio with auxiliary buses");
+    require(l1[0] == .125f && l1[63] == .125f, "unconnected sidechain reaches the product as silence");
+    require(r1[0] == .75f, "auxiliary output rendered from the same cycle");
+    require(d[0] == .4375f, "duplex auxiliary input and output");
+    time.mSampleTime += 64;
+    callback = {sidechainInput, nullptr};
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 1, &callback, sizeof(callback)), "sidechain callback");
+    pull(1); pull(0);  // a host may pull an auxiliary element first
+    stats(counts); require(counts[6] == before + 2, "auxiliary-first pull still processes once");
+    require(l1[0] == .625f && l1[63] == .625f && l0[0] == .25f, "connected sidechain input reaches the product");
+    time.mSampleTime += 64;
+    callback = {failingInput, nullptr};
+    okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 1, &callback, sizeof(callback)), "failing sidechain");
+    pull(0); pull(1);
+    require(l1[0] == .125f && l0[0] == .25f, "a failing sidechain pull becomes silence");
+    okay(AudioUnitUninitialize(unit), "aux uninitialize");
+    okay(AudioComponentInstanceDispose(unit), "aux dispose");
+    std::cout << "PASS AUv2 auxiliary buses: element map/names, fixed formats, shared rate, silent/connected/failing sidechain, one process per cycle\n";
+}
 int main(int argc, char **argv) {
     @autoreleasepool { try {
         require(argc == 2 || argc == 3, "usage: contracts component-path [real]");
@@ -107,7 +276,7 @@ int main(int argc, char **argv) {
             format.mFormatFlags = UInt32(kAudioFormatFlagsNativeFloatPacked) | UInt32(kAudioFormatFlagIsNonInterleaved);
             format.mBytesPerPacket = format.mBytesPerFrame = 4; format.mFramesPerPacket = 1; format.mChannelsPerFrame = 2; format.mBitsPerChannel = 32;
             const bool instrument = description.componentType == kAudioUnitType_MusicDevice;
-            if (!instrument) {
+            if (mainInput(unit)) {
                 okay(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, sizeof(format)), "input format");
                 AURenderCallbackStruct callback{input, nullptr};
                 okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback)), "input callback");
@@ -244,7 +413,7 @@ int main(int argc, char **argv) {
                     AudioStreamBasicDescription mono{}; mono.mSampleRate = 48000; mono.mFormatID = kAudioFormatLinearPCM;
                     mono.mFormatFlags = kAudioFormatFlagsNativeFloatPacked; mono.mBytesPerFrame = mono.mBytesPerPacket = 4;
                     mono.mFramesPerPacket = 1; mono.mBitsPerChannel = 32; mono.mChannelsPerFrame = 1;
-                    if (description.componentType != kAudioUnitType_MusicDevice) {
+                    if (mainInput(unit)) {
                         okay(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &mono, sizeof(mono)), "mono input");
                         AURenderCallbackStruct callback{input, nullptr};
                         okay(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback)), "mono input callback");
@@ -270,10 +439,14 @@ int main(int argc, char **argv) {
             void *library = dlopen([[nativeBundle.privateFrameworksPath stringByAppendingPathComponent:libraries[0]] fileSystemRepresentation], RTLD_NOW | RTLD_LOCAL);
             const auto stats = reinterpret_cast<void (*)(uint32_t *)>(dlsym(library, "ravet_au_mock_stats"));
             require(stats, "mock lifecycle evidence");
-            uint32_t counts[6]{}; stats(counts);
+            uint32_t counts[8]{}; stats(counts);
             require(counts[0] == 0 && counts[1] == 3 && counts[2] == 3 && counts[4] == 0 && counts[5] > 0,
                 "balanced view/instance lifetime, main-thread table calls and transported host context");
             const auto idles = counts[3]; pump(.1); stats(counts); require(counts[3] == idles, "no retired editor timer calls");
+            if (description.componentSubType == 0x52765331) sidechainContracts(component, stats);
+            if (description.componentSubType == 0x52764331 || description.componentSubType == 0x52764e31)
+                inputlessContracts(component, stats, true);
+            if (description.componentSubType == 0x52764731) inputlessContracts(component, stats, false);
         }
         std::cout << "PASS generic AUv2 " << (real ? "product metadata/render (instrument MIDI/timing or effect editor lifetime)" :
             "mock metadata/stereo+mono/state/schedules/timing/transport/MIDI/editor lifetime/MAIN dispatch") << " (3 lifecycle cycles)\n";

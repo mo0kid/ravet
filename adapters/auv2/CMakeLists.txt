@@ -16,6 +16,14 @@ add_library(ravet_au_mock_instrument SHARED "${ROOT}/tools/au-plugin-validation/
 target_compile_definitions(ravet_au_mock_instrument PRIVATE RAVET_MOCK_INSTRUMENT=1)
 add_library(ravet_au_mock_midi SHARED "${ROOT}/tools/au-plugin-validation/mock.cpp")
 target_compile_definitions(ravet_au_mock_midi PRIVATE RAVET_MOCK_MIDI=1)
+add_library(ravet_au_mock_sidechain SHARED "${ROOT}/tools/au-plugin-validation/mock.cpp")
+target_compile_definitions(ravet_au_mock_sidechain PRIVATE RAVET_MOCK_SIDECHAIN=1)
+add_library(ravet_au_mock_instrument_sidechain SHARED "${ROOT}/tools/au-plugin-validation/mock.cpp")
+target_compile_definitions(ravet_au_mock_instrument_sidechain PRIVATE RAVET_MOCK_INSTRUMENT_SIDECHAIN=1)
+add_library(ravet_au_mock_midi_sidechain SHARED "${ROOT}/tools/au-plugin-validation/mock.cpp")
+target_compile_definitions(ravet_au_mock_midi_sidechain PRIVATE RAVET_MOCK_MIDI_SIDECHAIN=1)
+add_library(ravet_au_mock_midi_generator SHARED "${ROOT}/tools/au-plugin-validation/mock.cpp")
+target_compile_definitions(ravet_au_mock_midi_generator PRIVATE RAVET_MOCK_MIDI_GENERATOR=1)
 add_executable(ravet_au_plugin_contracts "${ROOT}/tools/au-plugin-validation/contracts.mm")
 target_compile_options(ravet_au_plugin_contracts PRIVATE -fobjc-arc)
 target_link_libraries(ravet_au_plugin_contracts PRIVATE "-framework Cocoa" "-framework AudioToolbox" "-framework CoreMIDI")
@@ -25,6 +33,16 @@ target_link_libraries(ravet_au_delay_contracts PRIVATE "-framework AudioToolbox"
 if(RAVET_PRODUCT_LIBRARY)
     if(NOT EXISTS "${RAVET_AUDIOUNIT_SDK}/include/AudioUnitSDK/AUBase.h")
         message(FATAL_ERROR "Supply an external Apple AudioUnitSDK checkout (include/AudioUnitSDK and src/AudioUnitSDK)")
+    endif()
+    # The adapter uses AudioUnitSDK 1.4 APIs. The SDK has no version macro, so
+    # detect one of them (AUIOElement::GetBufferListOrError, added in 1.4) and
+    # stop here rather than with a compile error. Older copies, such as the one
+    # bundled with JUCE, lack it.
+    file(STRINGS "${RAVET_AUDIOUNIT_SDK}/include/AudioUnitSDK/AUScopeElement.h" RAVET_AUSDK_14_API REGEX "GetBufferListOrError")
+    if(NOT RAVET_AUSDK_14_API)
+        message(FATAL_ERROR "RAVET's AUv2 adapter requires Apple AudioUnitSDK 1.4 or later. "
+            "${RAVET_AUDIOUNIT_SDK} is an older copy: its include/AudioUnitSDK/AUScopeElement.h "
+            "lacks AUIOElement::GetBufferListOrError (added in 1.4). Use github.com/apple/AudioUnitSDK 1.4 or later.")
     endif()
     # Build the SDK directly from its external source tree; never copy/vendor it.
     file(GLOB SDK_SOURCES CONFIGURE_DEPENDS "${RAVET_AUDIOUNIT_SDK}/src/AudioUnitSDK/*.cpp")

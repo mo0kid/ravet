@@ -63,10 +63,11 @@ pub use export::{Edit, EditQueue, FnHooks, ParameterCache, PluginExport};
 pub use identity::{Identities, IdentityOverrides};
 pub use policy::{AutomationPolicy, BypassPolicy, PolicyProcessor};
 pub use product::{
-    Category, Editor, EditorAsset, MAXIMUM_EDITOR_ASSET_BYTES, MAXIMUM_EDITOR_ASSETS,
-    MAXIMUM_EDITOR_ASSETS_TOTAL_BYTES, MAXIMUM_EDITOR_HTML_BYTES, MAXIMUM_KEY_BYTES,
-    MAXIMUM_PARAMETERS, NotePorts, Parameter, ParameterRole, Precision, Product, ProductError,
-    ResolvedProduct, StateFormat, derive_parameter_id,
+    AuxiliaryBus, Category, Editor, EditorAsset, MAXIMUM_BUS_NAME_BYTES,
+    MAXIMUM_EDITOR_ASSET_BYTES, MAXIMUM_EDITOR_ASSETS, MAXIMUM_EDITOR_ASSETS_TOTAL_BYTES,
+    MAXIMUM_EDITOR_HTML_BYTES, MAXIMUM_KEY_BYTES, MAXIMUM_PARAMETERS, NotePorts, Parameter,
+    ParameterRole, Precision, Product, ProductError, ResolvedProduct, StateFormat,
+    derive_parameter_id,
 };
 
 #[cfg(feature = "native")]

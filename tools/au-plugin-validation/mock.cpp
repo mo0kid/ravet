@@ -13,14 +13,30 @@ namespace {
 constexpr uint32_t gainID = 101, bypassID = 707, choiceID = 999;
 struct Instance {
     std::array<std::atomic<double>, 3> values{{1., 0., 0.}};
-    uint32_t maximum = 0;
+    uint32_t maximum = 0, buses = 0;
     bool prepared = false, editor = false, edited = false, changed = false;
     std::array<RavetPluginEditV1, 3> edits{};
     uint32_t editCount = 0;
 };
-std::atomic<uint32_t> live{0}, opened{0}, closed{0}, idle{0}, threadFaults{0}, transportCalls{0};
+std::atomic<uint32_t> live{0}, opened{0}, closed{0}, idle{0}, threadFaults{0}, transportCalls{0}, processCalls{0};
 void mainThread() { if (!pthread_main_np()) ++threadFaults; }
-#if RAVET_MOCK_INSTRUMENT
+#if RAVET_MOCK_INSTRUMENT_SIDECHAIN
+constexpr uint32_t type = 0x61756d75, category = RAVET_PLUGIN_INSTRUMENT;
+const RavetPluginLayoutV1 layouts[]{{0, 2, 0, 0}, {0, 1, 0, 0}};
+constexpr const char *name = "RAVET AU TEST Sidechain Instrument", *id = "org.ravet.test.auv2.instrument-sidechain";
+constexpr uint32_t subtype = 0x52764331;
+#elif RAVET_MOCK_MIDI_SIDECHAIN || RAVET_MOCK_MIDI_GENERATOR
+// MIDI effects (aumf) without a main audio input, with and without a sidechain.
+constexpr uint32_t type = 0x61756d66, category = RAVET_PLUGIN_MIDI_EFFECT;
+const RavetPluginLayoutV1 layouts[]{{0, 2, 0, 0}, {0, 1, 0, 0}};
+#if RAVET_MOCK_MIDI_SIDECHAIN
+constexpr const char *name = "RAVET AU TEST MIDI Sidechain", *id = "org.ravet.test.auv2.midi-sidechain";
+constexpr uint32_t subtype = 0x52764e31;
+#else
+constexpr const char *name = "RAVET AU TEST MIDI Generator", *id = "org.ravet.test.auv2.midi-generator";
+constexpr uint32_t subtype = 0x52764731;
+#endif
+#elif RAVET_MOCK_INSTRUMENT
 constexpr uint32_t type = 0x61756d75, category = RAVET_PLUGIN_INSTRUMENT;
 const RavetPluginLayoutV1 layouts[]{{0, 2, 0, 0}, {0, 1, 0, 0}};
 constexpr const char *name = "RAVET AU TEST Instrument", *id = "org.ravet.test.auv2.instrument";
@@ -30,16 +46,36 @@ constexpr uint32_t type = 0x61756d66, category = RAVET_PLUGIN_MIDI_EFFECT;
 const RavetPluginLayoutV1 layouts[]{{2, 2, 0, 0}, {1, 1, 0, 0}};
 constexpr const char *name = "RAVET AU TEST MIDI", *id = "org.ravet.test.auv2.midi";
 constexpr uint32_t subtype = 0x52764d31;
+#elif RAVET_MOCK_SIDECHAIN
+constexpr uint32_t type = 0x61756678, category = RAVET_PLUGIN_EFFECT;
+const RavetPluginLayoutV1 layouts[]{{2, 2, 0, 0}, {1, 1, 0, 0}};
+constexpr const char *name = "RAVET AU TEST Sidechain", *id = "org.ravet.test.auv2.sidechain";
+constexpr uint32_t subtype = 0x52765331;
 #else
 constexpr uint32_t type = 0x61756678, category = RAVET_PLUGIN_EFFECT;
 const RavetPluginLayoutV1 layouts[]{{2, 2, 0, 0}, {1, 1, 0, 0}};
 constexpr const char *name = "RAVET AU TEST Gain", *id = "org.ravet.test.auv2.gain";
 constexpr uint32_t subtype = 0x52765431;
 #endif
+#if RAVET_MOCK_SIDECHAIN
+// Input elements: main, "Sidechain" (mono), "Duplex"; output elements: main,
+// "Aux Out" (stereo), "Duplex". The processor reports what each bus received.
+const RavetPluginAuxiliaryBusV1 auxiliaries[]{{"Sidechain", 1, 0}, {"Aux Out", 0, 2}, {"Duplex", 1, 1}};
+constexpr uint32_t auxiliaryCount = 3;
+#elif RAVET_MOCK_INSTRUMENT_SIDECHAIN || RAVET_MOCK_MIDI_SIDECHAIN
+// No main input: the stereo sidechain is AU input element 0. The main output
+// is (.25 + sidechain) * gain, so an unconnected sidechain changes nothing.
+#define RAVET_MOCK_INPUTLESS_SIDECHAIN 1
+const RavetPluginAuxiliaryBusV1 auxiliaries[]{{"Sidechain", 2, 0}};
+constexpr uint32_t auxiliaryCount = 1;
+#else
+constexpr const RavetPluginAuxiliaryBusV1 *auxiliaries = nullptr;
+constexpr uint32_t auxiliaryCount = 0;
+#endif
 const RavetPluginProductV1 product{
     name, "RAVET Tests", "0.1.0", id, "", category,
     category == RAVET_PLUGIN_EFFECT ? 0u : 1u, category == RAVET_PLUGIN_EFFECT ? 0u : 1u,
-    2, layouts, 3, 1, id, {}, {}, type, subtype, 0x52765473, 0, 0, "urn:ravet:test", 320, 180, 1, 0
+    2, layouts, auxiliaryCount, auxiliaries, 3, 1, id, {}, {}, type, subtype, 0x52765473, 0, 0, "urn:ravet:test", 320, 180, 1, 0
 };
 const RavetPluginParameterV1 parameters[]{
     {gainID, RAVET_PLUGIN_PARAMETER_AUTOMATABLE, 0, 0, 0, 2, 1, "gain", "Gain", ""},
@@ -103,14 +139,22 @@ int32_t load(void *p, const uint8_t *data, uint32_t length) {
 }
 int32_t prepare(void *p, const RavetNativeProcessorConfigV1 *config) {
     mainThread(); auto &s = *static_cast<Instance *>(p);
-    if (!config || config->version != 1 || config->bus_count != 1 || !config->maximum_frames || config->maximum_events != 1024) return 1;
-    s.maximum = config->maximum_frames; s.prepared = true; return 0;
+    if (!config || config->version != 1 || config->bus_count != 1 + auxiliaryCount || !config->maximum_frames || config->maximum_events != 1024) return 1;
+    bool layout = false;
+    for (const auto &l : layouts) if (config->buses[0].inputs == l.inputs && config->buses[0].outputs == l.outputs) layout = true;
+    if (!layout) return 1;
+    for (uint32_t i = 0; i < auxiliaryCount; ++i)
+        if (config->buses[1 + i].inputs != auxiliaries[i].inputs || config->buses[1 + i].outputs != auxiliaries[i].outputs) return 1;
+    s.maximum = config->maximum_frames; s.buses = config->bus_count; s.prepared = true; return 0;
 }
 int32_t process(void *p, const RavetNativeProcessorBusV1 *bus, uint32_t count, uint32_t frames,
     const RavetNativeEventV1 *events, uint32_t eventCount, const RavetNativeTransportV1 *transport,
     RavetNativeEventV1 *out, uint32_t capacity, RavetNativeProcessorResultV1 *result) {
-    auto &s = *static_cast<Instance *>(p); *result = {};
-    if (!s.prepared || count != 1 || frames > s.maximum) return 1;
+    auto &s = *static_cast<Instance *>(p); *result = {}; ++processCalls;
+    if (!s.prepared || count != s.buses || frames > s.maximum) return 1;
+    for (uint32_t i = 0; i < auxiliaryCount; ++i)
+        if (bus[1 + i].input_channels != auxiliaries[i].inputs || bus[1 + i].output_channels != auxiliaries[i].outputs ||
+            (frames && ((auxiliaries[i].inputs && !bus[1 + i].inputs) || (auxiliaries[i].outputs && !bus[1 + i].outputs)))) return 1;
     if (transport && transport->present == (RAVET_TRANSPORT_BEATS | RAVET_TRANSPORT_TEMPO | RAVET_TRANSPORT_PLAYING |
             RAVET_TRANSPORT_SAMPLES | RAVET_TRANSPORT_DETAILS) && transport->tempo == 123 && transport->beat_position == 5 &&
             transport->sample_position == 456 && transport->flags == RAVET_TRANSPORT_FLAG_PLAYING) ++transportCalls;
@@ -128,7 +172,20 @@ int32_t process(void *p, const RavetNativeProcessorBusV1 *bus, uint32_t count, u
         auto outputs = static_cast<float *const *>(bus->outputs);
         auto inputs = static_cast<const float *const *>(bus->inputs);
         for (uint32_t c = 0; c < bus->output_channels; ++c)
+#if RAVET_MOCK_INPUTLESS_SIDECHAIN
+            outputs[c][frame] = (.25f + static_cast<const float *const *>(bus[1].inputs)[c][frame]) * gain;
+#else
             outputs[c][frame] = (bus->input_channels ? inputs[c][frame] : .25f) * gain;
+#endif
+#if RAVET_MOCK_SIDECHAIN
+        // Aux Out: left = sidechain + .125, right = main left input + .5.
+        // Duplex out = duplex in * 2 - .0625. Silence is therefore visible.
+        const auto sidechain = static_cast<const float *const *>(bus[1].inputs)[0][frame];
+        const auto mainLeft = bus->input_channels ? inputs[0][frame] : 0.f;
+        auto aux = static_cast<float *const *>(bus[2].outputs);
+        aux[0][frame] = sidechain + .125f; aux[1][frame] = mainLeft + .5f;
+        static_cast<float *const *>(bus[3].outputs)[0][frame] = static_cast<const float *const *>(bus[3].inputs)[0][frame] * 2 - .0625f;
+#endif
     }
     return 0;
 }
@@ -164,5 +221,5 @@ const RavetPluginEntryV1 entry{1, sizeof(RavetPluginEntryV1), &product,
 }
 extern "C" const RavetPluginEntryV1 *ravet_plugin_v1() { return &entry; }
 extern "C" void ravet_au_mock_stats(uint32_t *stats) {
-    stats[0] = live; stats[1] = opened; stats[2] = closed; stats[3] = idle; stats[4] = threadFaults; stats[5] = transportCalls;
+    stats[0] = live; stats[1] = opened; stats[2] = closed; stats[3] = idle; stats[4] = threadFaults; stats[5] = transportCalls; stats[6] = processCalls;
 }

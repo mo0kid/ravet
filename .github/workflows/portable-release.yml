@@ -59,8 +59,11 @@ jobs:
         run: |
           cargo test --locked -p ravet-data --all-features
           cargo test --locked -p ravet-native-dsp --all-features
-      - name: Test WebView2 SDK download integrity checks
-        run: python scripts/tests/test_webview2_sdk_download.py -v
+      - name: Test SDK download integrity checks (WebView2, AudioUnitSDK, VST3)
+        run: |
+          python scripts/tests/test_webview2_sdk_download.py -v
+          python scripts/tests/test_audio_unit_sdk_download.py -v
+          python scripts/tests/test_vst3_sdk_download.py -v
       - name: Fetch checksum-pinned WebView2 SDK (Windows editors)
         if: runner.os == 'Windows'
         run: |

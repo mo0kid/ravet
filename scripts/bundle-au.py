@@ -12,7 +12,8 @@ def main():
     parser.add_argument("--manifest-path", type=Path, help="Cargo.toml of an external product crate")
     parser.add_argument("--product-library", type=Path, help="Already built trusted dylib exporting ravet_plugin_v1")
     parser.add_argument("--build-dir", type=Path)
-    parser.add_argument("--mock", choices=("effect", "instrument", "midi"), help="Build a test-only C++ product instead of Rust")
+    parser.add_argument("--mock", choices=("effect", "instrument", "midi", "sidechain", "instrument-sidechain",
+                                                 "midi-sidechain", "midi-generator"), help="Build a test-only C++ product instead of Rust")
     parser.add_argument("--validate", action="store_true", help="Run in-process native component contracts (does not install)")
     parser.add_argument("--native-editor", action="store_true", help="Legacy gain editor option; native products advertise their table's editor automatically")
     parser.add_argument("--factory-programs", action="store_true", help="Include correctly indexed complete gain factory presets")

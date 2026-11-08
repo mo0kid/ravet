@@ -28,7 +28,9 @@ rather than per adapter.
   boundaries. This refines 0281's wording: the scratch-free path is the frozen
   policy; hard bypass keeps the processor running so that leaving it does not
   replay stale history. The dry path is not latency-compensated; products that
-  need that keep `Processor` and implement bypass themselves.
+  need that keep `Processor` and implement bypass themselves. *(Amended by
+  [0297](0297-latency-compensated-bypass.md): the dry path is now delayed by
+  the processor's latency.)*
 - **Per-block automation** moves every parameter event to offset 0 ahead of the
   block's other events, preserving their order.
 - **One table, `ravet_plugin_v1`,** instead of the several `ravet-native` tables

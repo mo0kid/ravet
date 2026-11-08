@@ -45,6 +45,10 @@ struct RavetMockProbe {
         editor_resize_calls;
     void *editor_parent;
     uint32_t load_calls;
+    uint32_t last_bus_count;
+    RavetNativeBusLayoutV1 last_buses[9];
+    uint32_t last_output_count;
+    const float *last_outputs[64];
 };
 
 static int failures = 0, checks = 0;
@@ -232,6 +236,12 @@ int main(int argc, char **argv) {
     const uint32_t inputs = entry->product->layouts[0].inputs, outputs = entry->product->layouts[0].outputs;
     const uint32_t frames = 1500;  // > maxBlockLength 256: exercises chunking
     std::vector<std::vector<float>> in(inputs, std::vector<float>(frames)), out(outputs, std::vector<float>(frames));
+    uint32_t auxInputs = 0, auxOutputs = 0;  // auxiliary-bus channels, all buses
+    for (const auto &port : ports) {
+        if (port.kind == PortKind::AuxIn) ++auxInputs;
+        if (port.kind == PortKind::AuxOut) ++auxOutputs;
+    }
+    std::vector<std::vector<float>> auxIn(auxInputs, std::vector<float>(frames)), auxOut(auxOutputs, std::vector<float>(frames));
     std::vector<float> controls(ports.size(), 0.f);
     Sequence events, midiOut(65536);
     LV2_Handle plugin = descriptor->instantiate(descriptor, 48000.0, bundle.c_str(), host.features.data());
@@ -246,12 +256,15 @@ int main(int argc, char **argv) {
         CHECK(bare != nullptr);
         if (bare) {
             std::vector<std::vector<float>> bareIn(inputs, std::vector<float>(64, 0.25f)), bareOut(outputs, std::vector<float>(64, 9.f));
+            std::vector<std::vector<float>> bareAuxIn(auxInputs, std::vector<float>(64, 0.25f)), bareAuxOut(auxOutputs, std::vector<float>(64, 9.f));
             std::vector<float> bareControls(ports.size(), 0.f);
             float notAnAtom = 0.f;  // lv2apply connects optional Atom ports to floats
-            uint32_t i0 = 0, o0 = 0;
+            uint32_t i0 = 0, o0 = 0, a0 = 0, b0 = 0;
             for (uint32_t i = 0; i < ports.size(); ++i) {
                 if (ports[i].kind == PortKind::AudioIn) descriptor->connect_port(bare, i, bareIn[i0++].data());
                 else if (ports[i].kind == PortKind::AudioOut) descriptor->connect_port(bare, i, bareOut[o0++].data());
+                else if (ports[i].kind == PortKind::AuxIn) descriptor->connect_port(bare, i, bareAuxIn[a0++].data());
+                else if (ports[i].kind == PortKind::AuxOut) descriptor->connect_port(bare, i, bareAuxOut[b0++].data());
                 else if (ports[i].kind == PortKind::EventsIn || ports[i].kind == PortKind::MidiOut) descriptor->connect_port(bare, i, &notAnAtom);
                 else {
                     RavetPluginParameterV1 parameter{};
@@ -264,6 +277,7 @@ int main(int argc, char **argv) {
             for (int block = 0; block < 4; ++block) descriptor->run(bare, block ? 1 : 64);
             bool finite = notAnAtom == 0.f;
             for (auto &channel : bareOut) for (float v : channel) finite &= std::isfinite(v) && v != 9.f;
+            for (auto &channel : bareAuxOut) for (float v : channel) finite &= std::isfinite(v) && v != 9.f;
             CHECK(finite);
             StateStore unused;
             const auto *iface = static_cast<const LV2_State_Interface *>(descriptor->extension_data(LV2_STATE__interface));
@@ -274,16 +288,19 @@ int main(int argc, char **argv) {
     }
     int32_t enabledPort = -1, latencyPort = -1, eventsPort = -1, midiPort = -1;
     std::map<std::string, uint32_t> bySymbol;
-    uint32_t ai = 0, ao = 0;
+    uint32_t ai = 0, ao = 0, xi = 0, xo = 0;
+    std::vector<uint32_t> auxInPorts, auxOutPorts;
     for (uint32_t i = 0; i < ports.size(); ++i) {
         bySymbol[ports[i].symbol] = i;
         switch (ports[i].kind) {
         case PortKind::AudioIn: descriptor->connect_port(plugin, i, in[ai++].data()); break;
         case PortKind::AudioOut: descriptor->connect_port(plugin, i, out[ao++].data()); break;
+        case PortKind::AuxIn: auxInPorts.push_back(i); descriptor->connect_port(plugin, i, auxIn[xi++].data()); break;
+        case PortKind::AuxOut: auxOutPorts.push_back(i); descriptor->connect_port(plugin, i, auxOut[xo++].data()); break;
         case PortKind::EventsIn: eventsPort = int32_t(i); descriptor->connect_port(plugin, i, events.seq()); break;
         case PortKind::MidiOut: midiPort = int32_t(i); descriptor->connect_port(plugin, i, midiOut.seq()); break;
         case PortKind::Latency: latencyPort = int32_t(i); descriptor->connect_port(plugin, i, &controls[i]); break;
-        default: {
+        case PortKind::Parameter: case PortKind::Enabled: case PortKind::ParameterOut: {
             RavetPluginParameterV1 parameter{};
             entry->parameter(ports[i].parameter, &parameter);
             controls[i] = float(parameter.default_value);
@@ -294,7 +311,17 @@ int main(int argc, char **argv) {
     }
     CHECK(eventsPort >= 0 && latencyPort >= 0);
     for (uint32_t c = 0; c < inputs; ++c) for (uint32_t f = 0; f < frames; ++f) in[c][f] = 0.5f * std::sin(0.01f * float(f + 100 * c));
-
+    for (uint32_t c = 0; c < auxInputs; ++c) for (uint32_t f = 0; f < frames; ++f) auxIn[c][f] = 0.25f * std::cos(0.02f * float(f + 50 * c));
+    // Auxiliary ports come last, so products without them keep their indexes.
+    for (size_t i = 0; i < ports.size(); ++i)
+        if (ports[i].kind == PortKind::AuxIn || ports[i].kind == PortKind::AuxOut)
+            CHECK(i >= ports.size() - auxInputs - auxOutputs);
+    CHECK(auxInputs + auxOutputs == [&] {
+        uint32_t total = 0;
+        for (uint32_t b = 0; b < entry->product->auxiliary_count; ++b)
+            total += entry->product->auxiliaries[b].inputs + entry->product->auxiliaries[b].outputs;
+        return total;
+    }());
     auto run = [&](uint32_t n) {
         midiOut.prepareOutput();
         descriptor->run(plugin, n);
@@ -333,7 +360,17 @@ int main(int argc, char **argv) {
         run(frames);
         bool finite = true;
         for (auto &channel : out) for (float v : channel) finite &= std::isfinite(v);
+        for (auto &channel : auxOut) for (float v : channel) finite &= std::isfinite(v);
         CHECK(finite);
+        // Disconnected auxiliary ports (connectionOptional) still run.
+        for (auto port : auxInPorts) descriptor->connect_port(plugin, port, nullptr);
+        for (auto port : auxOutPorts) descriptor->connect_port(plugin, port, nullptr);
+        run(frames);
+        finite = true;
+        for (auto &channel : out) for (float v : channel) finite &= std::isfinite(v);
+        CHECK(finite);
+        for (size_t c = 0; c < auxInPorts.size(); ++c) descriptor->connect_port(plugin, auxInPorts[c], auxIn[c].data());
+        for (size_t c = 0; c < auxOutPorts.size(); ++c) descriptor->connect_port(plugin, auxOutPorts[c], auxOut[c].data());
         StateStore store;
         CHECK(stateIface->save(plugin, StateStore::store, &store, 0, nullptr) == LV2_STATE_SUCCESS);
         CHECK(store.values.size() == 1);
@@ -390,9 +427,21 @@ int main(int argc, char **argv) {
     CHECK(probe && resetProbe && lastInstance && pushEdit);
     if (!probe || !resetProbe || !lastInstance || !pushEdit) return 1;
     CHECK(dsp != nullptr);
-    const uint32_t gainPort = bySymbol.at("gain"), modePort = bySymbol.at("mode"), levelPort = bySymbol.at("level");
+    const bool auxiliary = entry->product->auxiliary_count != 0;  // the RavetMockAux variant
+    const uint32_t gainPort = bySymbol.at("gain"), modePort = bySymbol.at("mode");
+    // The aux variant keys "level" as "aux1_in_1", which the sidechain port owns.
+    const uint32_t levelPort = bySymbol.at(auxiliary ? "p260" : "level");
+    CHECK(ports[levelPort].kind == PortKind::ParameterOut && ports[levelPort].parameter == 3);
     CHECK(enabledPort >= 0 && midiPort >= 0);
-    CHECK(ports.size() == 2 + 2 + 1 + 1 + 1 + 4);
+    CHECK(ports.size() == 2 + 2 + 1 + 1 + 1 + 4 + (auxiliary ? 3 : 0));
+    {
+        // Indexes and symbols of the main ports do not depend on auxiliary buses.
+        const char *symbols[] = {"in_1", "in_2", "out_1", "out_2", "events_in", "midi_out", "latency", "gain", "enabled", "mode"};
+        for (uint32_t i = 0; i < 10; ++i) CHECK(ports[i].symbol == symbols[i]);
+        CHECK(levelPort == 10);
+    }
+    CHECK(auxiliary == (turtle.find("lv2:isSideChain") != std::string::npos));
+    CHECK(auxiliary == (turtle.find("@prefix pg:") != std::string::npos));  // groups only with auxiliary buses
     CHECK(turtle.find("lv2:designation lv2:enabled") != std::string::npos);
     CHECK(turtle.find("lv2:designation lv2:latency") != std::string::npos);
     CHECK(turtle.find("rdfs:label \"Fuzz\"") != std::string::npos);
@@ -401,6 +450,10 @@ int main(int argc, char **argv) {
     CHECK(turtle.find("a ui:") != std::string::npos);
     CHECK(probe->prepare_calls == 2 && probe->config.maximum_frames == 256 && probe->config.buses[0].inputs == 2 &&
           probe->config.buses[0].outputs == 2 && probe->config.sample_rate == 48000.0);
+    CHECK(probe->config.bus_count == (auxiliary ? 3u : 1u));
+    if (auxiliary)
+        CHECK(probe->config.buses[1].inputs == 2 && probe->config.buses[1].outputs == 0 &&
+              probe->config.buses[2].inputs == 0 && probe->config.buses[2].outputs == 1);
 
     // 1. First run sends every input control at offset 0, chunked at 256 frames.
     resetProbe();
@@ -568,6 +621,122 @@ int main(int argc, char **argv) {
     run(32);
     CHECK(out[0][5] == 0.f);
     descriptor->connect_port(plugin, 0, in[0].data());
+    CHECK(probe->last_bus_count == (auxiliary ? 3u : 1u));
+
+    // 7b. Auxiliary buses: ports, Turtle, every bus in every block, and
+    // silence/scratch for disconnected auxiliary ports.
+    if (auxiliary) {
+        CHECK(auxInPorts.size() == 2 && auxInPorts[0] == 11 && auxInPorts[1] == 12 && auxOutPorts.size() == 1 && auxOutPorts[0] == 13);
+        CHECK(ports[11].symbol == "aux1_in_1" && ports[11].name == "Sidechain Left" && ports[11].sideChain);
+        CHECK(ports[12].symbol == "aux1_in_2" && ports[12].name == "Sidechain Right" && ports[12].sideChain);
+        CHECK(ports[13].symbol == "aux2_out_1" && ports[13].name == "Direct" && !ports[13].sideChain);
+        auto block = [&](const std::string &symbol) {
+            const auto at = turtle.find("lv2:symbol \"" + symbol + "\"");
+            return at == std::string::npos ? std::string() : turtle.substr(at, turtle.find("\n  ]", at) - at);
+        };
+        for (const char *symbol : {"aux1_in_1", "aux1_in_2"}) {
+            const std::string text = block(symbol);
+            CHECK(text.find("lv2:portProperty lv2:connectionOptional, lv2:isSideChain") != std::string::npos);
+        }
+        CHECK(block("aux2_out_1").find("lv2:portProperty lv2:connectionOptional") != std::string::npos);
+        CHECK(block("aux2_out_1").find("isSideChain") == std::string::npos);
+        CHECK(turtle.find("a lv2:InputPort, lv2:AudioPort ;\n    lv2:index 11 ;") != std::string::npos);
+        CHECK(turtle.find("a lv2:OutputPort, lv2:AudioPort ;\n    lv2:index 13 ;") != std::string::npos);
+        CHECK(block("p260").find("lv2:name \"Level\"") != std::string::npos);
+        // Port groups: the stereo sidechain is pg:sideChainOf the main input
+        // group, which exists only because of it; Direct is a mono group.
+        const std::string g = std::string(entry->product->lv2_uri) + "#";
+        CHECK(turtle.find("  pg:mainInput <" + g + "main_in> ;\n") != std::string::npos);
+        CHECK(block("in_1").find("pg:group <" + g + "main_in> ;\n    lv2:designation pg:left") != std::string::npos);
+        CHECK(block("in_2").find("pg:group <" + g + "main_in> ;\n    lv2:designation pg:right") != std::string::npos);
+        CHECK(block("out_1").find("pg:group") == std::string::npos);
+        CHECK(block("aux1_in_1").find("pg:group <" + g + "aux1_in> ;\n    lv2:designation pg:left") != std::string::npos);
+        CHECK(block("aux1_in_2").find("pg:group <" + g + "aux1_in> ;\n    lv2:designation pg:right") != std::string::npos);
+        CHECK(block("aux2_out_1").find("pg:group <" + g + "aux2_out> ;\n    lv2:designation pg:center") != std::string::npos);
+        CHECK(turtle.find("<" + g + "main_in>\n  a pg:InputGroup, pg:StereoGroup ;\n  lv2:symbol \"main_in\" ;\n"
+                          "  rdfs:label \"Input\" .\n") != std::string::npos);
+        CHECK(turtle.find("<" + g + "aux1_in>\n  a pg:InputGroup, pg:StereoGroup ;\n  lv2:symbol \"aux1_in\" ;\n"
+                          "  rdfs:label \"Sidechain\" ;\n  pg:sideChainOf <" + g + "main_in> .\n") != std::string::npos);
+        CHECK(turtle.find("<" + g + "aux2_out>\n  a pg:OutputGroup, pg:MonoGroup ;\n  lv2:symbol \"aux2_out\" ;\n"
+                          "  rdfs:label \"Direct\" .\n") != std::string::npos);
+
+        // Direct = Sidechain L + R, in every chunk; the main bus is unchanged.
+        resetProbe();
+        run(frames);
+        CHECK(probe->process_calls == 6 && probe->last_bus_count == 3);
+        CHECK(probe->last_buses[0].inputs == 2 && probe->last_buses[0].outputs == 2 && probe->last_buses[1].inputs == 2 &&
+              probe->last_buses[1].outputs == 0 && probe->last_buses[2].inputs == 0 && probe->last_buses[2].outputs == 1);
+        bool exact = true;
+        for (uint32_t f = 0; f < frames; ++f) exact &= auxOut[0][f] == auxIn[0][f] + auxIn[1][f];
+        CHECK(exact);
+        CHECK(std::fabs(out[0][1000] - in[0][1000]) < 1e-6f && out[0][1000] != 0.f);  // gain 0 dB
+
+        // A disconnected sidechain channel reads silence.
+        descriptor->connect_port(plugin, auxInPorts[1], nullptr);
+        run(frames);
+        exact = true;
+        for (uint32_t f = 0; f < frames; ++f) exact &= auxOut[0][f] == auxIn[0][f];
+        CHECK(exact);
+        descriptor->connect_port(plugin, auxInPorts[0], nullptr);
+        run(frames);
+        exact = true;
+        for (uint32_t f = 0; f < frames; ++f) exact &= auxOut[0][f] == 0.f;
+        CHECK(exact);
+
+        // A disconnected auxiliary output goes to scratch; the main bus still runs.
+        descriptor->connect_port(plugin, auxInPorts[0], auxIn[0].data());
+        descriptor->connect_port(plugin, auxInPorts[1], auxIn[1].data());
+        descriptor->connect_port(plugin, auxOutPorts[0], nullptr);
+        std::fill(auxOut[0].begin(), auxOut[0].end(), 7.f);
+        std::fill(out[0].begin(), out[0].end(), 7.f);
+        resetProbe();
+        run(frames);
+        CHECK(probe->process_calls == 6 && probe->last_bus_count == 3);
+        CHECK(auxOut[0][10] == 7.f);
+        CHECK(std::fabs(out[0][1000] - in[0][1000]) < 1e-6f);
+        descriptor->connect_port(plugin, auxOutPorts[0], auxOut[0].data());
+
+        // A zero-frame run still passes every bus.
+        resetProbe();
+        descriptor->run(plugin, 0);
+        controls[gainPort] = -1.f;
+        descriptor->run(plugin, 0);
+        CHECK(probe->process_calls == 1 && probe->last_frames == 0 && probe->last_bus_count == 3);
+        controls[gainPort] = 0.f;
+        run(32);
+    }
+
+    // 7c. Disconnected outputs (main and auxiliary) each get their own
+    // scratch channel: the outputs the table receives never overlap.
+    {
+        std::vector<uint32_t> outputPorts;
+        for (uint32_t i = 0; i < ports.size(); ++i)
+            if (ports[i].kind == PortKind::AudioOut || ports[i].kind == PortKind::AuxOut) outputPorts.push_back(i);
+        for (auto port : outputPorts) descriptor->connect_port(plugin, port, nullptr);
+        resetProbe();
+        run(frames);  // chunks of 256 frames
+        CHECK(probe->last_output_count == outputPorts.size() && probe->last_frames > 0);
+        bool disjoint = true;
+        for (uint32_t i = 0; i < probe->last_output_count; ++i) {
+            disjoint &= probe->last_outputs[i] != nullptr;
+            for (uint32_t j = i + 1; j < probe->last_output_count; ++j) {
+                const auto *a = probe->last_outputs[i], *b = probe->last_outputs[j];
+                disjoint &= a + 256 <= b || b + 256 <= a;  // 256 = maximum block
+            }
+        }
+        CHECK(disjoint);
+        // Connected outputs are the host's buffers; null ones never are.
+        for (uint32_t i = 0; i < probe->last_output_count; ++i) {
+            for (auto &channel : out) CHECK(probe->last_outputs[i] < channel.data() || probe->last_outputs[i] >= channel.data() + frames);
+            for (auto &channel : auxOut) CHECK(probe->last_outputs[i] < channel.data() || probe->last_outputs[i] >= channel.data() + frames);
+        }
+        uint32_t o = 0, x = 0;
+        for (auto port : outputPorts)
+            descriptor->connect_port(plugin, port, ports[port].kind == PortKind::AudioOut ? out[o++].data() : auxOut[x++].data());
+        resetProbe();
+        run(64);
+        CHECK(probe->last_output_count == outputPorts.size() && probe->last_outputs[0] == out[0].data());
+    }
 
     // 8. Deactivate/activate re-prepares.
     descriptor->deactivate(plugin);

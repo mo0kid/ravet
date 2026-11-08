@@ -5,6 +5,29 @@ grouped in the style of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 See the [0.1.0 release notes](docs/releases/0.1.0-notes.md) and the
 [release criteria](docs/releases/0.1.0.md).
 
+## Unreleased
+
+### Added
+
+- Plug-in products can declare up to eight auxiliary buses (sidechain inputs,
+  extra outputs, or both) with `Product::with_auxiliary_buses` and
+  `AuxiliaryBus`. CLAP, VST3, AUv2, LV2 and AAX exports present them in each
+  format's own way, and the processor always receives every bus. The
+  `RavetPlugin.h` product record gains `auxiliary_count`/`auxiliaries`. The
+  `Frozen` bypass policy now works with auxiliary buses. See
+  [plug-in export](docs/plugin-export.md#auxiliary-buses-and-sidechains) and
+  [decision 0298](docs/decisions/0298-plugin-auxiliary-buses.md).
+
+### Changed
+
+- The `Hard`, `Crossfade` and `Frozen` bypass policies now delay the dry signal
+  by the processor's reported latency. Bypassed output therefore stays aligned
+  with the host's delay compensation, and crossfades no longer comb-filter.
+  Products whose latency can rise after preparation declare
+  `Product::with_maximum_latency`. See
+  [plug-in export](docs/plugin-export.md#automation-and-bypass-policies) and
+  [decision 0297](docs/decisions/0297-latency-compensated-bypass.md).
+
 ## 0.1.0 — 2026-11-05
 
 ### Changed

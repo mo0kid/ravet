@@ -86,7 +86,9 @@ def build(root, args, *, runner=None, sign=True, profile="release"):
     if args.validate:
         targets += ["ravet_au_delay_contracts", "ravet_auval_registration"]
     if args.mock:
-        target = {"effect": "ravet_au_mock", "instrument": "ravet_au_mock_instrument", "midi": "ravet_au_mock_midi"}[args.mock]
+        target = {"effect": "ravet_au_mock", "instrument": "ravet_au_mock_instrument", "midi": "ravet_au_mock_midi",
+                  "sidechain": "ravet_au_mock_sidechain", "instrument-sidechain": "ravet_au_mock_instrument_sidechain",
+                  "midi-sidechain": "ravet_au_mock_midi_sidechain", "midi-generator": "ravet_au_mock_midi_generator"}[args.mock]
         targets.append(target)
     run("cmake", "--build", build_dir, "--target", *targets, "--parallel", "2")
     if args.mock:

@@ -83,6 +83,13 @@ lv2 = "/SDKs/lv2"
 webview2 = "/SDKs/Microsoft.Web.WebView2"
 ```
 
+`scripts/fetch-audio-unit-sdk.py <directory>` fetches the checksum-pinned
+Apple AudioUnitSDK 1.4.0 for `audio_unit` (see [Audio Unit](audio-unit.md)), and
+`scripts/fetch-vst3-sdk.py <directory>` the checksum-pinned Steinberg VST 3 SDK
+3.8.1 for `vst3` (see [VST3](vst3.md)). The AAX SDK is distributed by Avid to
+signed-in developers only, so it has no fetcher; download it from Avid. Use
+SDKs from their vendors, not copies embedded in other frameworks.
+
 Use a project `ravet-sdks.toml` beside the product's Cargo.toml or in an ancestor
 (the nearest file wins), or the per-user file:
 

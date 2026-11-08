@@ -7,6 +7,7 @@
 #include <lilv/lilv.h>
 #include <lv2/atom/atom.h>
 #include <lv2/core/lv2.h>
+#include <lv2/port-groups/port-groups.h>
 #include <lv2/state/state.h>
 #include <lv2/ui/ui.h>
 #include <lv2/urid/urid.h>
@@ -89,6 +90,44 @@ int main(int argc, char **argv) {
     LilvNode *atomPort = lilv_new_uri(world, LV2_ATOM__AtomPort);
     LilvNode *enabled = lilv_new_uri(world, LV2_CORE__enabled);
     CHECK(lilv_plugin_has_latency(plugin));
+    // Side-chain ports (auxiliary input-only buses) are optional audio inputs
+    // in a port group that is pg:sideChainOf another group. Every group a port
+    // names has a symbol and a label.
+    {
+        LilvNode *sideChain = lilv_new_uri(world, LV2_CORE_PREFIX "isSideChain");
+        LilvNode *optional = lilv_new_uri(world, LV2_CORE__connectionOptional);
+        LilvNode *group = lilv_new_uri(world, LV2_PORT_GROUPS__group);
+        LilvNode *sideChainOf = lilv_new_uri(world, LV2_PORT_GROUPS__sideChainOf);
+        LilvNode *symbol = lilv_new_uri(world, LV2_CORE__symbol);
+        LilvNode *label = lilv_new_uri(world, LILV_NS_RDFS "label");
+        uint32_t sideChains = 0, grouped = 0;
+        for (uint32_t i = 0; i < lilv_plugin_get_num_ports(plugin); ++i) {
+            const LilvPort *port = lilv_plugin_get_port_by_index(plugin, i);
+            LilvNodes *groups = lilv_port_get_value(plugin, port, group);
+            const LilvNode *portGroup = groups && lilv_nodes_size(groups) ? lilv_nodes_get_first(groups) : nullptr;
+            if (portGroup) {
+                ++grouped;
+                LilvNode *groupSymbol = lilv_world_get(world, portGroup, symbol, nullptr);
+                LilvNode *groupLabel = lilv_world_get(world, portGroup, label, nullptr);
+                CHECK(groupSymbol && groupLabel);
+                std::printf("port %u in group %s (%s)\n", i, groupSymbol ? lilv_node_as_string(groupSymbol) : "?",
+                            groupLabel ? lilv_node_as_string(groupLabel) : "?");
+                lilv_node_free(groupSymbol);
+                lilv_node_free(groupLabel);
+            }
+            if (lilv_port_has_property(plugin, port, sideChain)) {
+                ++sideChains;
+                CHECK(lilv_port_is_a(plugin, port, audioPort) && lilv_port_is_a(plugin, port, inputPort) &&
+                      lilv_port_has_property(plugin, port, optional));
+                LilvNode *main = portGroup ? lilv_world_get(world, portGroup, sideChainOf, nullptr) : nullptr;
+                CHECK(main != nullptr);
+                lilv_node_free(main);
+            }
+            lilv_nodes_free(groups);
+        }
+        std::printf("side-chain ports: %u, grouped ports: %u\n", sideChains, grouped);
+        for (LilvNode *node : {sideChain, optional, group, sideChainOf, symbol, label}) lilv_node_free(node);
+    }
     const LilvPort *enabledPort = lilv_plugin_get_port_by_designation(plugin, inputPort, enabled);
 
     // UI discovery.

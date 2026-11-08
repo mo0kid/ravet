@@ -8,11 +8,12 @@
  * product exports to every format without product-specific C++.
  *
  * Everything a format needs comes from here: product identity and per-format IDs,
- * layouts, parameters (metadata, text, normalization), the versioned state
- * envelope (with the product's migrate/import hooks), the shared parameter
- * cache, editor edits destined for the host, the processor (already wrapped in
- * the product's automation/bypass policies and denormal flushing), and the web
- * editor (opened by RAVET inside a host-provided native view).
+ * layouts and auxiliary buses, parameters (metadata, text, normalization),
+ * the versioned state envelope (with the product's migrate/import hooks), the
+ * shared parameter cache, editor edits destined for the host, the processor
+ * (already wrapped in the product's automation/bypass policies and denormal
+ * flushing), and the web editor (opened by RAVET inside a host-provided native
+ * view).
  *
  * Threads and ownership
  *  - "MAIN": the host's main/UI thread. "AUDIO": the thread that owns
@@ -64,6 +65,14 @@ typedef struct RavetPluginLayoutV1 {
     uint32_t reserved;
 } RavetPluginLayoutV1;
 
+/* An audio bus beyond the main bus. inputs or outputs may be 0 (not both),
+   each at most 64. An input-only bus is a sidechain. Names are unique within
+   the product, nonblank and at most 64 bytes. */
+typedef struct RavetPluginAuxiliaryBusV1 {
+    const char *name;
+    uint32_t inputs, outputs;
+} RavetPluginAuxiliaryBusV1;
+
 /* Product description and resolved per-format identities. */
 typedef struct RavetPluginProductV1 {
     const char *name, *vendor, *version, *plugin_id, *url; /* url may be "" */
@@ -72,6 +81,9 @@ typedef struct RavetPluginProductV1 {
     uint32_t note_output;         /* 1 if the product emits notes/MIDI */
     uint32_t layout_count;        /* >= 1; preferred first */
     const RavetPluginLayoutV1 *layouts;
+    /* Auxiliary buses, the same for every layout, in processing order. */
+    uint32_t auxiliary_count;     /* 0..8 */
+    const RavetPluginAuxiliaryBusV1 *auxiliaries; /* NULL when auxiliary_count is 0 */
     uint32_t parameter_count;     /* <= 1024 */
     int32_t bypass_index;         /* index of the host bypass parameter, or -1 */
     const char *clap_id;
@@ -153,9 +165,14 @@ typedef struct RavetPluginEntryV1 {
     int32_t (*load_state)(void *instance, const uint8_t *data, uint32_t length);
 
     /* ---- Processing ----
-       prepare (MAIN): config as RavetNativeProcessorConfigV1, main bus only for
-       now (bus_count 1). The layout must be one of product->layouts.
-       process (AUDIO): bus 0 is the main bus; samples are 32-bit float. Input
+       prepare (MAIN): config as RavetNativeProcessorConfigV1 with bus_count
+       1 + product->auxiliary_count: buses[0] is one of product->layouts and
+       buses[1 + i] equals auxiliaries[i] (inputs and outputs).
+       process (AUDIO): bus_count equals the prepared count; bus 0 is the main
+       bus, then every auxiliary bus in order, each with the prepared channel
+       counts; samples are 32-bit float. The adapter passes every bus even when
+       the host leaves one disconnected or inactive: it supplies silent inputs
+       and discards that bus's outputs. Input
        events carry host automation (RAVET_NATIVE_PARAMETER_VALUE with the
        parameter's host ID and a physical value; the adapter converts normalized
        host values first; the value need not be exactly representable as float)

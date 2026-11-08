@@ -6,21 +6,31 @@
 //! [`PolicyProcessor`], so the policies behave identically in every format.
 //!
 //! The dry signal used by [`BypassPolicy::Hard`], [`BypassPolicy::Crossfade`]
-//! and [`BypassPolicy::Frozen`] is the block's input, **not delayed by the
-//! processor's latency**. A product that reports latency and needs a
-//! latency-compensated bypass must keep [`BypassPolicy::Processor`] and
-//! implement bypass itself.
+//! and [`BypassPolicy::Frozen`] is the block's input **delayed by the
+//! processor's reported latency** ([`Processor::latency_samples`], read at the
+//! start of every block), so it stays aligned with the processed signal and
+//! with the host's delay compensation. The delay line is prepared for the
+//! larger of the latency reported after `prepare` and
+//! [`Product::with_maximum_latency`], at most [`MAXIMUM_BYPASS_LATENCY`]
+//! samples; a larger reported latency is compensated only up to that
+//! capacity until the next `prepare` (the export adapters request a host
+//! restart when latency changes). A change of latency while active moves the
+//! dry signal abruptly. A reset clears the delayed history.
 //!
 //! [`Product::with_automation`]: crate::Product::with_automation
 //! [`Product::with_bypass`]: crate::Product::with_bypass
+//! [`Product::with_maximum_latency`]: crate::Product::with_maximum_latency
 use crate::ResolvedProduct;
 use ravet_foundation::{
-    AudioBuffer, Event, EventData, OutputEvents, ParameterId, PrepareError, ProcessBlock,
-    ProcessConfig, ProcessError, ProcessStatus, Processor, Tail,
+    AudioBuffer, Event, EventData, MAXIMUM_AUXILIARY_BUSES, OutputEvents, ParameterId,
+    PrepareError, ProcessBlock, ProcessConfig, ProcessError, ProcessStatus, Processor, Tail,
 };
 
 /// Longest accepted [`BypassPolicy::Crossfade`] time in milliseconds.
 pub const MAXIMUM_CROSSFADE_MS: f32 = 1000.0;
+/// Most samples of latency the bypass dry delay compensates (65,536, about
+/// 1.4 s at 48 kHz).
+pub const MAXIMUM_BYPASS_LATENCY: u32 = 1 << 16;
 /// Most channels a layout can have; bounds the zero-frame block used by
 /// [`BypassPolicy::Frozen`].
 const MAXIMUM_CHANNELS: usize = 64;
@@ -42,7 +52,7 @@ pub enum AutomationPolicy {
 /// Every policy except [`BypassPolicy::Processor`] consumes the bypass
 /// parameter: the processor never receives events for it, and
 /// [`Product::resolve`] requires the product to declare one. The dry signal is
-/// not latency-compensated (see the [module documentation](self)).
+/// delayed by the processor's latency (see the [module documentation](self)).
 ///
 /// [`Parameter::bypass`]: crate::Parameter::bypass
 /// [`Product::resolve`]: crate::Product::resolve
@@ -55,30 +65,38 @@ pub enum BypassPolicy {
     /// The processor keeps running; the output crossfades linearly between the
     /// processed signal and the dry input over the given time (greater than 0,
     /// at most [`MAXIMUM_CROSSFADE_MS`]). Changes start at the event's offset.
+    /// Auxiliary outputs fade to silence.
     Crossfade { milliseconds: f32 },
     /// The processor keeps running; the output switches between the processed
     /// signal and the dry input at the event's offset, without a ramp.
+    /// Auxiliary outputs are silent while bypassed.
     Hard,
     /// While bypassed the processor is not run, so its history is frozen, and
-    /// the input is copied to the output without scratch storage
-    /// ([`AudioBuffer::pass_through`]). Parameter events still reach the
+    /// the input, delayed by the processor's latency, is copied to the output.
+    /// Without latency (and without a declared maximum) this needs no scratch
+    /// storage ([`AudioBuffer::pass_through`]). Parameter events still reach the
     /// processor through a zero-frame block; notes and other events are
     /// discarded. The switch happens on block boundaries, using the last bypass
-    /// value of the block. Not available with auxiliary buses.
+    /// value of the block. Auxiliary outputs are silent while bypassed.
     Frozen,
 }
 
 /// Wraps a processor in a product's [`AutomationPolicy`] and [`BypassPolicy`].
 ///
-/// Preparation allocates event scratch, generated-event scratch, and for
+/// Preparation allocates event scratch, generated-event scratch, for
 /// [`BypassPolicy::Hard`] and [`BypassPolicy::Crossfade`] one dry copy per
-/// output channel plus a gain ramp. Processing and reset never allocate. With
+/// output channel plus a gain ramp, and for every policy except
+/// [`BypassPolicy::Processor`] a dry delay line per output channel when the
+/// processor has (or may have) latency; [`BypassPolicy::Frozen`] then also
+/// keeps a dry copy per channel. Processing and reset never allocate. With
 /// the default policies the wrapper forwards blocks unchanged.
 pub struct PolicyProcessor<P> {
     processor: P,
     automation: AutomationPolicy,
     bypass: BypassPolicy,
     bypass_id: Option<ParameterId>,
+    /// Declared maximum latency; sizes `delay` together with the prepared latency.
+    maximum_latency: u32,
     config: Option<ProcessConfig>,
     /// Filtered events for the processor.
     events: Vec<Event>,
@@ -86,8 +104,11 @@ pub struct PolicyProcessor<P> {
     switches: Vec<(usize, bool)>,
     /// Generated events of the inner block, copied to the caller's output.
     generated: Vec<Event>,
-    /// Dry input copy per output channel (Hard and Crossfade only).
+    /// Dry input copy per output channel (Hard and Crossfade; Frozen with a
+    /// delay line).
     dry: Vec<Vec<f32>>,
+    /// Latency-compensating history of the dry input per output channel.
+    delay: DryDelay,
     /// Wet gain per frame of the current block (Hard and Crossfade only).
     gains: Vec<f32>,
     /// The bypass state requested by the latest bypass event.
@@ -109,6 +130,7 @@ impl<P> PolicyProcessor<P> {
             None => BypassPolicy::Processor,
         };
         Self::with_policies(processor, product.product().automation(), bypass, bypass_id)
+            .with_maximum_latency(product.product().maximum_latency())
     }
     /// Wrap `processor` with explicit policies. `bypass_id` is the bypass
     /// parameter; without one, the bypass policy falls back to
@@ -128,16 +150,25 @@ impl<P> PolicyProcessor<P> {
                 BypassPolicy::Processor
             },
             bypass_id,
+            maximum_latency: 0,
             config: None,
             events: Vec::new(),
             switches: Vec::new(),
             generated: Vec::new(),
             dry: Vec::new(),
+            delay: DryDelay::default(),
             gains: Vec::new(),
             bypassed: false,
             wet: 1.0,
             step: 1.0,
         }
+    }
+    /// Size the dry delay for at least `samples` of latency (clamped to
+    /// [`MAXIMUM_BYPASS_LATENCY`]) from the next `prepare`; see
+    /// [`Product::with_maximum_latency`](crate::Product::with_maximum_latency).
+    pub fn with_maximum_latency(mut self, samples: u32) -> Self {
+        self.maximum_latency = samples;
+        self
     }
     pub fn processor(&self) -> &P {
         &self.processor
@@ -265,8 +296,7 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
         self.config = None;
         let layout = config.layout();
         if self.bypass == BypassPolicy::Frozen
-            && (!config.auxiliary_buses().is_empty()
-                || layout.input_channels() > MAXIMUM_CHANNELS
+            && (layout.input_channels() > MAXIMUM_CHANNELS
                 || layout.output_channels() > MAXIMUM_CHANNELS)
         {
             return Err(PrepareError::UnsupportedLayout);
@@ -281,10 +311,21 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
         self.events = vec![empty; config.maximum_events()];
         self.switches = vec![(0, false); config.maximum_events()];
         self.generated = vec![empty; config.maximum_output_events()];
-        let mixes = matches!(
-            self.bypass,
-            BypassPolicy::Hard | BypassPolicy::Crossfade { .. }
-        );
+        self.processor.prepare(config)?;
+        let capacity = match self.bypass {
+            BypassPolicy::Processor => 0,
+            _ => self
+                .processor
+                .latency_samples()
+                .max(self.maximum_latency)
+                .min(MAXIMUM_BYPASS_LATENCY) as usize,
+        };
+        self.delay = DryDelay::new(layout.output_channels(), capacity);
+        let mixes = match self.bypass {
+            BypassPolicy::Hard | BypassPolicy::Crossfade { .. } => true,
+            BypassPolicy::Frozen => capacity > 0,
+            BypassPolicy::Processor => false,
+        };
         self.dry = if mixes {
             (0..layout.output_channels())
                 .map(|_| vec![0.0; config.maximum_frames()])
@@ -292,7 +333,7 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
         } else {
             Vec::new()
         };
-        self.gains = if mixes {
+        self.gains = if mixes && self.bypass != BypassPolicy::Frozen {
             vec![1.0; config.maximum_frames()]
         } else {
             Vec::new()
@@ -306,7 +347,6 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
         };
         self.bypassed = false;
         self.wet = 1.0;
-        self.processor.prepare(config)?;
         self.config = Some(config);
         Ok(())
     }
@@ -349,6 +389,7 @@ impl<P: Processor<f32>> Processor<f32> for PolicyProcessor<P> {
     }
     fn try_reset(&mut self) -> Result<(), ProcessError> {
         self.wet = if self.bypassed { 0.0 } else { 1.0 };
+        self.delay.clear();
         self.processor.try_reset()
     }
     fn deactivate(&mut self) {
@@ -374,7 +415,10 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
         if let Some(&(_, bypassed)) = self.switches[..switches].last() {
             self.bypassed = bypassed;
         }
+        let frames = block.audio.frames();
         if !self.bypassed {
+            // Keep the delayed history current so that bypass continues it.
+            self.delay.write(&block.audio);
             return run_inner(
                 &mut self.processor,
                 block,
@@ -382,7 +426,23 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
                 &mut self.generated,
             );
         }
-        block.audio.pass_through();
+        if let Some(buses) = block.auxiliary.as_deref_mut() {
+            for bus in buses {
+                bus.clear_outputs();
+            }
+        }
+        if self.delay.is_empty() {
+            block.audio.pass_through();
+        } else {
+            let latency = self.processor.latency_samples();
+            self.delay.read(&block.audio, latency, &mut self.dry);
+            for (channel, dry) in self.dry.iter().enumerate() {
+                // One dry buffer per validated output channel, so this never skips.
+                if let Some(output) = block.audio.output_mut(channel) {
+                    output.copy_from_slice(&dry[..frames]);
+                }
+            }
+        }
         // Keep only parameter events, at offset 0, for a zero-frame block.
         let mut parameters = 0;
         for index in 0..count {
@@ -414,9 +474,33 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
             block.clear_outputs();
             return ProcessStatus::Fault(ProcessError::LayoutMismatch);
         };
+        // Zero-frame auxiliary buses with the prepared layouts.
+        const AUXILIARY_CHANNELS: usize = MAXIMUM_AUXILIARY_BUSES * MAXIMUM_CHANNELS;
+        let auxiliary_layouts = config.auxiliary_buses();
+        let auxiliary_inputs: [&[f32]; AUXILIARY_CHANNELS] = [&[]; AUXILIARY_CHANNELS];
+        let mut auxiliary_outputs: [&mut [f32]; AUXILIARY_CHANNELS] =
+            std::array::from_fn(|_| &mut [][..]);
+        let mut remaining_inputs = &auxiliary_inputs[..];
+        let mut remaining_outputs = &mut auxiliary_outputs[..];
+        let mut auxiliary: [AudioBuffer<'_, '_, f32>; MAXIMUM_AUXILIARY_BUSES] =
+            std::array::from_fn(|index| {
+                let (ins, outs) = auxiliary_layouts
+                    .get(index)
+                    .map_or((0, 0), |b| (b.input_channels(), b.output_channels()));
+                // Each layout has at most MAXIMUM_CHANNELS per direction, so the
+                // arrays always hold every prepared bus.
+                let (input, rest) = remaining_inputs.split_at(ins.min(remaining_inputs.len()));
+                remaining_inputs = rest;
+                let outs = outs.min(remaining_outputs.len());
+                let (output, rest) = std::mem::take(&mut remaining_outputs).split_at_mut(outs);
+                remaining_outputs = rest;
+                // Zero-frame channels always validate.
+                AudioBuffer::separate(input, output, 0).unwrap_or_else(|_| empty_buffer())
+            });
         let mut inner = ProcessBlock {
             audio,
-            auxiliary: None,
+            auxiliary: (!auxiliary_layouts.is_empty())
+                .then(|| &mut auxiliary[..auxiliary_layouts.len()]),
             output_events: block
                 .output_events
                 .is_some()
@@ -444,18 +528,12 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
         let frames = block.audio.frames();
         let mix = self.bypassed || self.wet != 1.0 || switches > 0;
         if mix && frames > 0 {
-            let inputs = block.audio.input_channels();
             // `validate_block` matched the channels to the prepared layout and
             // bounded `frames` by the prepared length of each `dry` buffer.
-            for (channel, dry) in self.dry.iter_mut().enumerate() {
-                let input = inputs
-                    .checked_sub(1)
-                    .and_then(|last| block.audio.input(channel.min(last)));
-                match input {
-                    Some(input) => dry[..frames].copy_from_slice(input),
-                    None => dry[..frames].fill(0.0),
-                }
-            }
+            let latency = self.processor.latency_samples();
+            self.delay.read(&block.audio, latency, &mut self.dry);
+        } else {
+            self.delay.write(&block.audio);
         }
         let status = run_inner(
             &mut self.processor,
@@ -497,7 +575,132 @@ impl<P: Processor<f32>> PolicyProcessor<P> {
                 *sample = *sample * gain + dry * (1.0 - gain);
             }
         }
+        // Auxiliary outputs have no dry signal: they fade to silence.
+        if let Some(buses) = block.auxiliary.as_deref_mut() {
+            for bus in buses {
+                for channel in 0..bus.output_channels() {
+                    if let Some(output) = bus.output_mut(channel) {
+                        for (sample, gain) in output.iter_mut().zip(&self.gains) {
+                            *sample *= gain;
+                        }
+                    }
+                }
+            }
+        }
         ProcessStatus::Continue
+    }
+}
+
+/// A buffer without channels or frames.
+fn empty_buffer<'c, 's>() -> AudioBuffer<'c, 's, f32> {
+    match AudioBuffer::separate(&[], &mut [], 0) {
+        Ok(buffer) => buffer,
+        // A buffer without channels or frames always validates.
+        Err(_) => unreachable!("an empty buffer is valid"),
+    }
+}
+
+/// Input channel feeding dry output `channel`: the same input, the last input
+/// when there are fewer inputs, or `None` (silence) without inputs.
+fn dry_input<'b>(audio: &'b AudioBuffer<'_, '_, f32>, channel: usize) -> Option<&'b [f32]> {
+    audio
+        .input_channels()
+        .checked_sub(1)
+        .and_then(|last| audio.input(channel.min(last)))
+}
+
+/// One ring of past dry input per output channel, all sharing a write
+/// position. Prepared with a fixed capacity; never allocates afterwards.
+#[derive(Default)]
+struct DryDelay {
+    lines: Vec<Vec<f32>>,
+    /// Next write index into every line.
+    position: usize,
+}
+
+impl DryDelay {
+    fn new(channels: usize, capacity: usize) -> Self {
+        Self {
+            lines: if capacity == 0 {
+                Vec::new()
+            } else {
+                (0..channels).map(|_| vec![0.0; capacity]).collect()
+            },
+            position: 0,
+        }
+    }
+    fn capacity(&self) -> usize {
+        self.lines.first().map_or(0, Vec::len)
+    }
+    fn is_empty(&self) -> bool {
+        self.capacity() == 0
+    }
+    fn clear(&mut self) {
+        for line in &mut self.lines {
+            line.fill(0.0);
+        }
+        self.position = 0;
+    }
+    /// Record the block's dry input without producing output.
+    fn write(&mut self, audio: &AudioBuffer<'_, '_, f32>) {
+        let capacity = self.capacity();
+        let frames = audio.frames();
+        if capacity == 0 || frames == 0 {
+            return;
+        }
+        // Only the newest `capacity` frames can still be read.
+        let skip = frames.saturating_sub(capacity);
+        let start = (self.position + skip) % capacity;
+        let kept = frames - skip;
+        let first = (capacity - start).min(kept);
+        for (channel, line) in self.lines.iter_mut().enumerate() {
+            match dry_input(audio, channel) {
+                Some(input) => {
+                    let input = &input[skip..];
+                    line[start..start + first].copy_from_slice(&input[..first]);
+                    line[..kept - first].copy_from_slice(&input[first..]);
+                }
+                None => {
+                    line[start..start + first].fill(0.0);
+                    line[..kept - first].fill(0.0);
+                }
+            }
+        }
+        self.position = (self.position + frames) % capacity;
+    }
+    /// Fill `dry[channel][..frames]` with the block's dry input delayed by
+    /// `latency` samples (at most the capacity), recording the input.
+    fn read(&mut self, audio: &AudioBuffer<'_, '_, f32>, latency: u32, dry: &mut [Vec<f32>]) {
+        let frames = audio.frames();
+        let capacity = self.capacity();
+        let delay = (latency as usize).min(capacity);
+        for (channel, dry) in dry.iter_mut().enumerate() {
+            let input = dry_input(audio, channel);
+            let dry = &mut dry[..frames];
+            let Some(line) = self.lines.get_mut(channel).filter(|_| delay > 0) else {
+                match input {
+                    Some(input) => dry.copy_from_slice(input),
+                    None => dry.fill(0.0),
+                }
+                continue;
+            };
+            let mut write = self.position;
+            // `delay` is 1..=capacity, so the read index trails the write index
+            // by `delay` and equals it (oldest sample) when `delay == capacity`.
+            let mut read = (write + capacity - delay) % capacity;
+            for (frame, out) in dry.iter_mut().enumerate() {
+                *out = line[read];
+                line[write] = input.map_or(0.0, |input| input[frame]);
+                write = if write + 1 == capacity { 0 } else { write + 1 };
+                read = if read + 1 == capacity { 0 } else { read + 1 };
+            }
+        }
+        if delay == 0 {
+            // Nothing was recorded above; keep the history current.
+            self.write(audio);
+        } else {
+            self.position = (self.position + frames) % capacity;
+        }
     }
 }
 

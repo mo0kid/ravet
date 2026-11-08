@@ -20,7 +20,8 @@ def main():
     info = plist["AudioComponents"][0]
     if not plist["CFBundleIdentifier"].startswith("org.ravet.test.auv2.") or "AU TEST" not in info["name"] or \
             info["manufacturer"] != "RvTs" or (info["type"], info["subtype"]) not in {
-                ("aufx", "RvT1"), ("aumu", "RvI1"), ("aumf", "RvM1")}:
+                ("aufx", "RvT1"), ("aumu", "RvI1"), ("aumf", "RvM1"), ("aufx", "RvS1"),
+                ("aumu", "RvC1"), ("aumf", "RvN1"), ("aumf", "RvG1")}:
         parser.error("only the RAVET AU TEST mock identities may be installed by this tool")
     destination = Path.home() / "Library/Audio/Plug-Ins/Components" / ("RAVET AU TEST " + info["subtype"] + ".component")
     if destination.exists():

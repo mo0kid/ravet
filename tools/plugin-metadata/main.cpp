@@ -44,7 +44,15 @@ int main(int argc, char** argv) {
         std::cout << ",\"plugin_id\":"; quoted(p.plugin_id);
         std::cout << ",\"au_type\":" << p.au_type << ",\"au_subtype\":" << p.au_subtype
                   << ",\"au_manufacturer\":" << p.au_manufacturer
-                  << ",\"editor_width\":" << p.editor_width << ",\"editor_height\":" << p.editor_height << "}\n";
+                  << ",\"editor_width\":" << p.editor_width << ",\"editor_height\":" << p.editor_height;
+        if (p.auxiliary_count > 8 || (p.auxiliary_count && !p.auxiliaries))
+            throw std::runtime_error("invalid auxiliary buses");
+        std::cout << ",\"auxiliaries\":[";
+        for (uint32_t i = 0; i < p.auxiliary_count; ++i) {
+            std::cout << (i ? ",{\"name\":" : "{\"name\":"); quoted(p.auxiliaries[i].name);
+            std::cout << ",\"inputs\":" << p.auxiliaries[i].inputs << ",\"outputs\":" << p.auxiliaries[i].outputs << '}';
+        }
+        std::cout << "]}\n";
         // Retain the trusted Rust image until process exit.
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

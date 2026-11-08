@@ -4,6 +4,11 @@
 //! host sees comes from the product description: descriptor, audio and note
 //! ports, parameters, saved state, latency and tail.
 //!
+//! Audio ports: the main bus is port 0 (ID 0, flagged main) in each direction
+//! where it has channels, followed by the product's [auxiliary
+//! buses](crate::AuxiliaryBus) with channels in that direction, in declaration
+//! order (ID 1 + declaration index, named after the bus).
+//!
 //! Current limits: the first declared layout is used, processing is f32,
 //! product extra state is not exported.
 use crate::{
@@ -40,7 +45,7 @@ use clack_plugin::{
     prelude::*,
     utils::Cookie,
 };
-use ravet_clap::{MAXIMUM_EVENTS, MainBusBridge};
+use ravet_clap::{MAXIMUM_EVENTS, MultiBusBridge};
 use ravet_foundation::{ProcessConfig, Processor as _, Tail};
 use std::{
     ffi::CStr,
@@ -346,31 +351,51 @@ fn port_type(channels: usize) -> Option<AudioPortType<'static>> {
     }
 }
 
+/// One CLAP audio port: (ID, name, channels, main).
+type Port<'a> = (u32, &'a [u8], usize, bool);
+
+/// The audio ports in one direction, in the order `MultiBusBridge` maps them:
+/// the main bus, then auxiliary buses, skipping those without channels.
+fn audio_ports<'a>(product: &crate::Product<'a>, input: bool) -> impl Iterator<Item = Port<'a>> {
+    let layout = product.layouts()[0];
+    let main = if input {
+        (layout.input_channels(), &b"Input"[..])
+    } else {
+        (layout.output_channels(), &b"Output"[..])
+    };
+    std::iter::once((0, main.1, main.0, true))
+        .chain(
+            product
+                .auxiliary_buses()
+                .iter()
+                .enumerate()
+                .map(move |(index, bus)| {
+                    let channels = if input { bus.inputs } else { bus.outputs };
+                    (index as u32 + 1, bus.name.as_bytes(), channels, false)
+                }),
+        )
+        .filter(|port| port.2 > 0)
+}
+
 impl PluginAudioPortsImpl for ClapMain<'_> {
     fn count(&self, input: bool) -> u32 {
-        let layout = self.shared.product.product().layouts()[0];
-        let channels = if input {
-            layout.input_channels()
-        } else {
-            layout.output_channels()
-        };
-        u32::from(channels > 0)
+        audio_ports(self.shared.product.product(), input).count() as u32
     }
     fn get(&self, index: u32, input: bool, writer: &mut AudioPortInfoWriter) {
-        let layout = self.shared.product.product().layouts()[0];
-        let channels = if input {
-            layout.input_channels()
-        } else {
-            layout.output_channels()
-        };
-        if index != 0 || channels == 0 {
+        let Some((id, name, channels, main)) =
+            audio_ports(self.shared.product.product(), input).nth(index as usize)
+        else {
             return;
-        }
+        };
         writer.set(&AudioPortInfo {
-            id: ClapId::new(0),
-            name: if input { b"Input" } else { b"Output" },
+            id: ClapId::new(id),
+            name,
             channel_count: channels as u32,
-            flags: AudioPortFlags::IS_MAIN,
+            flags: if main {
+                AudioPortFlags::IS_MAIN
+            } else {
+                AudioPortFlags::empty()
+            },
             port_type: port_type(channels),
             in_place_pair: None,
         });
@@ -537,7 +562,7 @@ impl PluginLatencyImpl for ClapMain<'_> {
 pub struct ClapAudio<'a, P: PluginExport> {
     host: HostAudioProcessorHandle<'a>,
     shared: &'a ClapShared,
-    bridge: MainBusBridge<Wrapped<P::Processor>>,
+    bridge: MultiBusBridge<Wrapped<P::Processor>>,
     /// Canonicalized copy of the host's input events.
     events: EventBuffer,
     generation: u64,
@@ -561,7 +586,7 @@ impl<P: PluginExport> ClapAudio<'_, P> {
         }
         let result = self
             .bridge
-            .flush_with_output(&self.events.as_input(), &mut OutputEvents::void());
+            .flush(&self.events.as_input(), &mut OutputEvents::void());
         self.shared.fault.store(result.is_err(), Ordering::Relaxed);
         self.bridge.reset();
         self.generation = generation;
@@ -619,6 +644,7 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
             MAXIMUM_EVENTS,
             product.layouts()[0],
         )?
+        .with_auxiliary_buses(&product.auxiliary_layouts())?
         .with_output_events(if product.notes().output {
             MAXIMUM_EVENTS
         } else {
@@ -627,7 +653,7 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
         let processor = wrap(P::create(), &shared.product)
             .ok_or(PluginError::Message("denormal flushing is unavailable"))?;
         let note_port = product.notes().input.then_some(0);
-        let bridge = MainBusBridge::prepare_with_output(
+        let bridge = MultiBusBridge::prepare(
             processor,
             config,
             note_port,
@@ -670,7 +696,7 @@ impl<'a, P: PluginExport> PluginAudioProcessor<'a, ClapShared, ClapMain<'a>> for
         self.shared
             .deliver_edits(events.output, &mut self.events, room);
         self.canonicalize(events.input);
-        let result = self.bridge.process_with_output(
+        let result = self.bridge.process(
             &mut audio,
             &self.events.as_input(),
             process.transport,
@@ -698,9 +724,7 @@ impl<P: PluginExport> PluginAudioProcessorParams for ClapAudio<'_, P> {
         };
         self.shared.deliver_edits(output, &mut self.events, room);
         self.canonicalize(input);
-        let result = self
-            .bridge
-            .flush_with_output(&self.events.as_input(), output);
+        let result = self.bridge.flush(&self.events.as_input(), output);
         self.after_processing(result.as_ref().is_ok_and(|r| r.delivery.reason.is_none()));
     }
 }

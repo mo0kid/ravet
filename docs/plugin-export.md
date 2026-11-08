@@ -37,8 +37,51 @@ const PRODUCT: Product = Product::new(
 
 `Product::resolve` validates the description on a control thread. It checks
 names, the three-part version, the reverse-domain plug-in ID, layouts (effects
-need audio input), at most 1,024 parameters, keys, defaults and a single bypass
-toggle. It then resolves parameter IDs and format identities.
+need audio input), auxiliary buses, at most 1,024 parameters, keys, defaults and
+a single bypass toggle. It then resolves parameter IDs and format identities.
+
+### Auxiliary buses and sidechains
+
+Besides the main bus, a product may declare up to eight auxiliary buses: for
+example a sidechain input, or the extra outputs of a multi-output instrument.
+
+```rust
+use ravet_plugin::AuxiliaryBus;
+
+const PRODUCT: Product = Product::new(/* … */)
+    .with_auxiliary_buses(&[
+        AuxiliaryBus::sidechain("Sidechain", 2), // input only
+        AuxiliaryBus::output("Direct", 2),       // output only
+    ]);
+```
+
+Each bus has a name (nonblank, at most 64 bytes, no control characters, unique
+among the product's buses) and up to 64 input and 64 output channels; it needs
+at least one channel. A bus with inputs only is a **sidechain**. Every main
+layout uses the same auxiliary buses. `Product::resolve` rejects more than eight
+buses (`ProductError::TooManyAuxiliaryBuses`) and invalid ones
+(`ProductError::InvalidAuxiliaryBus(index)`).
+
+The processor is prepared with `ProcessConfig::with_auxiliary_buses` in
+declaration order and receives every bus in `ProcessBlock::auxiliary` on every
+block, with the declared channel counts, in every format. A bus the host leaves
+disconnected or inactive carries silence, and its outputs are discarded. The
+bypass policies silence auxiliary outputs while bypassed (`Crossfade` fades
+them); auxiliary inputs have no dry path.
+
+How each format presents the buses:
+
+| Format | Sidechain inputs | Other auxiliary buses |
+|---|---|---|
+| CLAP | An audio input port after the main port, named after the bus (ID 1 + declaration index). | Input and output ports in the same order and naming; zero-channel directions get no port. |
+| VST3 | A `kAux` input bus, inactive until the host activates it. | `kAux` buses in each direction they have channels, inactive by default, with one fixed arrangement (mono, stereo, otherwise discrete speakers). `setBusArrangements` accepts every bus, or only the main bus (auxiliary buses then keep their arrangement). |
+| AUv2 | Input element 1 onwards (after the main input), named after the bus. | Elements in each scope where they have channels, with fixed channel counts and the main bus's sample rate. Multiple output elements are rendered once per cycle. Without a main input, the first auxiliary input is element 0 and the advertised channel table reports its channel count. |
+| LV2 | Audio input ports with `lv2:isSideChain` and `lv2:connectionOptional`, after every existing port. | Optional audio ports, symbols `aux<B>_in_<C>` / `aux<B>_out_<C>` (bus and channel from 1). Parameter keys that collide fall back to `p<id>`. Port groups per bus direction; sidechain groups are `pg:sideChainOf` the main group. |
+| AAX | The first sidechain maps to the single AAX side-chain (key) input, which Pro Tools delivers as mono: the key feeds every channel of the bus. Layouts without a main input (instruments) declare a main input stem matching their output so the key can be addressed; the product still gets no main input. Further sidechains are silent. | Mono and stereo output-only buses become aux output stems named "<bus> Mono"/"<bus> Stereo" (unless the name already says so; at most 64 bytes), and disable multi-mono. Wider output buses, and buses with both inputs and outputs, have no AAX route: inputs are silent, outputs discarded. |
+
+These mappings have offline evidence only (unit tests, mock tables, the VST3 SDK
+validator and auval on mocks); no host or DAW routing has been checked. See
+[decision 0298](decisions/0298-plugin-auxiliary-buses.md).
 
 Each parameter has a permanent **key**: an ASCII letter or underscore followed
 by up to 63 letters, digits or underscores. Its host ID is either explicit
@@ -98,17 +141,36 @@ const PRODUCT: Product = Product::new(/* … */)
 | `BypassPolicy::Processor` (default) | The processor receives the bypass parameter and implements bypass itself. |
 | `BypassPolicy::Hard` | The processor keeps running; the output switches to the dry input at the bypass event's offset. |
 | `BypassPolicy::Crossfade { milliseconds }` | As `Hard`, with a linear crossfade (more than 0, at most 1,000 ms) starting at the event's offset. A reset completes a running crossfade. |
-| `BypassPolicy::Frozen` | While bypassed the processor does not run, so its history is frozen. The input is copied to the output with `AudioBuffer::pass_through`, without scratch storage. Parameter events still reach the processor in a zero-frame block; notes and other events are discarded. The switch happens on block boundaries, using the block's last bypass value. Not available with auxiliary buses. |
+| `BypassPolicy::Frozen` | While bypassed the processor does not run, so its history is frozen. The input, delayed by the processor's latency, is copied to the output. Without latency this uses `AudioBuffer::pass_through` and needs no scratch storage. Parameter events still reach the processor in a zero-frame block; notes and other events are discarded. The switch happens on block boundaries, using the block's last bypass value. Auxiliary outputs are silent while bypassed. |
 
 Every policy except `Processor` consumes the bypass parameter: the processor
 never receives its events, and `Product::resolve` rejects the policy unless the
 product declares a `Parameter::bypass` (`ProductError::BypassPolicyWithoutParameter`).
 `Hard` and `Crossfade` keep one prepared dry copy per output channel; with
 fewer inputs than outputs the last input feeds the remaining outputs, and an
-instrument's dry signal is silence. **The dry path is not
-latency-compensated**: a product that reports latency and needs a
-compensated bypass keeps `BypassPolicy::Processor`. Processing and reset never
-allocate under any policy.
+instrument's dry signal is silence. **The dry signal is delayed by the
+processor's latency** (`Processor::latency_samples`, read at the start of
+each block), so it lines up with the processed signal and with the host's
+delay compensation. The delay line is fed even while the plug-in is not
+bypassed, and a reset clears it. Its capacity is fixed at `prepare`: the
+larger of the latency reported then and `Product::with_maximum_latency`, at
+most `MAXIMUM_BYPASS_LATENCY` (65,536 samples). Cached parameters and state
+are applied after `prepare`. So if they can raise the latency, declare the
+maximum:
+
+```rust
+const PRODUCT: Product = Product::new(/* … */)
+    .with_parameters(PARAMETERS)
+    .with_bypass(BypassPolicy::Hard)
+    .with_maximum_latency(2048); // lookahead can be switched on later
+```
+
+If latency goes above the capacity, the dry signal is delayed only up to the
+capacity until the next `prepare`. The export adapters ask the host to restart
+when latency changes. If latency changes while active, the dry signal jumps
+straight to the new delay. A declared maximum above the limit is rejected as
+`ProductError::InvalidBypassPolicy`. Processing and reset never allocate under
+any policy.
 
 `AudioBuffer::pass_through` (in `ravet-foundation`) is also usable directly: with
 separate storage it copies input channel *c*, or the last input, to output *c*;
@@ -156,6 +218,8 @@ See [the instrument](synth-plugin.md) and
 The `clap` feature (`plugin-clap` on the umbrella crate) builds the CLAP side:
 
 - The descriptor, audio ports, MIDI input/output ports and parameters come from the product.
+  Audio ports are the main bus (port 0, flagged main) followed by the
+  [auxiliary buses](#auxiliary-buses-and-sidechains).
   Parameters with integer steps, and the bypass toggle, are marked stepped.
 - Parameter text uses `ravet_plugin::text`, shared with the native table. The
   bypass parameter and unitless 0/1 toggles read `On`/`Off`; hosts may type
@@ -224,7 +288,11 @@ the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
   migrate and import hooks; before the next block the processor receives every
   value in a zero-frame block, then a reset (events the processor generates in
   that zero-frame block are discarded).
-- **Processing** is 32-bit float, main bus only. Buses, events and transport are
+- **Processing** is 32-bit float. `prepare` takes the main bus followed by
+  every [auxiliary bus](#auxiliary-buses-and-sidechains) with its declared
+  channel counts (`bus_count = 1 + auxiliary_count`), and `process` takes the
+  same buses; adapters supply silence for buses the host leaves disconnected.
+  Buses, events and transport are
   converted by `ravet-native`; host buffers are copied into prepared scratch,
   so in-place hosts are safe. Host parameter values need not be exactly
   representable as `float`; they are clamped, snapped and written to the cache,
@@ -246,7 +314,7 @@ the contract; the Rust side (`ravet_plugin::native`) behaves as follows:
   the adapter to report to the host. The web view polls the cache itself;
   `editor_idle` pumps GTK on Linux and does nothing elsewhere.
 
-Limits for now: main bus only; product extra state is not saved. Named-host runs of the Delay through the native adapters are
+Limits for now: product extra state is not saved. Named-host runs of the Delay through the native adapters are
 recorded separately in the [support matrix](support-matrix.md); those runs do
 not qualify arbitrary products. The table's own unit tests drive every function through the
 table (including a C99 compile of the header that checks every record offset

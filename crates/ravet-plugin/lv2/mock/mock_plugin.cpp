@@ -9,6 +9,12 @@
 //   3 level   id 0x104  read-only 0..1 (last block's peak output)
 // Processing: out = in × gain (copy when bypassed); MIDI input is echoed.
 // A probe records what the adapter delivered, for tests.
+//
+// Built with RAVET_MOCK_AUXILIARY=1 it is "RAVET Mock Aux" (urn:org.ravet.mock-aux)
+// with two auxiliary buses: "Sidechain" (2 inputs) and "Direct" (1 output).
+// Direct = Sidechain left + Sidechain right; the main bus is unchanged. Its
+// read-only "level" parameter is keyed "aux1_in_1" to collide with the first
+// sidechain port symbol.
 #include "RavetPlugin.h"
 
 #include <algorithm>
@@ -41,10 +47,33 @@ struct RavetMockProbe {
         editor_resize_calls;
     void *editor_parent;
     uint32_t load_calls;
+    // Last process call: bus count and each bus's channel counts.
+    uint32_t last_bus_count;
+    RavetNativeBusLayoutV1 last_buses[9];
+    // Last nonzero-frame process call: every output channel pointer, bus by bus.
+    uint32_t last_output_count;
+    const float *last_outputs[64];
 };
+
+#ifndef RAVET_MOCK_AUXILIARY
+#define RAVET_MOCK_AUXILIARY 0
+#endif
 
 namespace {
 constexpr uint32_t parameterCount = 4;
+#if RAVET_MOCK_AUXILIARY
+constexpr uint32_t auxiliaryCount = 2;
+const RavetPluginAuxiliaryBusV1 auxiliaries[auxiliaryCount] = {{"Sidechain", 2, 0}, {"Direct", 0, 1}};
+#define MOCK_NAME "RAVET Mock Aux"
+#define MOCK_ID "org.ravet.mock-aux"
+#define MOCK_LEVEL_KEY "aux1_in_1"
+#else
+constexpr uint32_t auxiliaryCount = 0;
+const RavetPluginAuxiliaryBusV1 *const auxiliaries = nullptr;
+#define MOCK_NAME "RAVET Mock"
+#define MOCK_ID "org.ravet.mock"
+#define MOCK_LEVEL_KEY "level"
+#endif
 const RavetPluginLayoutV1 layouts[] = {{2, 2, 0, 0}, {1, 1, 0, 0}};
 const char *modes[] = {"Clean", "Warm", "Hot", "Fuzz"};
 RavetMockProbe probe{};
@@ -55,13 +84,13 @@ const RavetPluginParameterV1 parameters[parameterCount] = {
     {0x102, RAVET_PLUGIN_PARAMETER_AUTOMATABLE | RAVET_PLUGIN_PARAMETER_BYPASS | RAVET_PLUGIN_PARAMETER_STEPPED, 0, 1,
      0.0, 1.0, 0.0, "bypass", "Bypass", ""},
     {0x103, RAVET_PLUGIN_PARAMETER_AUTOMATABLE | RAVET_PLUGIN_PARAMETER_STEPPED, 0, 3, 0.0, 3.0, 1.0, "mode", "Mode", ""},
-    {0x104, RAVET_PLUGIN_PARAMETER_READ_ONLY, 0, 0, 0.0, 1.0, 0.0, "level", "Level", ""},
+    {0x104, RAVET_PLUGIN_PARAMETER_READ_ONLY, 0, 0, 0.0, 1.0, 0.0, MOCK_LEVEL_KEY, "Level", ""},
 };
 
 const RavetPluginProductV1 product = {
-    "RAVET Mock", "RAVET", "1.2.3", "org.ravet.mock", "https://example.org/ravet-mock",
-    RAVET_PLUGIN_EFFECT, 1, 1, 2, layouts, parameterCount, 1, "org.ravet.mock",
-    {0, 0, 0, 0}, {0, 0, 0, 0}, 0, 0, 0, 0, 0, "urn:org.ravet.mock",
+    MOCK_NAME, "RAVET", "1.2.3", MOCK_ID, "https://example.org/ravet-mock",
+    RAVET_PLUGIN_EFFECT, 1, 1, 2, layouts, auxiliaryCount, auxiliaries, parameterCount, 1, MOCK_ID,
+    {0, 0, 0, 0}, {0, 0, 0, 0}, 0, 0, 0, 0, 0, "urn:" MOCK_ID,
     640, 360, 1, 0,
 };
 
@@ -172,7 +201,10 @@ int32_t loadState(void *handle, const uint8_t *data, uint32_t length) {
 uint32_t latencyFor(const Instance &instance) { return 32u * uint32_t(instance.values[2].load()); }
 int32_t prepare(void *handle, const RavetNativeProcessorConfigV1 *config) {
     auto *instance = static_cast<Instance *>(handle);
-    if (!config || config->version != 1 || config->bus_count != 1 || !(config->sample_rate > 0)) return 1;
+    if (!config || config->version != 1 || config->bus_count != 1 + auxiliaryCount || !(config->sample_rate > 0)) return 1;
+    for (uint32_t i = 0; i < auxiliaryCount; ++i)
+        if (config->buses[1 + i].inputs != auxiliaries[i].inputs || config->buses[1 + i].outputs != auxiliaries[i].outputs)
+            return 1;
     bool known = false;
     for (const auto &layout : layouts)
         known |= layout.inputs == config->buses[0].inputs && layout.outputs == config->buses[0].outputs;
@@ -191,10 +223,29 @@ int32_t process(void *handle, const RavetNativeProcessorBusV1 *buses, uint32_t b
                 const RavetNativeEventV1 *input, uint32_t inputCount, const RavetNativeTransportV1 *transport,
                 RavetNativeEventV1 *output, uint32_t outputCapacity, RavetNativeProcessorResultV1 *result) {
     auto *instance = static_cast<Instance *>(handle);
-    if (!instance->prepared || !result || busCount != 1 || !buses || frames > instance->maxFrames) return 1;
+    if (!instance->prepared || !result || busCount != 1 + auxiliaryCount || !buses || frames > instance->maxFrames) return 1;
+    // Every auxiliary bus arrives with its prepared channel counts and, for a
+    // nonzero block, nonnull channel pointers (silence/scratch when disconnected).
+    for (uint32_t i = 0; i < auxiliaryCount; ++i) {
+        const auto &bus = buses[1 + i];
+        if (bus.input_channels != auxiliaries[i].inputs || bus.output_channels != auxiliaries[i].outputs) return 1;
+        if (!frames) continue;
+        const auto *const *in = static_cast<const float *const *>(bus.inputs);
+        auto *const *out = static_cast<float *const *>(bus.outputs);
+        for (uint32_t c = 0; c < bus.input_channels; ++c) if (!in || !in[c]) return 1;
+        for (uint32_t c = 0; c < bus.output_channels; ++c) if (!out || !out[c]) return 1;
+    }
     *result = {0, 0};
     {
         std::lock_guard<std::mutex> lock(probeLock);
+        probe.last_bus_count = busCount;
+        for (uint32_t i = 0; i < busCount && i < 9; ++i) probe.last_buses[i] = {buses[i].input_channels, buses[i].output_channels};
+        if (frames) {
+            probe.last_output_count = 0;
+            for (uint32_t i = 0; i < busCount; ++i)
+                for (uint32_t c = 0; c < buses[i].output_channels && probe.last_output_count < 64; ++c)
+                    probe.last_outputs[probe.last_output_count++] = static_cast<float *const *>(buses[i].outputs)[c];
+        }
         const uint32_t call = probe.process_calls++;
         probe.last_frames = frames;
         probe.max_frames_seen = std::max(probe.max_frames_seen, frames);
@@ -232,6 +283,13 @@ int32_t process(void *handle, const RavetNativeProcessorBusV1 *buses, uint32_t b
         }
     }
     instance->values[3] = std::min(1.0, double(peak));
+#if RAVET_MOCK_AUXILIARY
+    if (frames) {
+        const auto *const *sidechain = static_cast<const float *const *>(buses[1].inputs);
+        float *direct = static_cast<float *const *>(buses[2].outputs)[0];
+        for (uint32_t f = 0; f < frames; ++f) direct[f] = sidechain[0][f] + sidechain[1][f];
+    }
+#endif
     return 0;
 }
 int32_t reset(void *) { return 0; }

@@ -5,8 +5,19 @@
 `crates/ravet-plugin/adapters/vst3` implements a C++ component and separate edit
 controller against [RavetPlugin.h](../crates/ravet-plugin/include/RavetPlugin.h).
 Product IDs, names, category, layouts and parameters come from that table;
-products need no VST3-specific C++. The adapter uses an externally installed
-Steinberg SDK. No SDK is downloaded or committed.
+products need no VST3-specific C++. The adapter uses an external Steinberg SDK;
+none is committed or downloaded by the build. Fetch it with
+
+```sh
+python3 scripts/fetch-vst3-sdk.py "$HOME/Library/Application Support/ravet/sdks/vst3sdk"
+```
+
+which downloads Steinberg's official `vst-sdk_3.8.1_build-84_2026-08-11.zip`,
+checks a SHA-256 pin before opening it, and extracts only what RAVET builds
+from (the CMake project, `base`, `cmake`, `pluginterfaces`, `public.sdk` and the
+MIT `LICENSE.txt`; no VSTGUI, documentation or binaries). Point `[sdks] vst3`
+in a [`ravet-sdks.toml`](bundle-plugin.md) at the result. The unified
+`bundle-plugin.py` then needs no flag; `bundle-vst3.py` still takes `--sdk`.
 
 ```sh
 python3 scripts/bundle-vst3.py --plugin delay --sdk /path/to/vst3sdk
@@ -29,9 +40,20 @@ Rust dependencies and the external SDK remain responsible for their own runtime
 requirements. A missing entry point makes the factory fail to load; a CLAP-only
 library cannot stand in for the native table.
 
+`--mock` builds and validates two mock modules: `ravet_mock_vst3` and
+`ravet_mock_vst3_auxiliary` (CMake option `RAVET_VST3_MOCK_AUXILIARY`), which
+adds a stereo "Sidechain" and a stereo "Aux Out" `kAux` bus. The SDK
+validator's bus scan prints "Default Active" for every bus; that is an SDK
+display bug, and the contracts test checks the real flags.
+
 The component accepts only declared layouts. Mono/stereo use standard speaker
 arrangements; counts above two use the low N speaker bits because the table has
-no named speaker map. One main bus per nonempty direction is exposed. f32 only,
+no named speaker map. One main bus per nonempty direction is exposed, followed
+by the product's [auxiliary buses](plugin-export.md#auxiliary-buses-and-sidechains)
+as `kAux` buses (inactive until the host activates them, one fixed arrangement
+each; `setBusArrangements` accepts a complete bus list or the main bus only,
+which leaves auxiliary buses at their arrangement; inactive or missing buses get
+silence or discarded scratch, prepared outside the audio thread). f32 only,
 1..65,536 frames and at most 1,024 combined parameter/note input records and
 1,024 output records are supported. Expanded note tuning counts toward capacity.
 Queues merge stably by sample offset, with parameters before notes at ties.

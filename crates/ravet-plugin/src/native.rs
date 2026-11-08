@@ -123,6 +123,18 @@ pub struct RavetPluginLayoutV1 {
     pub reserved: u32,
 }
 
+/// `RavetPluginAuxiliaryBusV1`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct RavetPluginAuxiliaryBusV1 {
+    pub name: *const c_char,
+    pub inputs: u32,
+    pub outputs: u32,
+}
+
+/// Most buses a native block carries: the main bus and eight auxiliaries.
+const MAXIMUM_BUSES: usize = 1 + ravet_foundation::MAXIMUM_AUXILIARY_BUSES;
+
 /// `RavetPluginProductV1`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -137,6 +149,8 @@ pub struct RavetPluginProductV1 {
     pub note_output: u32,
     pub layout_count: u32,
     pub layouts: *const RavetPluginLayoutV1,
+    pub auxiliary_count: u32,
+    pub auxiliaries: *const RavetPluginAuxiliaryBusV1,
     pub parameter_count: u32,
     pub bypass_index: i32,
     pub clap_id: *const c_char,
@@ -243,6 +257,7 @@ pub struct NativeStatics {
     _strings: Vec<CString>,
     parameters: Vec<RavetPluginParameterV1>,
     _layouts: Vec<RavetPluginLayoutV1>,
+    _auxiliaries: Vec<RavetPluginAuxiliaryBusV1>,
     record: Box<RavetPluginProductV1>,
     entry: Box<RavetPluginEntryV1>,
 }
@@ -322,6 +337,17 @@ impl NativeStatics {
                 reserved: 0,
             })
             .collect();
+        let auxiliaries = description
+            .auxiliary_buses()
+            .iter()
+            .map(|bus| {
+                Some(RavetPluginAuxiliaryBusV1 {
+                    name: string(bus.name)?,
+                    inputs: bus.inputs as u32,
+                    outputs: bus.outputs as u32,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
         // Without the `editor` feature no editor is offered, so adapters see 0 x 0.
         let editor = description.editor().filter(|_| cfg!(feature = "editor"));
         let record = Box::new(RavetPluginProductV1 {
@@ -339,6 +365,12 @@ impl NativeStatics {
             note_output: u32::from(description.notes().output),
             layout_count: layouts.len() as u32,
             layouts: layouts.as_ptr(),
+            auxiliary_count: auxiliaries.len() as u32,
+            auxiliaries: if auxiliaries.is_empty() {
+                ptr::null()
+            } else {
+                auxiliaries.as_ptr()
+            },
             parameter_count: parameters.len() as u32,
             bypass_index: product.bypass_index().map_or(-1, |index| index as i32),
             clap_id: string(&identities.clap_id)?,
@@ -370,6 +402,7 @@ impl NativeStatics {
             _strings: strings,
             parameters,
             _layouts: layouts,
+            _auxiliaries: auxiliaries,
             record,
             entry,
         })
@@ -441,7 +474,9 @@ struct Prepared {
     /// Host limits from the native configuration.
     host_events: usize,
     output_events: usize,
-    layout: (u32, u32),
+    /// Prepared (inputs, outputs) of the main bus and each auxiliary bus.
+    layouts: [(u32, u32); MAXIMUM_BUSES],
+    bus_count: usize,
 }
 
 struct AudioSide<P: Processor<f32>> {
@@ -887,17 +922,19 @@ impl<H: NativeExport> Table<H> {
                 },
             };
         }
-        let buses = [NativePlanarBus::<f32> {
-            input_channels: prepared.layout.0,
-            output_channels: prepared.layout.1,
-            inputs: ptr::null(),
-            outputs: ptr::null(),
-        }];
+        let buses = prepared
+            .layouts
+            .map(|(inputs, outputs)| NativePlanarBus::<f32> {
+                input_channels: inputs,
+                output_channels: outputs,
+                inputs: ptr::null(),
+                outputs: ptr::null(),
+            });
         // SAFETY: zero frames never dereference sample pointers.
         let status = unsafe {
             prepared.adapter.process_native(
                 processor,
-                &buses,
+                &buses[..prepared.bus_count],
                 0,
                 &prepared.events[..ids.len()],
                 Transport::default(),
@@ -928,13 +965,25 @@ impl<H: NativeExport> Table<H> {
             let native = unsafe { *config };
             let main = native.buses[0];
             let product = shared.product().product();
-            if native.bus_count != 1
+            let auxiliaries = product.auxiliary_buses();
+            let bus_count = 1 + auxiliaries.len();
+            if native.bus_count as usize != bus_count
                 || !product.layouts().iter().any(|layout| {
                     layout.input_channels() == main.inputs as usize
                         && layout.output_channels() == main.outputs as usize
                 })
+                || auxiliaries
+                    .iter()
+                    .zip(&native.buses[1..])
+                    .any(|(bus, host)| {
+                        bus.inputs != host.inputs as usize || bus.outputs != host.outputs as usize
+                    })
             {
                 return 1;
+            }
+            let mut layouts = [(0, 0); MAXIMUM_BUSES];
+            for (layout, host) in layouts.iter_mut().zip(&native.buses[..bus_count]) {
+                *layout = (host.inputs, host.outputs);
             }
             let Some(host) = native.to_configuration() else {
                 return 1;
@@ -945,6 +994,9 @@ impl<H: NativeExport> Table<H> {
                 MAXIMUM_EVENTS,
                 host.layout(),
             ) else {
+                return 1;
+            };
+            let Ok(config) = config.with_auxiliary_buses(host.auxiliary_buses()) else {
                 return 1;
             };
             let config = config.with_output_events(host.maximum_output_events());
@@ -973,7 +1025,8 @@ impl<H: NativeExport> Table<H> {
                 generation: 0,
                 host_events: host.maximum_events(),
                 output_events: host.maximum_output_events(),
-                layout: (main.inputs, main.outputs),
+                layouts,
+                bus_count,
             };
             shared.fault.store(false, Ordering::Release);
             match Self::synchronize(shared, processor, &mut prepared) {
@@ -1006,19 +1059,33 @@ impl<H: NativeExport> Table<H> {
         output_capacity: u32,
         result: *mut NativeProcessorResultV1,
     ) -> i32 {
-        let main = if bus_count == 1 && !buses.is_null() && aligned(buses) {
-            // SAFETY: checked nonnull and aligned; the caller passes `bus_count` buses.
-            let bus = unsafe { *buses };
-            Some(NativePlanarBus::<f32> {
-                input_channels: bus.input_channels,
-                output_channels: bus.output_channels,
-                inputs: bus.inputs.cast(),
-                outputs: bus.outputs.cast(),
-            })
-        } else {
-            None
+        let empty = NativePlanarBus::<f32> {
+            input_channels: 0,
+            output_channels: 0,
+            inputs: ptr::null(),
+            outputs: ptr::null(),
         };
-        let native = main.as_slice();
+        let mut planar = [empty; MAXIMUM_BUSES];
+        let count = bus_count as usize;
+        let valid_buses =
+            (1..=MAXIMUM_BUSES).contains(&count) && !buses.is_null() && aligned(buses);
+        if valid_buses {
+            // SAFETY: checked nonnull and aligned; the caller passes `bus_count` buses.
+            let records = unsafe { slice::from_raw_parts(buses, count) };
+            for (out, bus) in planar.iter_mut().zip(records) {
+                *out = NativePlanarBus::<f32> {
+                    input_channels: bus.input_channels,
+                    output_channels: bus.output_channels,
+                    inputs: bus.inputs.cast(),
+                    outputs: bus.outputs.cast(),
+                };
+            }
+        }
+        let native = if valid_buses {
+            &planar[..count]
+        } else {
+            &[][..]
+        };
         let valid_result = !result.is_null() && aligned(result);
         if valid_result {
             // SAFETY: checked nonnull and aligned.
@@ -1042,7 +1109,12 @@ impl<H: NativeExport> Table<H> {
             };
             let frames = frames as usize;
             let count = input_count as usize;
-            if main.is_none()
+            if !valid_buses
+                || native.len() != prepared.bus_count
+                || native
+                    .iter()
+                    .zip(&prepared.layouts)
+                    .any(|(bus, layout)| (bus.input_channels, bus.output_channels) != *layout)
                 || !valid_result
                 || frames > prepared.adapter.configuration().maximum_frames()
                 || count > prepared.host_events

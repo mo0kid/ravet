@@ -28,8 +28,13 @@ constexpr uint32_t kMaximumEvents = 1024;
 // Chunk carrying the RAVET state envelope unchanged ('RvSt').
 constexpr AAX_CTypeID kStateChunkId = 0x52765374;
 // Algorithm context fields, assigned at run time per layout: the private owner
-// pointer, the frame count and the outputs always come first.
-constexpr uint32_t kMaximumFields = 6;
+// pointer, the frame count and the outputs always come first, then the main
+// inputs, MIDI in, MIDI out and the side-chain index, each only when used.
+constexpr uint32_t kMaximumFields = 7;
+// Auxiliary buses in RavetPlugin.h, and buses per processor block.
+constexpr uint32_t kMaximumAuxiliaries = 8;
+constexpr uint32_t kMaximumBuses = 1 + kMaximumAuxiliaries;
+constexpr uint32_t kMaximumAuxiliaryChannels = 64;
 
 // The table the adapter is built against. The default reads ravet_plugin_v1();
 // tests may substitute another table before any descriptor is registered.
@@ -43,9 +48,65 @@ std::string parameterId(const RavetPluginEntryV1 &table, uint32_t index);
 // Channel count to AAX stem format; 0 → None. Only 0, 1 and 2 are mapped.
 bool stemFormat(uint32_t channels, AAX_EStemFormat &out);
 
+// How one RAVET auxiliary bus reaches AAX. The processor always receives every
+// bus with its declared channel counts (RavetPlugin.h); the route only decides
+// where its samples come from and go.
+enum class AuxiliaryRoute : uint8_t {
+    // The first input-only bus: AAX's single side-chain (key) input. The mono
+    // key feeds every channel of the bus; without a connected key the bus is
+    // silent. Layouts without a main input then declare one (see BusPlan).
+    SideChain,
+    // An output-only bus of 1 or 2 channels: an AAX auxiliary output stem
+    // (mono or stereo) named after the bus (see stemName), appended to the
+    // host's outputs.
+    Output,
+    // Anything else (further input-only buses, buses with both inputs and
+    // outputs, outputs with no AAX stem, stems the host refused or that no
+    // description in this process recorded): silent
+    // inputs, outputs written to adapter scratch and discarded.
+    Unrouted,
+};
+struct AuxiliaryPlan {
+    AuxiliaryRoute route = AuxiliaryRoute::Unrouted;
+    uint32_t inputs = 0, outputs = 0;
+    // Output: first host output channel of the stem (after the main outputs
+    // and earlier stems) and its stem format.
+    uint32_t hostChannel = 0;
+    AAX_EStemFormat stem = AAX_eStemFormat_None;
+};
+struct BusPlan {
+    uint32_t count = 0; // product->auxiliary_count
+    std::array<AuxiliaryPlan, kMaximumAuxiliaries> buses{};
+    bool sideChain = false;
+    // Channels of the AAX main input stem. A layout without a main input
+    // declares one matching its output stem when the product has a side-chain
+    // (as JUCE does for instruments), so the key's index is never 0. Those
+    // dummy inputs' samples are ignored: the processor's main bus keeps 0 inputs.
+    uint32_t hostInputs = 0;
+    uint32_t hostOutputs = 0; // main outputs plus every Output stem's channels
+};
+// Routes of the product's auxiliary buses for one main layout. At most
+// `outputStems` output-only buses become stems (the rest are Unrouted): the
+// number of AddAuxOutputStem calls the host accepted when it described this
+// layout's effect (all of them while describing).
+BusPlan busPlan(const RavetPluginEntryV1 &table, const RavetPluginLayoutV1 &layout,
+                uint32_t outputStems = kMaximumAuxiliaries);
+// Output stems the host accepted for this layout's effect, recorded by
+// describe() per (manufacturer, product, AAX type ID). 0 when this process
+// never described it: an instance then writes no auxiliary stem buffers.
+uint32_t acceptedOutputStems(const RavetPluginProductV1 &product, const RavetPluginLayoutV1 &layout);
+// The AAX effect ID of a layout: plugin_id + ".aax.<inputs>x<outputs>" with
+// the RAVET layout's channel counts (never the declared AAX stems).
+std::string effectId(const RavetPluginProductV1 &product, const RavetPluginLayoutV1 &layout);
+// Aux output stem name: the bus name plus " Mono" or " Stereo" unless it
+// already names one (ASCII, case-insensitive), at most kMaximumStemName bytes
+// (the bus name is cut at a UTF-8 boundary to fit the suffix).
+constexpr size_t kMaximumStemName = 64;
+std::string stemName(const char *bus, AAX_EStemFormat stem);
+
 // Field indices of one registered layout.
 struct FieldLayout {
-    int32_t inputs = -1, midiInput = -1, midiOutput = -1;
+    int32_t inputs = -1, midiInput = -1, midiOutput = -1, sideChain = -1;
     uint32_t count = 3;
 };
 FieldLayout fieldLayout(const RavetPluginEntryV1 &table, const RavetPluginLayoutV1 &layout);
@@ -56,6 +117,15 @@ struct Owner {
     void *instance = nullptr;
     FieldLayout fields{};
     uint32_t inputs = 0, outputs = 0;
+    // Auxiliary buses: routes, and the records passed to process (bus 0 is
+    // filled per block). Pointer tables and buffers are sized on MAIN in
+    // EffectInit; the callback only rewrites entries.
+    BusPlan plan{};
+    std::array<RavetNativeProcessorBusV1, kMaximumBuses> buses{};
+    std::vector<const float *> auxiliaryInputs;
+    std::vector<float *> auxiliaryOutputs;
+    std::vector<float> silent;  // kMaximumFrames zeros, never written
+    std::vector<float> scratch; // one kMaximumFrames block per auxiliary output channel
     const AAX_ITransport *transport = nullptr;
     std::atomic<bool> ready{false};
     std::atomic<int32_t> lastStatus{0};
@@ -106,6 +176,8 @@ private:
     AAX_Result writeChunk(AAX_SPlugInChunk *chunk) const;
     bool saveState(std::vector<uint8_t> &out) const;
     void reflectValues();
+    // Routes and buffers of the auxiliary buses for the chosen layout (MAIN).
+    void prepareBuses(const RavetPluginLayoutV1 &layout);
     const RavetPluginEntryV1 *table_;
     std::unique_ptr<Owner> owner_;
     std::unordered_map<std::string, uint32_t> indices_;

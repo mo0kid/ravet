@@ -9,7 +9,8 @@
 #
 # RAVET_LV2_SDK is an external LV2 source tree, either the official layout
 # (include/lv2/core/lv2.h) or a flat one (lv2/core/lv2.h). It is never vendored.
-# The mock bundle (bundles/ravet_lv2_mock.lv2) is always built and tested. With
+# The mock bundles (bundles/ravet_lv2_mock.lv2, and bundles/ravet_lv2_mock_aux.lv2
+# with a sidechain and an auxiliary output bus) are always built and tested. With
 # RAVET_PLUGIN_LIBRARY, the product library that exports ravet_plugin_v1 is
 # packaged as bundles/<RAVET_LV2_BUNDLE_NAME>.lv2 and smoke-tested.
 cmake_minimum_required(VERSION 3.21)
@@ -81,8 +82,12 @@ add_executable(ravet_lv2_turtle turtle.cpp)
 ravet_lv2_target(ravet_lv2_turtle)
 
 add_library(ravet_lv2_mock SHARED mock/mock_plugin.cpp)
-target_include_directories(ravet_lv2_mock PRIVATE ${ravet_include})
-set_target_properties(ravet_lv2_mock PROPERTIES PREFIX "" SUFFIX "${ravet_lv2_suffix}")
+add_library(ravet_lv2_mock_aux SHARED mock/mock_plugin.cpp)
+target_compile_definitions(ravet_lv2_mock_aux PRIVATE RAVET_MOCK_AUXILIARY=1)
+foreach(target ravet_lv2_mock ravet_lv2_mock_aux)
+    target_include_directories(${target} PRIVATE ${ravet_include})
+    set_target_properties(${target} PROPERTIES PREFIX "" SUFFIX "${ravet_lv2_suffix}")
+endforeach()
 
 add_executable(ravet_lv2_contracts tests/contracts.cpp)
 ravet_lv2_target(ravet_lv2_contracts)
@@ -120,11 +125,24 @@ function(ravet_lv2_bundle name library dependency with_ui)
 endfunction()
 
 ravet_lv2_bundle(ravet_lv2_mock "$<TARGET_FILE:ravet_lv2_mock>" ravet_lv2_mock ON)
+ravet_lv2_bundle(ravet_lv2_mock_aux "$<TARGET_FILE:ravet_lv2_mock_aux>" ravet_lv2_mock_aux ON)
 
 enable_testing()
-add_test(NAME ravet_lv2_mock_contracts
-         COMMAND ravet_lv2_contracts "${CMAKE_BINARY_DIR}/bundles/ravet_lv2_mock.lv2"
-                 "ravet_lv2${ravet_lv2_suffix}" "ravet_lv2_ui${ravet_lv2_suffix}" --mock)
+foreach(mock ravet_lv2_mock ravet_lv2_mock_aux)
+    add_test(NAME ${mock}_contracts
+             COMMAND ravet_lv2_contracts "${CMAKE_BINARY_DIR}/bundles/${mock}.lv2"
+                     "ravet_lv2${ravet_lv2_suffix}" "ravet_lv2_ui${ravet_lv2_suffix}" --mock)
+endforeach()
+# Products without auxiliary buses keep their Turtle byte for byte: the plain
+# mock's plugin.ttl must equal the golden copy (generated before auxiliary-bus
+# support; only the platform's UI class is substituted).
+if(NOT RAVET_LV2_LICENSE)
+    set(RAVET_LV2_UI_CLASS "${ravet_lv2_ui_class}")
+    configure_file(tests/golden/ravet_lv2_mock.plugin.ttl.in "${CMAKE_BINARY_DIR}/golden/ravet_lv2_mock.plugin.ttl" @ONLY)
+    add_test(NAME ravet_lv2_mock_turtle_unchanged
+             COMMAND "${CMAKE_COMMAND}" -E compare_files --ignore-eol "${CMAKE_BINARY_DIR}/golden/ravet_lv2_mock.plugin.ttl"
+                     "${CMAKE_BINARY_DIR}/bundles/ravet_lv2_mock.lv2/plugin.ttl")
+endif()
 
 # Optional independent check through lilv (pkg-config lilv-0), when installed.
 # Skipped when cross-compiling: pkg-config would find the build machine's lilv.
@@ -138,8 +156,10 @@ endif()
 if(RAVET_LV2_LILV AND LILV_FOUND)
     add_executable(ravet_lv2_lilv_host tests/lilv_host.cpp)
     target_link_libraries(ravet_lv2_lilv_host PRIVATE PkgConfig::LILV)
-    add_test(NAME ravet_lv2_mock_lilv
-             COMMAND ravet_lv2_lilv_host "${CMAKE_BINARY_DIR}/bundles/ravet_lv2_mock.lv2" --mock)
+    foreach(mock ravet_lv2_mock ravet_lv2_mock_aux)
+        add_test(NAME ${mock}_lilv
+                 COMMAND ravet_lv2_lilv_host "${CMAKE_BINARY_DIR}/bundles/${mock}.lv2" --mock)
+    endforeach()
 else()
     message(STATUS "lilv-0 not found: skipping the lilv host check")
 endif()

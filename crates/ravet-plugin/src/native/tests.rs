@@ -1,7 +1,7 @@
 //! The C table, exercised through its function pointers in-process.
 use super::*;
 use crate::{
-    BypassPolicy, Editor, Parameter, Product, StateFormat,
+    AuxiliaryBus, BypassPolicy, Editor, Parameter, Product, StateFormat,
     state::{SavedState, StateError},
 };
 use ravet_foundation::{AudioLayout, PrepareError, ProcessBlock, ProcessError};
@@ -282,6 +282,8 @@ fn static_data_matches_the_resolved_product() {
     assert_eq!(record.category, category::EFFECT);
     assert_eq!((record.note_input, record.note_output), (0, 0));
     assert_eq!(record.parameter_count, 4);
+    assert_eq!(record.auxiliary_count, 0);
+    assert!(record.auxiliaries.is_null());
     assert_eq!(record.bypass_index, 3);
     assert_eq!(text(record.clap_id), identities.clap_id);
     assert_eq!(record.vst3_processor_cid, identities.vst3_processor);
@@ -790,10 +792,12 @@ fn rust_records_match_the_c_header() {
     }
     check!("RavetPluginLayoutV1", RavetPluginLayoutV1; inputs, outputs, aax_type_id, reserved);
     check!("RavetPluginProductV1", RavetPluginProductV1; name, vendor, version, plugin_id, url,
-        category, note_input, note_output, layout_count, layouts, parameter_count, bypass_index,
+        category, note_input, note_output, layout_count, layouts, auxiliary_count, auxiliaries,
+        parameter_count, bypass_index,
         clap_id, vst3_processor_cid, vst3_controller_cid, au_type, au_subtype, au_manufacturer,
         aax_manufacturer, aax_product, lv2_uri, editor_width, editor_height, editor_resizable,
         reserved);
+    check!("RavetPluginAuxiliaryBusV1", RavetPluginAuxiliaryBusV1; name, inputs, outputs);
     check!("RavetPluginParameterV1", RavetPluginParameterV1; id, flags, scale, steps, minimum,
         maximum, default_value, key, name, unit);
     check!("RavetPluginEditV1", RavetPluginEditV1; kind, index, value);
@@ -852,4 +856,167 @@ fn rust_records_match_the_c_header() {
         assert_eq!(*rust, c, "{expression}");
     }
     let _ = std::fs::remove_dir_all(directory);
+}
+
+/// Main output = main input + sidechain; the extra output = main input / 2.
+#[derive(Default)]
+struct Sidechained {
+    config: Option<ProcessConfig>,
+}
+impl Processor<f32> for Sidechained {
+    fn prepare(&mut self, config: ProcessConfig) -> Result<(), PrepareError> {
+        self.config = Some(config);
+        Ok(())
+    }
+    fn process(&mut self, block: &mut ProcessBlock<'_, '_, '_, f32>) -> ProcessStatus {
+        if let Err(error) = self.config.unwrap().validate_block(block) {
+            block.clear_outputs();
+            return ProcessStatus::Fault(error);
+        }
+        let frames = block.audio.frames();
+        let auxiliary = block.auxiliary.as_deref_mut().unwrap();
+        let mut sidechain = [0.0f32; 64];
+        sidechain[..frames].copy_from_slice(auxiliary[0].input(0).unwrap());
+        for channel in 0..2 {
+            let input: Vec<f32> = block.audio.input(channel).unwrap().to_vec();
+            for frame in 0..frames {
+                block.audio.output_mut(channel).unwrap()[frame] = input[frame] + sidechain[frame];
+                auxiliary[1].output_mut(channel).unwrap()[frame] = input[frame] / 2.0;
+            }
+        }
+        ProcessStatus::Continue
+    }
+    fn reset(&mut self) {}
+    fn deactivate(&mut self) {
+        self.config = None;
+    }
+}
+struct SidechainPlugin;
+impl PluginExport for SidechainPlugin {
+    type Processor = Sidechained;
+    const PRODUCT: Product<'static> = Product::new(
+        "Sidechain Test",
+        "RAVET",
+        "1.0.0",
+        "org.ravet.sidechain-test",
+        Category::Effect,
+        StateFormat {
+            tag: *b"RVTSDC01",
+            version: 1,
+        },
+    )
+    .with_auxiliary_buses(&[
+        AuxiliaryBus::sidechain("Sidechain", 1),
+        AuxiliaryBus::output("Direct", 2),
+    ]);
+    fn create() -> Sidechained {
+        Sidechained::default()
+    }
+}
+struct SidechainHost;
+impl NativeExport for SidechainHost {
+    type Plugin = SidechainPlugin;
+    fn statics() -> Option<&'static NativeStatics> {
+        static STATICS: OnceLock<Option<NativeStatics>> = OnceLock::new();
+        STATICS
+            .get_or_init(NativeStatics::new::<SidechainHost>)
+            .as_ref()
+    }
+}
+
+#[test]
+fn auxiliary_buses_reach_the_processor_through_the_table() {
+    // SAFETY: a nonnull table lives as long as the library.
+    let table = unsafe { entry::<SidechainHost>().as_ref() }.expect("table");
+    // SAFETY: the record lives as long as the table.
+    let record = unsafe { &*table.product };
+    assert_eq!(record.auxiliary_count, 2);
+    // SAFETY: the record points at `auxiliary_count` buses for the table's lifetime.
+    let buses = unsafe { slice::from_raw_parts(record.auxiliaries, 2) };
+    assert_eq!(
+        buses
+            .iter()
+            .map(|bus| (text(bus.name), bus.inputs, bus.outputs))
+            .collect::<Vec<_>>(),
+        [("Sidechain", 1, 0), ("Direct", 0, 2)]
+    );
+    let instance = (table.create)();
+    let mut prepare = config(64, (2, 2));
+    // SAFETY: valid instance and configurations.
+    unsafe {
+        assert_eq!((table.prepare)(instance, &prepare), 1, "main bus only");
+        prepare.bus_count = 3;
+        prepare.buses[1] = NativeBusLayoutV1 {
+            inputs: 1,
+            outputs: 0,
+        };
+        prepare.buses[2] = NativeBusLayoutV1 {
+            inputs: 0,
+            outputs: 1,
+        };
+        assert_eq!(
+            (table.prepare)(instance, &prepare),
+            1,
+            "wrong auxiliary shape"
+        );
+        prepare.buses[2].outputs = 2;
+        assert_eq!((table.prepare)(instance, &prepare), 0);
+    }
+    let input = [1.0f32, 2.0, 3.0, 4.0];
+    let side = [10.0f32, 20.0, 30.0, 40.0];
+    let mut main = [vec![0.0f32; 4], vec![0.0f32; 4]];
+    let mut direct = [vec![0.0f32; 4], vec![0.0f32; 4]];
+    let main_inputs = [input.as_ptr(), input.as_ptr()];
+    let main_outputs = [main[0].as_mut_ptr(), main[1].as_mut_ptr()];
+    let side_inputs = [side.as_ptr()];
+    let direct_outputs = [direct[0].as_mut_ptr(), direct[1].as_mut_ptr()];
+    let native = [
+        NativeProcessorBusV1 {
+            input_channels: 2,
+            output_channels: 2,
+            inputs: main_inputs.as_ptr().cast(),
+            outputs: main_outputs.as_ptr().cast(),
+        },
+        NativeProcessorBusV1 {
+            input_channels: 1,
+            output_channels: 0,
+            inputs: side_inputs.as_ptr().cast(),
+            outputs: ptr::null(),
+        },
+        NativeProcessorBusV1 {
+            input_channels: 0,
+            output_channels: 2,
+            inputs: ptr::null(),
+            outputs: direct_outputs.as_ptr().cast(),
+        },
+    ];
+    let mut result = NativeProcessorResultV1 {
+        status: 9,
+        event_count: 9,
+    };
+    let run = |count: u32, result: &mut NativeProcessorResultV1| {
+        // SAFETY: every pointer is valid for the declared shape.
+        unsafe {
+            (table.process)(
+                instance,
+                native.as_ptr(),
+                count,
+                4,
+                ptr::null(),
+                0,
+                ptr::null(),
+                ptr::null_mut(),
+                0,
+                result,
+            )
+        }
+    };
+    assert_eq!(run(1, &mut result), 1, "every prepared bus is required");
+    assert_eq!(run(3, &mut result), 0);
+    assert_eq!(main[0], [11.0, 22.0, 33.0, 44.0]);
+    assert_eq!(main[1], main[0]);
+    assert_eq!(direct[0], [0.5, 1.0, 1.5, 2.0]);
+    assert_eq!(direct[1], direct[0]);
+    // SAFETY: created by this table.
+    unsafe { (table.destroy)(instance) };
 }

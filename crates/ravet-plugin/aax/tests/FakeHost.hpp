@@ -12,6 +12,7 @@
 #include "AAX_IACFViewContainer.h"
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
@@ -51,23 +52,50 @@ struct Properties final : AAX_IPropertyMap {
 };
 
 struct MidiNodeRecord { AAX_EMIDINodeType type; std::string name; uint32_t mask; };
+struct AuxOutputStem { int32_t stem; std::string name; };
+
+inline uint32_t stemChannels(int32_t stem) {
+    return stem == AAX_eStemFormat_None ? 0 : AAX_STEM_FORMAT_CHANNEL_COUNT(AAX_EStemFormat(stem));
+}
 
 struct Component final : AAX_IComponentDescriptor {
     mutable std::vector<std::unique_ptr<Properties>> maps;
     Properties *properties = nullptr;
     AAX_CProcessProc process = nullptr;
-    int32_t audioIn = -1, audioOut = -1, frames = -1, privateField = -1, privateSize = 0;
+    int32_t audioIn = -1, audioOut = -1, frames = -1, privateField = -1, privateSize = 0, sideChain = -1;
+    // A host without side-chain support refuses it; auxLimit is how many aux
+    // output stems it accepts before refusing (0: no aux output support).
+    bool refuseSideChain = false;
+    size_t auxLimit = SIZE_MAX;
+    std::map<int32_t, int32_t> privateFields; // field → size, beyond the owner
     std::map<int32_t, MidiNodeRecord> midi;
+    std::vector<AuxOutputStem> aux;
     AAX_Result Clear() override { return AAX_SUCCESS; }
     AAX_Result AddAudioIn(AAX_CFieldIndex p) override { audioIn = p; return AAX_SUCCESS; }
     AAX_Result AddAudioOut(AAX_CFieldIndex p) override { audioOut = p; return AAX_SUCCESS; }
     AAX_Result AddAudioBufferLength(AAX_CFieldIndex p) override { frames = p; return AAX_SUCCESS; }
     AAX_Result AddSampleRate(AAX_CFieldIndex) override { return AAX_ERROR_UNIMPLEMENTED; }
     AAX_Result AddClock(AAX_CFieldIndex) override { return AAX_ERROR_UNIMPLEMENTED; }
-    AAX_Result AddSideChainIn(AAX_CFieldIndex) override { return AAX_ERROR_UNIMPLEMENTED; }
+    AAX_Result AddSideChainIn(AAX_CFieldIndex p) override {
+        if (refuseSideChain) return AAX_ERROR_UNIMPLEMENTED;
+        sideChain = p;
+        return AAX_SUCCESS;
+    }
     AAX_Result AddDataInPort(AAX_CFieldIndex, uint32_t, AAX_EDataInPortType) override { return AAX_ERROR_UNIMPLEMENTED; }
-    AAX_Result AddAuxOutputStem(AAX_CFieldIndex, int32_t, const char[]) override { return AAX_ERROR_UNIMPLEMENTED; }
-    AAX_Result AddPrivateData(AAX_CFieldIndex p, int32_t n, uint32_t) override { privateField = p; privateSize = n; return AAX_SUCCESS; }
+    AAX_Result AddAuxOutputStem(AAX_CFieldIndex, int32_t stem, const char name[]) override {
+        if (aux.size() >= auxLimit) return AAX_ERROR_UNIMPLEMENTED;
+        aux.push_back({stem, name});
+        return AAX_SUCCESS;
+    }
+    AAX_Result AddPrivateData(AAX_CFieldIndex p, int32_t n, uint32_t) override {
+        if (privateField < 0) {
+            privateField = p;
+            privateSize = n;
+        } else {
+            privateFields[p] = n;
+        }
+        return AAX_SUCCESS;
+    }
     AAX_Result AddTemporaryData(AAX_CFieldIndex, uint32_t) override { return AAX_ERROR_UNIMPLEMENTED; }
     AAX_Result AddDmaInstance(AAX_CFieldIndex, AAX_IDma::EMode) override { return AAX_ERROR_UNIMPLEMENTED; }
     AAX_Result AddMeters(AAX_CFieldIndex, const AAX_CTypeID *, uint32_t) override { return AAX_ERROR_UNIMPLEMENTED; }
@@ -88,9 +116,15 @@ struct Component final : AAX_IComponentDescriptor {
         return -1;
     }
     int32_t fieldCount() const {
-        int32_t last = std::max({privateField, frames, audioIn, audioOut});
+        int32_t last = std::max({privateField, frames, audioIn, audioOut, sideChain});
         for (const auto &node : midi) last = std::max(last, node.first);
+        for (const auto &field : privateFields) last = std::max(last, field.first);
         return last + 1;
+    }
+    uint32_t auxChannels() const {
+        uint32_t total = 0;
+        for (const auto &stem : aux) total += stemChannels(stem.stem);
+        return total;
     }
 };
 
@@ -124,11 +158,21 @@ struct Descriptor final : AAX_IEffectDescriptor {
 
 struct Collection final : AAX_ICollection {
     std::vector<std::unique_ptr<Descriptor>> descriptors;
+    bool refuseSideChain = false, refuseAuxOutputs = false;
+    // Per-descriptor aux stem limits, in NewDescriptor order (default: no limit).
+    std::vector<size_t> auxLimits;
     std::vector<std::pair<std::string, Descriptor *>> effects;
     Properties properties;
     std::string manufacturer, package;
     uint32_t version = 0;
-    AAX_IEffectDescriptor *NewDescriptor() override { descriptors.emplace_back(new Descriptor); return descriptors.back().get(); }
+    AAX_IEffectDescriptor *NewDescriptor() override {
+        descriptors.emplace_back(new Descriptor);
+        descriptors.back()->component.refuseSideChain = refuseSideChain;
+        const size_t index = descriptors.size() - 1;
+        descriptors.back()->component.auxLimit =
+            refuseAuxOutputs ? 0 : index < auxLimits.size() ? auxLimits[index] : SIZE_MAX;
+        return descriptors.back().get();
+    }
     AAX_Result AddEffect(const char *id, AAX_IEffectDescriptor *p) override { effects.emplace_back(id, static_cast<Descriptor *>(p)); return AAX_SUCCESS; }
     AAX_Result SetManufacturerName(const char *n) override { manufacturer = n; return AAX_SUCCESS; }
     AAX_Result AddPackageName(const char *n) override { if (package.empty()) package = n; return AAX_SUCCESS; }
@@ -202,6 +246,9 @@ public:
 inline AAX_EStemFormat stem(int32_t value) { return AAX_EStemFormat(value); }
 
 // One algorithm instance: context fields laid out as the component registered them.
+// Like Pro Tools, the host appends one mono key channel after the main inputs
+// when a side-chain field is registered, and the auxiliary output stems' channels
+// after the main outputs. `outputs` holds main then auxiliary channels.
 struct Context {
     // Host buffers hold every block size the tests run, including the
     // oversized block the adapter must silence: it writes all `frames` samples.
@@ -209,23 +256,32 @@ struct Context {
     std::array<void *, 8> fields{};
     void *owner = nullptr;
     int32_t frames = 0;
+    // Side-chain index the host reports: the key's input channel, or 0 when no
+    // key is assigned (see connectKey).
+    int32_t sideChainIndex = 0;
+    uint32_t mainInputs = 0;
+    std::vector<int32_t> privateStorage = std::vector<int32_t>(8, 0);
     std::vector<std::vector<float>> inputs, outputs;
     std::vector<float *> inputPointers, outputPointers;
     MidiNode midiIn, midiOut;
     const Component &component;
-    Context(const Component &c, uint32_t inputChannels, uint32_t outputChannels) : component(c) {
-        inputs.assign(inputChannels, std::vector<float>(kCapacity));
-        outputs.assign(outputChannels, std::vector<float>(kCapacity));
+    Context(const Component &c, uint32_t inputChannels, uint32_t outputChannels) : component(c), mainInputs(inputChannels) {
+        inputs.assign(inputChannels + (c.sideChain >= 0 ? 1 : 0), std::vector<float>(kCapacity));
+        outputs.assign(outputChannels + c.auxChannels(), std::vector<float>(kCapacity));
         for (auto &b : inputs) inputPointers.push_back(b.data());
         for (auto &b : outputs) outputPointers.push_back(b.data());
         fields[size_t(c.privateField)] = &owner;
         fields[size_t(c.frames)] = &frames;
         fields[size_t(c.audioOut)] = outputPointers.data();
         if (c.audioIn >= 0) fields[size_t(c.audioIn)] = inputPointers.data();
+        if (c.sideChain >= 0) fields[size_t(c.sideChain)] = &sideChainIndex;
+        for (const auto &field : c.privateFields) fields[size_t(field.first)] = &privateStorage[size_t(field.first)];
         const int32_t mi = c.fieldIndex(AAX_eMIDINodeType_LocalInput), mo = c.fieldIndex(AAX_eMIDINodeType_LocalOutput);
         if (mi >= 0) fields[size_t(mi)] = static_cast<AAX_IMIDINode *>(&midiIn);
         if (mo >= 0) fields[size_t(mo)] = static_cast<AAX_IMIDINode *>(&midiOut);
     }
+    void connectKey(bool connected) { sideChainIndex = connected ? int32_t(mainInputs) : 0; }
+    std::vector<float> &key() { return inputs.at(mainInputs); }
     void run(int32_t count) {
         require(count <= kCapacity, "test block exceeds the fake host's buffers");
         frames = count;

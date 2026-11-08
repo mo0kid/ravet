@@ -45,3 +45,6 @@ sha2 = "=0.10.9"
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
+clack-host = { workspace = true, features = ["clack-plugin"] }
+clack-extensions = { workspace = true, features = ["clack-host", "audio-ports"] }
+ravet-clap-smoke = { path = "../../tools/clap-smoke" }

@@ -1,5 +1,6 @@
 #pragma once
 #include "RavetPlugin.h"
+#include <cstring>
 #include <stdexcept>
 
 namespace ravet::auv2 {
@@ -24,6 +25,20 @@ inline const RavetPluginEntryV1 &checked(const RavetPluginEntryV1 *entry) {
         if (p.layouts[i].inputs > 64 || !p.layouts[i].outputs || p.layouts[i].outputs > 64 ||
             bool(p.layouts[i].inputs) != bool(p.layouts[0].inputs))
             throw std::runtime_error("AUv2 requires 0..64 input and 1..64 output channels");
+    // Auxiliary buses become extra AU input/output elements after the main ones.
+    if (p.auxiliary_count > 8 || bool(p.auxiliary_count) != bool(p.auxiliaries))
+        throw std::runtime_error("invalid RAVET auxiliary bus list");
+    for (uint32_t i = 0; i < p.auxiliary_count; ++i) {
+        const auto &bus = p.auxiliaries[i];
+        const auto length = bus.name ? std::strlen(bus.name) : 0;
+        bool blank = true;
+        for (size_t c = 0; c < length; ++c)
+            if (bus.name[c] != ' ' && (bus.name[c] < '\t' || bus.name[c] > '\r')) blank = false;
+        if (!bus.name || blank || length > 64 || bus.inputs > 64 || bus.outputs > 64 || (!bus.inputs && !bus.outputs))
+            throw std::runtime_error("invalid RAVET auxiliary bus");
+        for (uint32_t j = 0; j < i; ++j)
+            if (!std::strcmp(bus.name, p.auxiliaries[j].name)) throw std::runtime_error("duplicate RAVET auxiliary bus name");
+    }
     return *entry;
 }
 } // namespace ravet::auv2

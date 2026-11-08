@@ -43,6 +43,8 @@ using namespace Steinberg;
 using namespace Steinberg::Vst;
 namespace ravet::plugin::vst3 {
 constexpr uint32_t capacity = 1024, stateLimit = 16 * 1024 * 1024;
+// Auxiliary buses after the main bus (RavetPluginProductV1::auxiliary_count).
+constexpr uint32_t maxAuxiliaries = 8;
 // Hidden MIDI IDs use a deterministic free range without restricting product IDs.
 constexpr uint32_t midiControllers = 130;
 IPtr<FUnknown> factoryContext;
@@ -113,6 +115,11 @@ bool validTable(const RavetPluginEntryV1* e) {
         auto l = p.layouts[i];
         if (l.inputs > 64 || l.outputs > 64 || (!l.inputs && !l.outputs)) return false;
     }
+    if (p.auxiliary_count > maxAuxiliaries || (p.auxiliary_count && !p.auxiliaries)) return false;
+    for (uint32_t i = 0; i < p.auxiliary_count; ++i) {
+        auto a = p.auxiliaries[i];
+        if (!a.name || !*a.name || a.inputs > 64 || a.outputs > 64 || (!a.inputs && !a.outputs)) return false;
+    }
     if (!e->parameter || !e->parameter_index || !e->normalize || !e->denormalize ||
         !e->value_to_text || !e->text_to_value || !e->create || !e->destroy ||
         !e->get_value || !e->set_value || !e->save_state || !e->load_state ||
@@ -162,6 +169,32 @@ struct Instance {
     const RavetPluginEntryV1* api = entry();
     void* handle = api->create();
     ~Instance() { if (handle) api->destroy(handle); }
+};
+uint64 channelMask(uint32_t channels) { return channels == 64 ? ~uint64(0) : (uint64(1) << channels) - 1; }
+template <class T> bool aligned(const T* pointer) { return pointer && uintptr_t(pointer) % alignof(T) == 0; }
+// Silent inputs and scratch outputs for auxiliary buses the host leaves
+// inactive or omits. Sized at prepare (MAIN) so process never allocates. All
+// silent input channels share one zero buffer (inputs may alias); every scratch
+// output channel is distinct (outputs must be disjoint). Scratch contents are
+// discarded.
+struct AuxiliaryBuffers {
+    std::vector<Sample32> silence, scratch;
+    std::array<Sample32*, 64> silent{};
+    std::array<std::array<Sample32*, 64>, maxAuxiliaries> outputs{};
+    uint32_t frames = 0;
+    bool allocate(const RavetPluginProductV1& p, uint32_t maximumFrames) {
+        return guarded(false, [&] {
+            if (!p.auxiliary_count) return true;
+            size_t channels = 0;
+            for (uint32_t i = 0; i < p.auxiliary_count; ++i) channels += p.auxiliaries[i].outputs;
+            silence.assign(maximumFrames, 0.f); scratch.assign(channels * maximumFrames, 0.f);
+            silent.fill(silence.data());
+            size_t next = 0;
+            for (uint32_t i = 0; i < p.auxiliary_count; ++i)
+                for (uint32_t c = 0; c < p.auxiliaries[i].outputs; ++c) outputs[i][c] = scratch.data() + maximumFrames * next++;
+            frames = maximumFrames; return true;
+        });
+    }
 };
 
 // Runs on the host UI loop. No worker thread may call editor or host edit APIs.
@@ -266,6 +299,7 @@ public:
         reflected.fill(std::numeric_limits<double>::quiet_NaN());
         if (layout.inputs) addAudioInput(STR16("Input"), arrangement(layout.inputs));
         if (layout.outputs) addAudioOutput(STR16("Output"), arrangement(layout.outputs));
+        addAuxiliaryBuses();
         if (p.note_input) addEventInput(STR16("MIDI In"), 16);
         if (p.note_output) addEventOutput(STR16("MIDI Out"), 16);
         timer = owned(new MainTimer([this] { idle(); })); timer->start(context);
@@ -279,24 +313,53 @@ public:
     tresult PLUGIN_API setBusArrangements(SpeakerArrangement* inputs, int32 ni, SpeakerArrangement* outputs, int32 no) override {
         return guarded<tresult>(kResultFalse, [&] { return arrangeBuses(inputs, ni, outputs, no); });
     }
+    // The main bus takes any product layout; auxiliary buses (after it, in
+    // table order) accept only their declared arrangement. The host lists
+    // every bus, or only the main bus(es): auxiliary buses then keep their
+    // declared arrangement. Complete lists are matched first, so a count that
+    // fits both readings for different layouts means the complete list.
     tresult arrangeBuses(SpeakerArrangement* inputs, int32 ni, SpeakerArrangement* outputs, int32 no) {
-        if (active || ni < 0 || ni > 1 || no < 0 || no > 1 || (ni && !inputs) || (no && !outputs)) return kResultFalse;
+        if (active || ni < 0 || no < 0 || (ni && !inputs) || (no && !outputs)) return kResultFalse;
         auto& p = *instance.api->product;
-        for (uint32_t i = 0; i < p.layout_count; ++i) {
-            auto l = p.layouts[i];
-            if (ni != int32(bool(l.inputs)) || no != int32(bool(l.outputs)) ||
-                (ni && inputs[0] != arrangement(l.inputs)) || (no && outputs[0] != arrangement(l.outputs))) continue;
-            if (bool(l.inputs) != bool(layout.inputs) || bool(l.outputs) != bool(layout.outputs)) {
-                removeAudioBusses();
-                if (ni) addAudioInput(STR16("Input"), inputs[0]);
-                if (no) addAudioOutput(STR16("Output"), outputs[0]);
-            } else {
-                if (ni) getAudioInput(0)->setArrangement(inputs[0]);
-                if (no) getAudioOutput(0)->setArrangement(outputs[0]);
+        int32 auxInputs = 0, auxOutputs = 0;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) {
+            auxInputs += p.auxiliaries[i].inputs ? 1 : 0; auxOutputs += p.auxiliaries[i].outputs ? 1 : 0;
+        }
+        for (const bool complete : {true, false}) {
+            if (!complete && !auxiliaryCount) break; // Without auxiliary buses both readings coincide.
+            for (uint32_t i = 0; i < p.layout_count; ++i) {
+                auto l = p.layouts[i];
+                const int32 mi = l.inputs ? 1 : 0, mo = l.outputs ? 1 : 0;
+                if (ni != mi + (complete ? auxInputs : 0) || no != mo + (complete ? auxOutputs : 0) ||
+                    (mi && inputs[0] != arrangement(l.inputs)) || (mo && outputs[0] != arrangement(l.outputs))) continue;
+                bool declared = true;
+                for (uint32_t a = 0, in = uint32_t(mi), out = uint32_t(mo); complete && a < auxiliaryCount; ++a) {
+                    const auto& bus = p.auxiliaries[a];
+                    if ((bus.inputs && inputs[in++] != arrangement(bus.inputs)) ||
+                        (bus.outputs && outputs[out++] != arrangement(bus.outputs))) declared = false;
+                }
+                if (!declared) continue;
+                if (bool(l.inputs) != bool(layout.inputs) || bool(l.outputs) != bool(layout.outputs)) {
+                    removeAudioBusses();
+                    if (mi) addAudioInput(STR16("Input"), inputs[0]);
+                    if (mo) addAudioOutput(STR16("Output"), outputs[0]);
+                    addAuxiliaryBuses();
+                } else {
+                    if (mi) getAudioInput(0)->setArrangement(inputs[0]);
+                    if (mo) getAudioOutput(0)->setArrangement(outputs[0]);
+                }
+                layout = l; return kResultTrue;
             }
-            layout = l; return kResultTrue;
         }
         return kResultFalse;
+    }
+    tresult PLUGIN_API activateBus(MediaType type, BusDirection dir, int32 index, TBool state) override {
+        const auto result = AudioEffect::activateBus(type, dir, index, state);
+        if (result == kResultTrue && type == kAudio && (dir == kInput || dir == kOutput)) {
+            const int32 aux = auxiliaryIndex(dir, index);
+            if (aux >= 0) auxiliaryActive[dir][uint32_t(aux)].store(state != 0, std::memory_order_relaxed);
+        }
+        return result;
     }
     tresult PLUGIN_API setupProcessing(ProcessSetup& setup) override {
         if (active || setup.symbolicSampleSize != kSample32 || setup.maxSamplesPerBlock < 1 ||
@@ -352,9 +415,18 @@ public:
     // events use fixed member arrays, host counts are bounded by `capacity`
     // before use, and the stable insertion sort is bounded (n <= 1024).
     tresult PLUGIN_API process(ProcessData& data) override {
-        auto fail = [&] { audio.silenceSupportedOutputs(data); return kResultFalse; };
+        // With auxiliary buses, the shared map checks the main bus (SDK bus 0
+        // of each direction it uses) and mapAuxiliary handles the rest.
+        ProcessData main = data;
+        if (auxiliaryCount) {
+            main.numInputs = std::min<int32>(data.numInputs, layout.inputs ? 1 : 0);
+            main.numOutputs = std::min<int32>(data.numOutputs, layout.outputs ? 1 : 0);
+        }
+        auto fail = [&] { audio.silenceSupportedOutputs(main); silenceAuxiliaryOutputs(data); return kResultFalse; };
         std::array<RavetNativeProcessorBusV1, 9> buses{}; RavetNativeTransportV1 transport{};
-        if (!active || !audio.map(data, buses) || !ravet::vst3::nativeTransport(data.processContext, transport)) return fail();
+        std::array<int32, maxAuxiliaries> mapped{};
+        if (!active || !audio.map(main, buses) || !mapAuxiliary(data, buses, mapped) ||
+            !ravet::vst3::nativeTransport(data.processContext, transport)) return fail();
         uint32_t count = 0, inspected = 0;
         auto append = [&](const RavetNativeEventV1& e) {
             if (count == capacity) return false;
@@ -409,27 +481,129 @@ public:
             }
         }
         RavetNativeProcessorResultV1 result{};
-        if (instance.api->process(instance.handle, buses.data(), 1, uint32_t(data.numSamples), input.data(), count,
+        if (instance.api->process(instance.handle, buses.data(), 1 + auxiliaryCount, uint32_t(data.numSamples), input.data(), count,
             data.processContext ? &transport : nullptr, output.data(), instance.api->product->note_output ? capacity : 0, &result) || result.status > 1 || result.event_count > capacity) return fail();
         const bool changed = instance.api->latency_changed(instance.handle) != 0;
         refreshTiming();
         if (changed) latencyPending.store(true, std::memory_order_release);
         if (!deliverOutput(data, result.event_count)) return kResultFalse;
-        if (data.numOutputs && data.outputs) data.outputs[0].silenceFlags = result.status == 1
-            ? (layout.outputs == 64 ? ~uint64(0) : (uint64(1) << layout.outputs) - 1) : 0;
+        if (layout.outputs && data.numOutputs && data.outputs) data.outputs[0].silenceFlags = result.status == 1
+            ? channelMask(layout.outputs) : 0;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) if (mapped[i] >= 0)
+            data.outputs[mapped[i]].silenceFlags = result.status == 1 ? channelMask(instance.api->product->auxiliaries[i].outputs) : 0;
         return kResultOk;
     }
 private:
+    // Declared after the main bus in each direction, in table order, and not
+    // default-active: hosts activate them with activateBus. A bus with inputs
+    // and outputs appears in both directions under its name. Re-added buses
+    // keep the activation the host last set.
+    void addAuxiliaryBuses() {
+        const auto& p = *instance.api->product;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) {
+            const auto& a = p.auxiliaries[i];
+            String128 name{}; utf16(a.name, name, 128);
+            if (a.inputs) addAudioInput(name, arrangement(a.inputs), kAux, 0)
+                ->setActive(auxiliaryActive[kInput][i].load(std::memory_order_relaxed));
+            if (a.outputs) addAudioOutput(name, arrangement(a.outputs), kAux, 0)
+                ->setActive(auxiliaryActive[kOutput][i].load(std::memory_order_relaxed));
+        }
+    }
+    // Table index of the auxiliary bus at an SDK audio bus index, or -1.
+    int32 auxiliaryIndex(BusDirection dir, int32 index) const {
+        const auto& p = *instance.api->product;
+        int32 sdk = (dir == kInput ? layout.inputs : layout.outputs) ? 1 : 0;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) {
+            if (!(dir == kInput ? p.auxiliaries[i].inputs : p.auxiliaries[i].outputs)) continue;
+            if (sdk++ == index) return int32(i);
+        }
+        return -1;
+    }
+    // AUDIO. The host's channels for an active auxiliary bus, or nullptr when
+    // the bus is inactive, omitted (hosts may pass fewer buses) or not exactly
+    // shaped (channel count, nonnull aligned pointers); the caller then uses
+    // prepared buffers. Zero-frame blocks always use prepared buffers.
+    Sample32** hostChannels(const ProcessData& data, BusDirection dir, int32 index, uint32_t aux, uint32_t channels) const {
+        const int32 count = dir == kInput ? data.numInputs : data.numOutputs;
+        const AudioBusBuffers* list = dir == kInput ? data.inputs : data.outputs;
+        if (!auxiliaryActive[dir][aux].load(std::memory_order_relaxed) || data.numSamples <= 0 ||
+            uint32_t(data.numSamples) > auxiliary.frames || data.symbolicSampleSize != kSample32 ||
+            index >= count || !aligned(list)) return nullptr;
+        const auto& bus = list[index];
+        if (bus.numChannels != int32(channels) || !aligned(bus.channelBuffers32)) return nullptr;
+        const auto bytes = uintptr_t(data.numSamples) * sizeof(Sample32);
+        for (uint32_t c = 0; c < channels; ++c) {
+            const auto* pointer = bus.channelBuffers32[c];
+            if (!aligned(pointer) || uintptr_t(pointer) > std::numeric_limits<uintptr_t>::max() - bytes) return nullptr;
+        }
+        return bus.channelBuffers32;
+    }
+    // AUDIO. Fills buses[1..] for every auxiliary bus with the prepared channel
+    // counts: host buffers where hostChannels accepts them, otherwise silent
+    // inputs and scratch outputs. mapped[i] is the SDK output index whose host
+    // buffers bus i writes, or -1. Rejects host output ranges that overlap one
+    // another or the main outputs (the table requires disjoint outputs).
+    bool mapAuxiliary(const ProcessData& data, std::array<RavetNativeProcessorBusV1, 9>& buses,
+                      std::array<int32, maxAuxiliaries>& mapped) const {
+        mapped.fill(-1);
+        if (!auxiliaryCount) return true;
+        struct Range { uintptr_t begin, end; };
+        std::array<Range, 64 * (1 + maxAuxiliaries)> ranges; size_t used = 0;
+        const auto bytes = uintptr_t(std::max<int32>(data.numSamples, 0)) * sizeof(Sample32);
+        auto collect = [&](Sample32* const* channels, uint32_t count) {
+            for (uint32_t c = 0; c < count; ++c) ranges[used++] = {uintptr_t(channels[c]), uintptr_t(channels[c]) + bytes};
+        };
+        if (bytes && layout.outputs && buses[0].outputs) collect(static_cast<Sample32* const*>(buses[0].outputs), layout.outputs);
+        const auto& p = *instance.api->product;
+        int32 in = layout.inputs ? 1 : 0, out = layout.outputs ? 1 : 0;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) {
+            const auto& a = p.auxiliaries[i]; auto& bus = buses[1 + i];
+            bus.input_channels = a.inputs; bus.output_channels = a.outputs;
+            if (a.inputs) {
+                auto host = hostChannels(data, kInput, in++, i, a.inputs);
+                bus.inputs = host ? static_cast<const void*>(host) : static_cast<const void*>(auxiliary.silent.data());
+            }
+            if (a.outputs) {
+                const int32 index = out++;
+                auto host = hostChannels(data, kOutput, index, i, a.outputs);
+                if (host) { mapped[i] = index; collect(host, a.outputs); }
+                bus.outputs = host ? static_cast<const void*>(host) : static_cast<const void*>(auxiliary.outputs[i].data());
+            }
+        }
+        std::sort(ranges.begin(), ranges.begin() + used, [](const Range& a, const Range& b) { return a.begin < b.begin; });
+        for (size_t i = 1; i < used; ++i) if (ranges[i].begin < ranges[i - 1].end) return false;
+        return true;
+    }
+    // AUDIO, on failure: silence the host outputs of active auxiliary buses.
+    void silenceAuxiliaryOutputs(ProcessData& data) const {
+        const auto& p = *instance.api->product;
+        int32 out = layout.outputs ? 1 : 0;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) {
+            const auto& a = p.auxiliaries[i];
+            if (!a.outputs) continue;
+            const int32 index = out++;
+            if (auto host = hostChannels(data, kOutput, index, i, a.outputs)) {
+                for (uint32_t c = 0; c < a.outputs; ++c) std::fill_n(host[c], data.numSamples, 0.f);
+                data.outputs[index].silenceFlags = channelMask(a.outputs);
+            }
+        }
+    }
     bool prepareProduct(const ProcessSetup& setup) {
         if (setup.symbolicSampleSize != kSample32 || setup.maxSamplesPerBlock < 1 || setup.maxSamplesPerBlock > 65536) return false;
         RavetNativeProcessorConfigV1 config{}; config.version = 1;
         config.maximum_frames = uint32_t(setup.maxSamplesPerBlock);
         config.maximum_events = capacity; config.maximum_output_events = instance.api->product->note_output ? capacity : 0;
-        config.bus_count = 1; config.sample_rate = setup.sampleRate;
+        config.bus_count = 1 + auxiliaryCount; config.sample_rate = setup.sampleRate;
         config.buses[0] = {layout.inputs, layout.outputs};
-        ravet::vst3::NativeAudioBusMap candidate;
-        if (!candidate.configure(config, 32) || instance.api->prepare(instance.handle, &config)) return false;
-        audio = candidate; refreshTiming(); return true;
+        const auto& p = *instance.api->product;
+        for (uint32_t i = 0; i < auxiliaryCount; ++i) config.buses[1 + i] = {p.auxiliaries[i].inputs, p.auxiliaries[i].outputs};
+        // The shared map covers the main bus; auxiliary buses use mapAuxiliary.
+        auto main = config; main.bus_count = 1;
+        for (uint32_t i = 1; i < 9; ++i) main.buses[i] = {};
+        ravet::vst3::NativeAudioBusMap candidate; AuxiliaryBuffers buffers;
+        if (!candidate.configure(main, 32) || !buffers.allocate(p, config.maximum_frames) ||
+            instance.api->prepare(instance.handle, &config)) return false;
+        audio = candidate; auxiliary = std::move(buffers); refreshTiming(); return true;
     }
     void refreshTiming() {
         RavetNativeProcessorTimingV1 timing{};
@@ -482,9 +656,14 @@ private:
         }
     }
     Instance instance;
+    const uint32_t auxiliaryCount = instance.api->product->auxiliary_count;
     const ParamID midiBegin = midiStart(); // Constructed on MAIN, never lazily on AUDIO.
     RavetPluginLayoutV1 layout{};
     ravet::vst3::NativeAudioBusMap audio;
+    AuxiliaryBuffers auxiliary;
+    // Host activation per direction (kInput, kOutput) and table index. Written
+    // on MAIN by activateBus, read on AUDIO.
+    std::array<std::array<std::atomic<bool>, maxAuxiliaries>, 2> auxiliaryActive{};
     bool active = false;
     IPtr<MainTimer> timer;
     std::atomic<uint32_t> latency{0}, tail{0};

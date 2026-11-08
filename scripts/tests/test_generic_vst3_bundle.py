@@ -70,6 +70,29 @@ class GenericBundleTests(unittest.TestCase):
         self.assertFalse(any(c[:2] == ["cargo", "build"] for c in self.runner.commands))
         self.assertTrue(any(c[0] == "ctest" for c in self.runner.commands))
 
+    def test_mock_also_builds_and_validates_the_auxiliary_bus_fixture(self):
+        artifacts = self.run_bundle(mock=True, platform="linux")
+        self.assertEqual([a.name for a in artifacts], ["ravet_mock_vst3.vst3", "ravet_mock_vst3_auxiliary.vst3"])
+        configures = [c for c in self.runner.commands if c[:2] == ["cmake", "-S"]]
+        self.assertEqual(len(configures), 2)
+        self.assertNotIn("-DRAVET_VST3_MOCK_AUXILIARY=ON", configures[0])
+        self.assertIn("-DRAVET_VST3_MOCK_AUXILIARY=ON", configures[1])
+        self.assertIn("-DRAVET_VST3_MOCK=ON", configures[1])
+        self.assertIn("-DRAVET_VST3_NAME=ravet_mock_vst3_auxiliary", configures[1])
+        self.assertEqual(Path(configures[1][configures[1].index("-B") + 1]).parent.name, "mock-auxiliary")
+        builds = [c for c in self.runner.commands if c[:2] == ["cmake", "--build"]]
+        self.assertIn("ravet_generic_vst3_contracts", builds[0])
+        self.assertNotIn("ravet_generic_vst3_contracts", builds[1])
+        self.assertEqual(sum(c[0] == "ctest" for c in self.runner.commands), 1)
+        validated = [Path(c[1]).name for c in self.runner.commands if Path(c[0]).name == "validator"]
+        self.assertEqual(validated, ["ravet_mock_vst3.vst3", "ravet_mock_vst3_auxiliary.vst3"])
+        self.assertEqual(sum(c[:2] == ["cargo", "metadata"] for c in self.runner.commands), 1)
+
+    def test_auxiliary_fixture_requires_the_mock(self):
+        with self.assertRaises(ValueError):
+            self.run_bundle(platform="linux", auxiliary_mock=True)
+        self.assertEqual(self.runner.commands, [])
+
     def test_external_manifest(self):
         manifest = self.root / "consumer/Cargo.toml"
         self.run_bundle(manifest_path=manifest, platform="linux")

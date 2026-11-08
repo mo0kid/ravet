@@ -172,8 +172,10 @@ custom editor, polyphony or live deadline.
   Escape remain Pro Tools shortcuts that never reach the plug-in (Pro Tools
   handles them before plug-in code runs), so typed values apply on click-away.
   Windows Pro Tools is not covered.
-- Generic processing is **f32 and main bus only**. CLAP and LV2 use the first
-  declared layout. This page does not qualify the separate f64/auxiliary
+- Generic processing is **f32**. CLAP and LV2 use the first declared layout.
+  Generic auxiliary buses and sidechains have offline evidence only (unit
+  tests, mocks, the VST3 SDK validator and auval on mocks); no host above has
+  exercised them. This page does not qualify the separate f64/auxiliary
   reference adapters or AUv3/mobile integrations.
 - Generic CLAP and the native adapters carry **bounded MIDI 1 short messages**
   in both directions. Generic CLAP advertises MIDI-dialect ports; native CLAP

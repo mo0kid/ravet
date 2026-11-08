@@ -40,6 +40,8 @@ class NativeAuBundleTests(unittest.TestCase):
         self.assertIn("--manifest-path", result.stdout)
         self.assertIn("--product-library", result.stdout)
         self.assertIn("--mock", result.stdout)
+        for mock in ("sidechain", "instrument-sidechain", "midi-sidechain", "midi-generator"):
+            self.assertIn(mock, result.stdout)  # auxiliary-bus and no-main-input mocks
         self.assertNotIn("--plugin {gain,performance}", result.stdout)
 
 

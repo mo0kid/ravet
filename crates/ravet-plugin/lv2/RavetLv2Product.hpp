@@ -50,6 +50,14 @@ inline std::string checkEntry(const RavetPluginEntryV1 *entry) {
     if (product->bypass_index >= int32_t(product->parameter_count)) return "bypass index out of range";
     const auto &layout = product->layouts[0];
     if (layout.inputs > 64 || layout.outputs > 64 || layout.outputs == 0) return "preferred layout unsupported (1..64 outputs, 0..64 inputs)";
+    if (product->auxiliary_count > 8) return "more than 8 auxiliary buses";
+    if (product->auxiliary_count && !product->auxiliaries) return "auxiliary buses missing";
+    for (uint32_t i = 0; i < product->auxiliary_count; ++i) {
+        const auto &bus = product->auxiliaries[i];
+        if (!bus.name || !*bus.name) return "auxiliary bus name missing";
+        if (bus.inputs > 64 || bus.outputs > 64 || (bus.inputs == 0 && bus.outputs == 0))
+            return "auxiliary bus unsupported (0..64 inputs and outputs, not both 0)";
+    }
     if (!entry->parameter || !entry->value_to_text || !entry->create || !entry->destroy || !entry->get_value ||
         !entry->set_value || !entry->save_state || !entry->load_state || !entry->prepare || !entry->process ||
         !entry->reset || !entry->deactivate || !entry->timing || !entry->take_edits || !entry->editor_open ||
@@ -106,14 +114,26 @@ inline std::string moduleDirectory(const void *address) {
     return slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
 }
 
-enum class PortKind { AudioIn, AudioOut, EventsIn, MidiOut, Latency, Parameter, Enabled, ParameterOut };
+enum class PortKind { AudioIn, AudioOut, EventsIn, MidiOut, Latency, Parameter, Enabled, ParameterOut, AuxIn, AuxOut };
 
 struct Port {
     PortKind kind;
-    uint32_t channel = 0;      // audio channel
+    uint32_t channel = 0;      // audio channel (within its bus)
     uint32_t parameter = 0;    // parameter declaration index
     std::string symbol, name;
+    uint32_t bus = 0;          // auxiliary bus index (AuxIn, AuxOut)
+    bool sideChain = false;    // AuxIn of an input-only auxiliary bus
 };
+
+// LV2 port-group symbols (lv2/port-groups), used only by products with
+// auxiliary buses: aux<B>_in / aux<B>_out for each direction of auxiliary bus B
+// (1-based), and main_in (or main_out when the main bus has no inputs) as the
+// group a side-chain is pg:sideChainOf, declared only when a product has an
+// input-only auxiliary bus.
+inline std::string auxGroupSymbol(uint32_t bus, bool input) {
+    return "aux" + std::to_string(bus + 1) + (input ? "_in" : "_out");
+}
+inline constexpr const char *mainInputGroup = "main_in", *mainOutputGroup = "main_out";
 
 inline bool validSymbol(const char *text) {
     if (!text || !*text) return false;
@@ -139,6 +159,13 @@ inline bool isBypassed(const RavetPluginParameterV1 &bypass, double physical) {
 //   then one control port per parameter in declaration order. The bypass
 //   parameter becomes the inverted lv2:enabled port; read-only parameters are
 //   control outputs.
+//   Last, one audio port per auxiliary-bus channel, bus by bus in table order,
+//   inputs before outputs: symbol aux<B>_in_<C> / aux<B>_out_<C> (B the 1-based
+//   bus, C the 1-based channel), named after the bus. Products without
+//   auxiliary buses therefore keep every port index and symbol.
+// Fixed symbols (audio, events, latency, enabled, the auxiliary symbols and,
+// for products with auxiliary buses, the port-group symbols) win: a parameter key that is not a valid LV2 symbol or collides with one
+// becomes p<host ID> (then '_' is appended until unique).
 inline std::vector<Port> portLayout(const RavetPluginEntryV1 &entry) {
     const auto &product = *entry.product;
     const auto &layout = product.layouts[0];
@@ -154,8 +181,39 @@ inline std::vector<Port> portLayout(const RavetPluginEntryV1 &entry) {
     ports.push_back({PortKind::EventsIn, 0, 0, "events_in", "Events In"});
     if (product.note_output) ports.push_back({PortKind::MidiOut, 0, 0, "midi_out", "MIDI Out"});
     ports.push_back({PortKind::Latency, 0, 0, "latency", "Latency"});
+    // Auxiliary ports are appended after the parameters, but their symbols are
+    // reserved first so parameter keys cannot take them.
+    std::vector<Port> auxiliary;
+    for (uint32_t b = 0; b < product.auxiliary_count; ++b) {
+        const auto &bus = product.auxiliaries[b];
+        const std::string base = bus.name ? bus.name : "";
+        const std::string prefix = "aux" + std::to_string(b + 1);
+        auto name = [&](const char *direction, uint32_t channel, uint32_t count) {
+            std::string text = base;
+            if (bus.inputs && bus.outputs) text += std::string(" ") + direction;
+            if (count == 2) text += channel ? " Right" : " Left";
+            else if (count > 2) text += " " + std::to_string(channel + 1);
+            return text;
+        };
+        for (uint32_t c = 0; c < bus.inputs; ++c)
+            auxiliary.push_back({PortKind::AuxIn, c, 0, prefix + "_in_" + std::to_string(c + 1),
+                                 name("In", c, bus.inputs), b, bus.outputs == 0});
+        for (uint32_t c = 0; c < bus.outputs; ++c)
+            auxiliary.push_back({PortKind::AuxOut, c, 0, prefix + "_out_" + std::to_string(c + 1),
+                                 name("Out", c, bus.outputs), b, false});
+    }
+    std::vector<std::string> groups;
+    if (product.auxiliary_count) {
+        groups = {mainInputGroup, mainOutputGroup};
+        for (uint32_t b = 0; b < product.auxiliary_count; ++b) {
+            groups.push_back(auxGroupSymbol(b, true));
+            groups.push_back(auxGroupSymbol(b, false));
+        }
+    }
     auto taken = [&](const std::string &symbol) {
         for (const auto &port : ports) if (port.symbol == symbol) return true;
+        for (const auto &port : auxiliary) if (port.symbol == symbol) return true;
+        for (const auto &group : groups) if (group == symbol) return true;
         return false;
     };
     for (uint32_t i = 0; i < product.parameter_count; ++i) {
@@ -176,6 +234,7 @@ inline std::vector<Port> portLayout(const RavetPluginEntryV1 &entry) {
         if (port.name.empty()) port.name = port.symbol;
         ports.push_back(std::move(port));
     }
+    for (auto &port : auxiliary) ports.push_back(std::move(port));
     return ports;
 }
 

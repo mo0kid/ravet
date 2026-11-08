@@ -526,3 +526,5 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0294](0294-au-transport-sample-residue.md) | Canonicalize Float64 residue in AU transport sample positions | Implemented; REAPER 7.82 macOS arm64 and Rosetta AU delay renders exact, synthetic and component contracts |
 | [0295](0295-device-crate-robustness.md) | Device crate robustness: no panic edge on callback paths, documented unsafe, noexcept CoreMIDI shim | Implemented for ravet-device, ravet-midi-device and ravet-core-midi; macOS and Linux tests, Windows Clippy only |
 | [0296](0296-skip-unqueryable-devices.md) | Leave unqueryable devices out of device lists | Implemented; Arch Linux PipeWire/ALSA list with a busy hardware PCM |
+| [0297](0297-latency-compensated-bypass.md) | Latency-compensated dry signal for plug-in bypass policies | Implemented in ravet-plugin; offline unit evidence only |
+| [0298](0298-plugin-auxiliary-buses.md) | Auxiliary buses and sidechains in the plug-in export layer | Prototype in ravet-plugin and the VST3, AUv2, LV2 and AAX adapters; offline macOS evidence only |

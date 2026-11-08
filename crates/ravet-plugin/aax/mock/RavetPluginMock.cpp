@@ -7,6 +7,16 @@
 // hidden Calibration parameter. Layouts: mono 1x1 and stereo 2x2. MIDI input is
 // echoed to MIDI output. A 480x320 editor is reported; editor_open only records
 // the parent view. Test hooks are exported as ravet_mock_* for the adapter tests.
+//
+// ravet_mock_auxiliary_v1() returns a second table, "RAVET Mock Aux" (layouts
+// 2x2 and 0x2, no MIDI), with the same parameters and these auxiliary buses:
+//   Key (2 in)        first input-only bus: the AAX side-chain
+//   Monitor (2 out)   stereo aux output stem: Key, channel for channel
+//   Extra Key (1 in)  a further input-only bus: silent in AAX
+//   Duplex (2 in, 2 out), Surround (6 out)   no AAX route: writes 7.0
+//   Direct (1 out)    mono aux output stem: 0.5 + Extra Key + Duplex inputs
+// so a host test can see the key, the silences and the discarded outputs.
+// ravet_plugin_v1() returns it instead when RAVET_MOCK_AUXILIARY=1.
 #include "RavetPlugin.h"
 #include <algorithm>
 #include <atomic>
@@ -55,10 +65,31 @@ RavetPluginProductV1 product() {
 }
 const RavetPluginProductV1 mockProduct = product();
 
+enum : uint32_t { Key, Monitor, ExtraKey, Duplex, Surround, Direct, AuxiliaryCount };
+const RavetPluginLayoutV1 auxiliaryLayouts[] = {{2, 2, 0x52615332 /* RaS2 */, 0}, {0, 2, 0x52614932 /* RaI2 */, 0}};
+const RavetPluginAuxiliaryBusV1 auxiliaries[AuxiliaryCount] = {
+    {"Key", 2, 0}, {"Monitor", 0, 2}, {"Extra Key", 1, 0}, {"Duplex", 2, 2}, {"Surround", 0, 6}, {"Direct", 0, 1},
+};
+RavetPluginProductV1 auxiliaryProduct() {
+    RavetPluginProductV1 p = product();
+    p.name = "RAVET Mock Aux";
+    p.plugin_id = "org.ravet.mock.aux";
+    p.clap_id = "org.ravet.mock.aux";
+    p.lv2_uri = "urn:org.ravet.mock.aux";
+    p.aax_product = 0x526d6178; // Rmax
+    p.note_input = p.note_output = 0;
+    p.layouts = auxiliaryLayouts;
+    p.auxiliary_count = AuxiliaryCount;
+    p.auxiliaries = auxiliaries;
+    return p;
+}
+const RavetPluginProductV1 mockAuxiliaryProduct = auxiliaryProduct();
+
 struct Instance {
+    const RavetPluginProductV1 *product = &mockProduct;
     std::atomic<double> values[Count];
     double processorValues[Count];
-    uint32_t channels = 0;
+    uint32_t channels = 0, inputs = 0;
     bool prepared = false;
     uint32_t latency = 0, latencyRead = 0;
     std::atomic<uint32_t> latencyChanged{0};
@@ -137,6 +168,11 @@ int32_t denormalize(uint32_t index, double normalized, double *out) {
 }
 
 void *create() { return new Instance; }
+void *createAuxiliary() {
+    auto *self = new Instance;
+    self->product = &mockAuxiliaryProduct;
+    return self;
+}
 void destroy(void *i) { delete static_cast<Instance *>(i); }
 double getValue(const void *i, uint32_t index) {
     return i && known(index) ? static_cast<const Instance *>(i)->values[index].load() : 0.;
@@ -190,12 +226,24 @@ int32_t loadState(void *i, const uint8_t *data, uint32_t length) {
     return 0;
 }
 
+// The RavetPlugin.h rule: bus 0 is one of the product's layouts, then every
+// auxiliary bus with its declared channel counts.
 int32_t prepare(void *i, const RavetNativeProcessorConfigV1 *config) {
-    if (!i || !config || config->version != 1 || config->bus_count != 1) return 1;
-    const auto &bus = config->buses[0];
-    if (!((bus.inputs == 1 && bus.outputs == 1) || (bus.inputs == 2 && bus.outputs == 2))) return 1;
     auto *self = static_cast<Instance *>(i);
+    if (!self || !config || config->version != 1) return 1;
+    const RavetPluginProductV1 &product = *self->product;
+    if (config->bus_count != 1 + product.auxiliary_count) return 1;
+    const auto &bus = config->buses[0];
+    bool layout = false;
+    for (uint32_t l = 0; l < product.layout_count; ++l)
+        layout = layout || (bus.inputs == product.layouts[l].inputs && bus.outputs == product.layouts[l].outputs);
+    if (!layout) return 1;
+    for (uint32_t a = 0; a < product.auxiliary_count; ++a)
+        if (config->buses[1 + a].inputs != product.auxiliaries[a].inputs ||
+            config->buses[1 + a].outputs != product.auxiliaries[a].outputs)
+            return 1;
     self->channels = bus.outputs;
+    self->inputs = bus.inputs;
     self->prepared = true;
     for (uint32_t k = 0; k < Count; ++k) self->processorValues[k] = self->values[k];
     self->latency = self->latencyRead = uint32_t(self->processorValues[Mode]) * 64;
@@ -206,7 +254,15 @@ int32_t process(void *i, const RavetNativeProcessorBusV1 *buses, uint32_t busCou
                 const RavetNativeEventV1 *input, uint32_t inputCount, const RavetNativeTransportV1 *transport,
                 RavetNativeEventV1 *output, uint32_t capacity, RavetNativeProcessorResultV1 *result) {
     auto *self = static_cast<Instance *>(i);
-    if (!self || !self->prepared || !buses || busCount != 1 || !result || frames > 1024) return 1;
+    if (!self || !self->prepared || !buses || busCount != 1 + self->product->auxiliary_count || !result || frames > 1024)
+        return 1;
+    if (buses[0].input_channels != self->inputs || buses[0].output_channels != self->channels) return 1;
+    for (uint32_t a = 0; a < self->product->auxiliary_count; ++a)
+        if (buses[1 + a].input_channels != self->product->auxiliaries[a].inputs ||
+            buses[1 + a].output_channels != self->product->auxiliaries[a].outputs ||
+            (frames && ((buses[1 + a].input_channels && !buses[1 + a].inputs) ||
+                        (buses[1 + a].output_channels && !buses[1 + a].outputs))))
+            return 1;
     *result = {};
     // Cached host-side changes and editor edits arrive at the start of the block.
     for (uint32_t k = 0; k < Count; ++k)
@@ -238,6 +294,16 @@ int32_t process(void *i, const RavetNativeProcessorBusV1 *buses, uint32_t busCou
             out[c][f] = v;
             peak = std::max(peak, std::fabs(v));
         }
+    if (self->product->auxiliary_count) {
+        auto in_ = [&](uint32_t b) { return static_cast<const float *const *>(buses[1 + b].inputs); };
+        auto out_ = [&](uint32_t b) { return static_cast<float *const *>(buses[1 + b].outputs); };
+        for (uint32_t f = 0; f < frames; ++f) {
+            for (uint32_t c = 0; c < 2; ++c) out_(Monitor)[c][f] = in_(Key)[c][f];
+            out_(Direct)[0][f] = 0.5f + in_(ExtraKey)[0][f] + in_(Duplex)[0][f] + in_(Duplex)[1][f];
+            for (uint32_t c = 0; c < 2; ++c) out_(Duplex)[c][f] = 7.f;
+            for (uint32_t c = 0; c < 6; ++c) out_(Surround)[c][f] = 7.f;
+        }
+    }
     self->values[Peak] = std::min(1., double(peak));
     self->blocks++;
     self->lastEvents = inputCount;
@@ -298,11 +364,25 @@ const RavetPluginEntryV1 table = {
     editorOpen, editorResize, editorClose, editorIdle,
 };
 
+const RavetPluginEntryV1 auxiliaryTable = {
+    RAVET_PLUGIN_VERSION_1, sizeof(RavetPluginEntryV1), &mockAuxiliaryProduct,
+    parameter, parameterIndex, valueToText, textToValue, normalize, denormalize,
+    createAuxiliary, destroy, getValue, setValue, saveState, loadState,
+    prepare, process, reset, deactivate, timing, latencyChanged, takeEdits,
+    editorOpen, editorResize, editorClose, editorIdle,
+};
+
 } // namespace
 
-extern "C" const RavetPluginEntryV1 *ravet_plugin_v1(void) { return &table; }
+// RAVET_MOCK_AUXILIARY=1 selects the auxiliary table, so the bundle check can
+// load a built mock bundle as a side-chain/aux-output product.
+extern "C" const RavetPluginEntryV1 *ravet_plugin_v1(void) {
+    const char *auxiliary = std::getenv("RAVET_MOCK_AUXILIARY");
+    return auxiliary && !std::strcmp(auxiliary, "1") ? &auxiliaryTable : &table;
+}
 
 // ---- Test hooks (not part of RavetPlugin.h) ----
+extern "C" const RavetPluginEntryV1 *ravet_mock_auxiliary_v1(void) { return &auxiliaryTable; }
 extern "C" void ravet_mock_push_edit(void *instance, uint32_t kind, uint32_t index, double value) {
     auto *self = static_cast<Instance *>(instance);
     std::lock_guard<std::mutex> guard(self->editLock);

@@ -9,9 +9,11 @@
 #import <AudioUnit/AUCocoaUIView.h>
 #import <Cocoa/Cocoa.h>
 #include <atomic>
+#include <cstddef>
 #include <exception>
 #include <functional>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace ravet::auv2 {
@@ -134,11 +136,27 @@ template <class Base> class PluginAU final : public Base {
 public:
     explicit PluginAU(AudioUnit unit) : Base(unit), entry_(checked(ravet_plugin_v1())), product_(*entry_.product) {
         this->CreateElements();
-        // A single main input element is present only for audio-input products.
-        if (!product_.layouts[0].inputs) this->Inputs().SetNumberOfElements(0);
-        else this->Inputs().SetNumberOfElements(1);
+        // Element 0 of each scope is the main bus when it has that direction
+        // (a main input exists only for audio-input products); then one element
+        // per auxiliary bus with channels in that direction, in product order.
+        if (product_.layouts[0].inputs) inputElements_.push_back({0, 0});
+        outputElements_.push_back({0, 0});
+        for (uint32_t i = 0; i < product_.auxiliary_count; ++i) {
+            const auto &bus = product_.auxiliaries[i];
+            if (bus.inputs) inputElements_.push_back({1 + i, bus.inputs});
+            if (bus.outputs) outputElements_.push_back({1 + i, bus.outputs});
+        }
+        this->Inputs().SetNumberOfElements(UInt32(inputElements_.size()));
+        if (outputElements_.size() != 1) this->Outputs().SetNumberOfElements(UInt32(outputElements_.size()));
         for (uint32_t i = 0; i < product_.layout_count; ++i)
             channels_.push_back({SInt16(product_.layouts[i].inputs), SInt16(product_.layouts[i].outputs)});
+        // AUChannelInfo describes element 0 of each scope, and validators treat
+        // input element 0 as the main input. Without a main input, element 0 is
+        // the first auxiliary input (a sidechain), so advertise its fixed
+        // count; the adapter still negotiates the main bus with channels_.
+        advertised_ = channels_;
+        if (!product_.layouts[0].inputs && !inputElements_.empty())
+            for (auto &c : advertised_) c.inChannels = SInt16(inputElements_[0].channels);
         parameters_.resize(product_.parameter_count);
         for (uint32_t i = 0; i < product_.parameter_count; ++i) {
             auto &p = parameters_[i];
@@ -151,6 +169,17 @@ public:
         auto format = defaultFormat(product_.layouts[0].outputs);
         this->Output(0).SetStreamFormat(format);
         if (product_.layouts[0].inputs) this->Input(0).SetStreamFormat(defaultFormat(product_.layouts[0].inputs));
+        for (const auto scope : {kAudioUnitScope_Input, kAudioUnitScope_Output}) {
+            const auto &elements = scope == kAudioUnitScope_Input ? inputElements_ : outputElements_;
+            for (UInt32 k = 0; k < elements.size(); ++k) {
+                if (!elements[k].bus) continue;
+                auto &element = this->IOElement(scope, k);
+                element.SetStreamFormat(defaultFormat(elements[k].channels));
+                auto name = string(product_.auxiliaries[elements[k].bus - 1].name);
+                if (!name) throw std::runtime_error("invalid AU element name");
+                element.SetName(name); CFRelease(name);
+            }
+        }
         life_ = std::make_shared<Life>();
         life_->entry = &entry_; life_->unit = unit;
         mainCall([&] {
@@ -183,23 +212,56 @@ public:
     }
     OSStatus Initialize() override {
         const auto &out = this->Output(0).GetStreamFormat();
-        const auto inputs = this->Inputs().GetNumberOfElements() ? this->Input(0).GetStreamFormat().mChannelsPerFrame : 0;
+        const auto inputs = product_.layouts[0].inputs ? this->Input(0).GetStreamFormat().mChannelsPerFrame : 0;
         bool match = false;
         for (const auto &c : channels_) if (inputs == uint32_t(c.inChannels) && out.mChannelsPerFrame == uint32_t(c.outChannels)) match = true;
         if (!match || !ValidFormat(kAudioUnitScope_Output, 0, out) ||
             (inputs && (!ValidFormat(kAudioUnitScope_Input, 0, this->Input(0).GetStreamFormat()) ||
                 this->Input(0).GetStreamFormat().mSampleRate != out.mSampleRate))) return kAudioUnitErr_FormatNotSupported;
+        // Auxiliary elements keep their fixed channel counts and share the rate.
+        for (const auto scope : {kAudioUnitScope_Input, kAudioUnitScope_Output}) {
+            const auto &elements = scope == kAudioUnitScope_Input ? inputElements_ : outputElements_;
+            for (UInt32 k = 0; k < elements.size(); ++k) {
+                if (!elements[k].bus) continue;
+                const auto &format = this->IOElement(scope, k).GetStreamFormat();
+                if (!ValidFormat(scope, k, format) || format.mSampleRate != out.mSampleRate) return kAudioUnitErr_FormatNotSupported;
+            }
+        }
         RavetNativeProcessorConfigV1 config{};
         config.version = 1; config.maximum_frames = this->GetMaxFramesPerSlice();
         config.maximum_events = eventCapacity; config.maximum_output_events = product_.note_output ? eventCapacity : 0;
-        config.bus_count = 1; config.sample_rate = out.mSampleRate; config.buses[0] = {inputs, out.mChannelsPerFrame};
+        config.bus_count = 1 + product_.auxiliary_count; config.sample_rate = out.mSampleRate; config.buses[0] = {inputs, out.mChannelsPerFrame};
+        for (uint32_t i = 0; i < product_.auxiliary_count; ++i)
+            config.buses[1 + i] = {product_.auxiliaries[i].inputs, product_.auxiliaries[i].outputs};
         if (!map_.configure(config)) return kAudioUnitErr_FormatNotSupported;
-        const auto base = Base::Initialize();
+        // Render-thread storage, prepared here: shared silence for unconnected
+        // auxiliary inputs and, with several output elements, one scratch list per
+        // element so a render cycle can serve every element the host pulls.
+        silence_.assign(config.maximum_frames, 0.f);
+        silentInputs_.assign(inputElements_.size(), {});
+        for (size_t k = 0; k < inputElements_.size(); ++k)
+            if (inputElements_[k].bus) silentInputs_[k].build(inputElements_[k].channels, config.maximum_frames, silence_.data());
+        outputScratch_.assign(outputElements_.size() > 1 ? outputElements_.size() : 0, {});
+        outputLists_.assign(outputScratch_.size(), nullptr);
+        for (size_t k = 0; k < outputScratch_.size(); ++k) {
+            outputScratch_[k].build(outputElements_[k].bus ? outputElements_[k].channels : out.mChannelsPerFrame, config.maximum_frames, nullptr);
+            outputLists_[k] = outputScratch_[k].list();
+        }
+        cycleStatus_ = noErr; cycleFrames_ = 0; cycleSilent_ = false;
+        // AUEffectBase::Initialize checks input element 0 against the channel
+        // table and keeps it as the main input. A MIDI effect (aumf) with no main
+        // input has no such element, or has a sidechain there, so skip it: the
+        // checks above cover the formats and RenderBus/Render never use its
+        // main-input state.
+        OSStatus base = noErr;
+        if constexpr (std::is_base_of_v<ausdk::AUEffectBase, Base>)
+            base = product_.layouts[0].inputs ? Base::Initialize() : ausdk::AUBase::Initialize();
+        else base = Base::Initialize();
         if (base) return base;
         int32_t result = 1;
         mainCall([&] { result = entry_.prepare(life_->instance, &config); });
         if (result) { Base::Cleanup(); return kAudioUnitErr_FailedInitialization; }
-        prepared_ = true; inputChannels_ = inputs; sampleRate_ = out.mSampleRate;
+        prepared_ = true; sampleRate_ = out.mSampleRate;
         mainCall([&] { readTiming(); }); pending_ = 0;
         return noErr;
     }
@@ -215,19 +277,40 @@ public:
     }
     bool CanScheduleParameters() const noexcept override { return true; }
     bool StreamFormatWritable(AudioUnitScope scope, AudioUnitElement element) override {
-        return !this->IsInitialized() && !element &&
-            (scope == kAudioUnitScope_Output || (scope == kAudioUnitScope_Input && this->Inputs().GetNumberOfElements()));
+        return !this->IsInitialized() && elementInfo(scope, element);
     }
     bool ValidFormat(AudioUnitScope scope, AudioUnitElement element, const AudioStreamBasicDescription &format) override {
-        if (element || (scope != kAudioUnitScope_Output && scope != kAudioUnitScope_Input) ||
-            !ravet::au::NativeAuAudioFormat::format(format, format.mChannelsPerFrame, format.mSampleRate)) return false;
+        const auto info = elementInfo(scope, element);
+        if (!info || !ravet::au::NativeAuAudioFormat::format(format, format.mChannelsPerFrame, format.mSampleRate)) return false;
+        // An auxiliary element accepts only its bus's channel count.
+        if (info->bus) return format.mChannelsPerFrame == info->channels;
         for (const auto &c : channels_)
             if (format.mChannelsPerFrame == uint32_t(scope == kAudioUnitScope_Input ? c.inChannels : c.outChannels)) return true;
         return false;
     }
+    // The main elements lead the unit's sample rate: auxiliary elements follow a
+    // main rate change, so a host that configures only element 0 still
+    // initializes. A rate set on an auxiliary element must match at Initialize.
+    OSStatus ChangeStreamFormat(AudioUnitScope scope, AudioUnitElement element,
+                                const AudioStreamBasicDescription &previous, const AudioStreamBasicDescription &next) override {
+        const auto status = Base::ChangeStreamFormat(scope, element, previous, next);
+        const auto info = scope == kAudioUnitScope_Global ? &outputElements_[0] : elementInfo(scope, element);
+        if (status || !info || info->bus || previous.mSampleRate == next.mSampleRate) return status;
+        for (const auto auxScope : {kAudioUnitScope_Input, kAudioUnitScope_Output}) {
+            const auto &elements = auxScope == kAudioUnitScope_Input ? inputElements_ : outputElements_;
+            for (UInt32 k = 0; k < elements.size(); ++k) {
+                if (!elements[k].bus) continue;
+                const auto current = this->IOElement(auxScope, k).GetStreamFormat();
+                auto updated = current; updated.mSampleRate = next.mSampleRate;
+                if (current.mSampleRate != next.mSampleRate && ValidFormat(auxScope, k, updated))
+                    Base::ChangeStreamFormat(auxScope, k, current, updated);
+            }
+        }
+        return status;
+    }
     UInt32 SupportedNumChannels(const AUChannelInfo **info) override {
-        if (info) *info = channels_.data();
-        return channels_.size();
+        if (info) *info = advertised_.data();
+        return advertised_.size();
     }
     OSStatus GetParameterList(AudioUnitScope scope, AudioUnitParameterID *ids, UInt32 &count) override {
         if (scope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
@@ -350,10 +433,11 @@ public:
         // This override is noexcept, so an exception would terminate the host.
         // With AudioUnitSDK 1.4 the element/buffer accessors below cannot throw
         // here (DoRender prepares the output, PullInput returns its errors and
-        // inputChannels_ implies the input element), but they are declared to
+        // every element the product declares exists), but they are declared to
         // throw; contain any exception and output silence instead.
         try {
-            return render(flags, time, frames);
+            AudioBufferList *output = &this->Output(0).GetBufferList();
+            return render(flags, time, frames, &output);
         } catch (...) {
             try {
                 if (const auto output = this->Output(0).GetBufferListOrError()) silence(*output, frames);
@@ -362,20 +446,73 @@ public:
             return kAudioUnitErr_CannotDoInCurrentContext;
         }
     }
-    OSStatus render(AudioUnitRenderActionFlags &flags, const AudioTimeStamp &time, UInt32 frames) {
-        auto &output = this->Output(0).GetBufferList();
+    // Hosts pull each output element separately. With auxiliary outputs, the
+    // first pull of a render cycle (a new sample time) processes the whole
+    // product once into prepared per-element scratch; that pull and later pulls
+    // of other elements in the same cycle copy their element's result out.
+    OSStatus RenderBus(AudioUnitRenderActionFlags &flags, const AudioTimeStamp &time, UInt32 bus, UInt32 frames) noexcept override {
+        if (outputElements_.size() == 1) return Base::RenderBus(flags, time, bus, frames);
+        AudioBufferList *target = nullptr;
+        try {
+            target = &this->Output(bus).GetBufferList();
+            if (bus >= outputScratch_.size()) { silence(*target, frames); flags |= kAudioUnitRenderAction_OutputIsSilence; return kAudioUnitErr_InvalidElement; }
+            if (this->NeedsToRender(time)) {
+                auto cycleFlags = flags;
+                cycleFrames_ = frames;
+                cycleStatus_ = render(cycleFlags, time, frames, outputLists_.data());
+                cycleSilent_ = (cycleFlags & kAudioUnitRenderAction_OutputIsSilence) != 0;
+            } else if (frames != cycleFrames_) {
+                silence(*target, frames); flags |= kAudioUnitRenderAction_OutputIsSilence;
+                return kAudioUnitErr_CannotDoInCurrentContext;
+            }
+            const auto &source = *outputLists_[bus];
+            if (target->mNumberBuffers != source.mNumberBuffers) {
+                silence(*target, frames); flags |= kAudioUnitRenderAction_OutputIsSilence; return kAudio_ParamError;
+            }
+            for (UInt32 c = 0; c < source.mNumberBuffers; ++c) {
+                auto &b = target->mBuffers[c];
+                if (!b.mData || b.mNumberChannels != 1 || b.mDataByteSize < frames * sizeof(float)) {
+                    silence(*target, frames); flags |= kAudioUnitRenderAction_OutputIsSilence; return kAudio_ParamError;
+                }
+                std::memcpy(b.mData, source.mBuffers[c].mData, frames * sizeof(float));
+            }
+            if (cycleSilent_) flags |= kAudioUnitRenderAction_OutputIsSilence;
+            else flags &= ~kAudioUnitRenderAction_OutputIsSilence;
+            return cycleStatus_;
+        } catch (...) {
+            if (target) silence(*target, frames);
+            flags |= kAudioUnitRenderAction_OutputIsSilence;
+            return kAudioUnitErr_CannotDoInCurrentContext;
+        }
+    }
+    // outputs: one buffer list per output element, in element order.
+    OSStatus render(AudioUnitRenderActionFlags &flags, const AudioTimeStamp &time, UInt32 frames, AudioBufferList *const *outputs) {
+        const auto outputCount = uint32_t(outputElements_.size());
         const auto count = pending_; pending_ = 0;
-        auto fault = [&](OSStatus error) { silence(output, frames); flags |= kAudioUnitRenderAction_OutputIsSilence; return error; };
+        auto silenceAll = [&] { for (uint32_t k = 0; k < outputCount; ++k) silence(*outputs[k], frames); };
+        auto fault = [&](OSStatus error) { silenceAll(); flags |= kAudioUnitRenderAction_OutputIsSilence; return error; };
         if (!prepared_ || frames > map_.maximumFrames()) return fault(kAudioUnitErr_TooManyFramesToProcess);
-        const AudioBufferList *input = nullptr;
-        if (inputChannels_) {
-            const auto status = this->Input(0).PullInput(flags, time, 0, frames);
-            if (status) return fault(status);
-            input = &this->Input(0).GetBufferList();
+        std::array<const AudioBufferList *, 9> inputs{};
+        const auto inputCount = uint32_t(inputElements_.size());
+        for (uint32_t k = 0; k < inputCount; ++k) {
+            const auto &info = inputElements_[k];
+            if (!info.bus) {
+                const auto status = this->Input(k).PullInput(flags, time, k, frames);
+                if (status) return fault(status);
+                inputs[k] = &this->Input(k).GetBufferList();
+                continue;
+            }
+            // Unconnected or failing auxiliary inputs (e.g. no sidechain
+            // routed) reach the product as prepared silence.
+            inputs[k] = silentInputs_[k].list();
+            auto &element = this->Input(k);
+            AudioUnitRenderActionFlags pullFlags = flags;
+            if (!element.IsActive() || element.PullInput(pullFlags, time, k, frames)) continue;
+            const auto &pulled = element.GetBufferList();
+            if (usable(pulled, info.channels, frames)) inputs[k] = &pulled;
         }
         ravet::au::NativeAuAudioBlock block;
-        AudioBufferList *out = &output;
-        if (!map_.map(input ? &input : nullptr, input ? 1 : 0, &out, 1, frames, block)) return fault(kAudioUnitErr_FormatNotSupported);
+        if (!map_.map(inputCount ? inputs.data() : nullptr, inputCount, outputs, outputCount, frames, block)) return fault(kAudioUnitErr_FormatNotSupported);
         for (uint32_t i = 0; i < count; ++i) {
             if (events_[i].offset > frames) return fault(kAudioUnitErr_InvalidParameterValue);
             // Stable bounded insertion sort: preserves simultaneous host events.
@@ -388,7 +525,7 @@ public:
         uint32_t processCount = count;
         if (frames) while (processCount && events_[processCount - 1].offset == frames) --processCount;
         RavetNativeProcessorResultV1 result{};
-        const auto code = entry_.process(life_->instance, block.buses(), 1, frames, events_.data(), processCount,
+        const auto code = entry_.process(life_->instance, block.buses(), map_.busCount(), frames, events_.data(), processCount,
             &transport.transport(), outputEvents_.data(), product_.note_output ? eventCapacity : 0, &result);
         if (code || result.status > 1 || result.event_count > (product_.note_output ? eventCapacity : 0)) return fault(kAudioUnitErr_CannotDoInCurrentContext);
         const bool latencyChanged = entry_.latency_changed(life_->instance) != 0;
@@ -401,7 +538,7 @@ public:
             midi_.deliver(midiCallback_, &time, 0);
         }
         flags &= ~kAudioUnitRenderAction_OutputIsSilence;
-        if (result.status == 1) { silence(output, frames); flags |= kAudioUnitRenderAction_OutputIsSilence; }
+        if (result.status == 1) { silenceAll(); flags |= kAudioUnitRenderAction_OutputIsSilence; }
         // A ramp endpoint at the buffer boundary becomes offset zero of the
         // next render, so its final value is held after the ramp completes.
         for (uint32_t i = processCount; i < count; ++i) {
@@ -551,7 +688,30 @@ public:
 private:
     const RavetPluginEntryV1 &entry_;
     const RavetPluginProductV1 &product_;
-    std::vector<AUChannelInfo> channels_;
+    std::vector<AUChannelInfo> channels_, advertised_;
+    // bus 0 is the main bus (channels negotiated through channels_); an
+    // auxiliary element has bus 1 + auxiliary index and fixed channels.
+    struct Element { uint32_t bus, channels; };
+    std::vector<Element> inputElements_, outputElements_;
+    // A planar float buffer list over owned samples or a shared silent buffer.
+    struct Buffers {
+        std::vector<float> samples;
+        std::vector<uint64_t> words;
+        AudioBufferList *list() { return reinterpret_cast<AudioBufferList *>(words.data()); }
+        void build(uint32_t channels, uint32_t frames, float *shared) {
+            words.assign((offsetof(AudioBufferList, mBuffers) + channels * sizeof(AudioBuffer) + 7) / 8, 0);
+            if (!shared) samples.assign(size_t(channels) * frames, 0.f);
+            auto *l = list(); l->mNumberBuffers = channels;
+            for (uint32_t c = 0; c < channels; ++c)
+                l->mBuffers[c] = {1, UInt32(frames * sizeof(float)), shared ? shared : samples.data() + size_t(c) * frames};
+        }
+    };
+    std::vector<float> silence_;
+    std::vector<Buffers> silentInputs_, outputScratch_;
+    std::vector<AudioBufferList *> outputLists_;
+    OSStatus cycleStatus_ = noErr;
+    UInt32 cycleFrames_ = 0;
+    bool cycleSilent_ = false;
     std::vector<RavetPluginParameterV1> parameters_;
     std::shared_ptr<Life> life_;
     NSTimer *__strong timer_ = nil;
@@ -559,11 +719,25 @@ private:
     ravet::au::NativeAuMidiOutput<> midi_;
     AUMIDIOutputCallbackStruct midiCallback_{};
     std::array<RavetNativeEventV1, eventCapacity> events_{}, outputEvents_{}, scheduled_{};
-    uint32_t pending_ = 0, inputChannels_ = 0;
+    uint32_t pending_ = 0;
     bool prepared_ = false;
     double sampleRate_ = 44100;
     std::atomic<double> latency_{0}, tail_{0};
     std::atomic<bool> timingChanged_{false};
+    const Element *elementInfo(AudioUnitScope scope, AudioUnitElement element) const {
+        const auto &elements = scope == kAudioUnitScope_Input ? inputElements_ : outputElements_;
+        if ((scope != kAudioUnitScope_Input && scope != kAudioUnitScope_Output) || element >= elements.size()) return nullptr;
+        return &elements[element];
+    }
+    static bool usable(const AudioBufferList &list, uint32_t channels, uint32_t frames) noexcept {
+        if (list.mNumberBuffers != channels) return false;
+        for (UInt32 c = 0; c < channels; ++c) {
+            const auto &b = list.mBuffers[c];
+            if (b.mNumberChannels != 1 || (frames && (!b.mData || b.mDataByteSize < frames * sizeof(float) ||
+                uintptr_t(b.mData) % alignof(float)))) return false;
+        }
+        return true;
+    }
     static bool indexed(const RavetPluginParameterV1 &p) {
         return p.steps && p.maximum - p.minimum == p.steps && std::trunc(p.minimum) == p.minimum;
     }

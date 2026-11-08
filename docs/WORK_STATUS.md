@@ -6,6 +6,76 @@ Local Git has now been initialized and an initial commit pushed to a private
 GitHub remote. See [publication policy](publication.md): the initial private
 history captured a consumer scaffold and must be sanitized before going public.
 
+<a id="plugin-auxiliary-buses"></a>
+
+## Plug-in auxiliary buses and sidechains — 6 November 2026
+
+Products declare auxiliary buses with `Product::with_auxiliary_buses`
+([decision 0298](decisions/0298-plugin-auxiliary-buses.md)). Offline evidence,
+macOS arm64 only:
+
+- **Rust:** `cargo test -p ravet-plugin --all-features` passed. It covers
+  product validation; Hard, Crossfade and Frozen with an auxiliary bus; a
+  native-table export with a sidechain and an extra output; and
+  `tests/clap_buses.rs`, an in-process CLAP host that lists the ports and
+  processes through them.
+- **VST3:** with an external SDK 3.8.1, the mock contracts pass. The new
+  auxiliary contracts cover activation, missing buses, null channels,
+  aliasing and main-only arrangement calls. The SDK validator passed 47/0 on
+  both mocks that `bundle-vst3.py --mock` now builds.
+- **AUv2:** with AudioUnitSDK from a JUCE checkout and a scratch-only header
+  shim for the 1.4-only `GetBufferListOrError` (nothing patched in the
+  repository), contracts pass and auval succeeded on seven mocks: effect,
+  instrument, MIDI, sidechain effect, sidechain instrument, MIDI with
+  sidechain, and MIDI generator. Configuring against the unshimmed JUCE copy
+  stops with the new SDK 1.4 message. Repeated against Apple's own
+  AudioUnitSDK 1.4.0, fetched with the new checksum-pinned
+  `scripts/fetch-audio-unit-sdk.py` (its archive matched a git checkout of tag
+  commit `bd98b31`): all seven mocks pass their contracts and auval with no
+  shim, and the real Delay passes its AU contracts through both `bundle-au.py`
+  and `bundle-plugin.py`, the latter finding the SDK through the per-user
+  `ravet-sdks.toml`.
+- **VST3 on the vendor SDK:** repeated against Steinberg's official VST 3 SDK
+  3.8.1 build 84, fetched with the new checksum-pinned
+  `scripts/fetch-vst3-sdk.py`. Its contents matched a git checkout of tag
+  `v3.8.1_build_84` (commit `3cdf9ca`) with submodules at the tag. Results:
+  - `bundle-vst3.py --mock`: contracts pass, and the validator passes 47/0 on
+    both mocks.
+  - Real Delay through `bundle-plugin.py`, with the SDK found through the
+    per-user `ravet-sdks.toml`: validator 47/0.
+- **AAX** evidence above still comes from the AAX SDK 2.8.0 copy embedded in
+  JUCE. No Avid-distributed SDK was available on this machine; repeat the
+  checks once Avid's SDK is installed.
+- **LV2:** with Homebrew LV2/lilv 0.28.0, all CTest suites pass:
+  - mock contracts, 130 checks
+  - aux mock contracts, 173 checks
+  - a golden-file check that the plain mock's Turtle is unchanged
+  - both lilv checks
+  - delay smoke and lilv checks
+
+  `lv2_validate` (lv2 1.18.10) reports 0 errors on both mock bundles.
+- **AAX:** with the AAX SDK from a JUCE checkout, the adapter tests, the bundle
+  check and the auxiliary bundle check pass, also under ASan/UBSan. They cover
+  stem naming, instrument side-chains through a dummy main input stem, and stem
+  acceptance recorded per effect.
+
+No host or DAW routing, no Windows or Linux adapter builds, and no real product
+with auxiliary buses in the native formats.
+
+<a id="latency-compensated-bypass"></a>
+
+## Latency-compensated bypass dry signal — 6 November 2026
+
+`PolicyProcessor` now delays the dry signal of the `Hard`, `Crossfade` and
+`Frozen` bypass policies by `Processor::latency_samples()`. Delay capacity is
+fixed at `prepare` from the prepared latency or `Product::with_maximum_latency`
+(decision [0297](decisions/0297-latency-compensated-bypass.md)). Evidence
+(macOS arm64, offline): `cargo test -p ravet-plugin --all-features` passed. New
+unit tests cover a processor with 3-sample latency under Hard, Crossfade and
+Frozen; continuity across block sizes 0–11 with bypass switches; reset; the
+declared-maximum bound; and allocation-free processing with latency. No host,
+DAW or deadline evidence.
+
 <a id="release-010-windows-midi"></a>
 
 ## Standalone MIDI input on Windows — 5 November 2026

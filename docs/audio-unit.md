@@ -16,8 +16,18 @@ CARGO_BUILD_JOBS=2 python3 scripts/bundle-au.py --plugin delay \
 
 This builds only the chosen product and the native adapter. The SDK path must
 be an Apple source checkout with `include/AudioUnitSDK` and `src/AudioUnitSDK`
-(1.4.0 was exercised), rather than JUCE's flattened SDK snapshot. Nothing is
-vendored or installed automatically. CMake, Xcode's command-line tools and
+(1.4.0 was exercised), rather than JUCE's flattened SDK snapshot. Fetch it with
+
+```sh
+python3 scripts/fetch-audio-unit-sdk.py "$HOME/Library/Application Support/ravet/sdks/AudioUnitSDK"
+```
+
+which downloads Apple's `AudioUnitSDK-1.4.0` tag from GitHub, checks a SHA-256
+pin before opening it, and extracts only `include/AudioUnitSDK`,
+`src/AudioUnitSDK` and the Apache-2.0 `LICENSE.txt`. Point `[sdks] audio_unit`
+in a [`ravet-sdks.toml`](bundle-plugin.md) at the result (for the per-user file
+above, `audio_unit = "sdks/AudioUnitSDK"`) so builds need no flag. Nothing is
+vendored in this repository. CMake, Xcode's command-line tools and
 Python 3.11 or later are required. The default build architecture is the current
 machine's architecture; recorded execution is macOS arm64 only. The
 [support matrix](support-matrix.md) separates the component/validator receipts
@@ -59,8 +69,19 @@ preserved. The table owns automation/bypass policy and denormal handling.
 
 The current audio profile is one main bus, planar native f32, 1..65,536 frames,
 0..64 input channels and 1..64 output channels. All advertised layouts must
-agree on whether an input bus exists. Mono packed f32 is also accepted. There
-are no auxiliary buses or f64 negotiation in this adapter. The product may
+agree on whether an input bus exists. Mono packed f32 is also accepted. The
+product's [auxiliary buses](plugin-export.md#auxiliary-buses-and-sidechains)
+follow as extra input/output elements, named after the bus, with fixed channel
+counts and the main element's sample rate. An unconnected or failing auxiliary
+input is silent (a failing main input still faults the block); output elements
+are rendered together once per render cycle. Without a main input, an
+auxiliary input becomes input element 0 and the advertised channel table
+reports its channel count as the input count, because hosts and auval read
+input element 0 as the main input. Effect-based units without a main input
+(MIDI effects, `aumf`) skip the SDK effect base's initialization, which reads
+input element 0. The adapter needs AudioUnitSDK 1.4 or later; CMake stops with
+a message on older copies (detected by `GetBufferListOrError`). There is no f64
+negotiation. The product may
 impose tighter limits. Malformed blocks fail with silence on supported output
 prefixes; backing tails remain outside the processing range.
 

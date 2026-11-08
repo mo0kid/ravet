@@ -157,8 +157,26 @@ record the validator version and results with the build.
 
 ### Limits
 
-- Main bus only; stems are mapped for 0, 1 and 2 channels. Layouts with other
-  channel counts are skipped, because the table carries no channel roles.
+- Main stems are mapped for 0, 1 and 2 channels. Layouts with other channel
+  counts are skipped, because the table carries no channel roles.
+- [Auxiliary buses](plugin-export.md#auxiliary-buses-and-sidechains): the first
+  sidechain becomes the single AAX side-chain input (mono in Pro Tools; the key
+  feeds every channel of the bus); further sidechains are silent. On products
+  with a sidechain, layouts without a main input (instruments) declare a main
+  input stem matching their output stem, as hosts need it to address the key;
+  its samples are ignored and the product still gets no main input. Type IDs
+  and effect IDs (`<plugin_id>.aax.<in>x<out>`, from the RAVET layout) do not
+  change, but adding a sidechain to a shipped instrument changes the input
+  stem behind an existing type ID; whether Pro Tools reloads such sessions is
+  untested. An instance picks its layout by effect ID, falling back to the
+  first layout with matching stems.
+- Mono and stereo output-only buses become aux output stems named
+  "<bus> Mono" or "<bus> Stereo" (unless the name already says mono/stereo; at
+  most 64 bytes). They disable multi-mono. Wider output buses and buses with
+  both inputs and outputs have no AAX route (silent inputs, discarded outputs).
+  Accepted stems are recorded per effect when the host describes the plug-in;
+  stems the host refused, and every stem of an instance whose effect was never
+  described, are discarded.
 - Automation is applied once per block; AAX packets and sample-accurate
   automation are not used.
 - `get_value` and `set_value` may be called from any thread; they touch only
@@ -173,7 +191,7 @@ record the validator version and results with the build.
   top-level `HWND` on Windows) with a synthetic host;
   `RAVET_AAX_EDITOR_HOLD=<seconds>` keeps it open for a screenshot. This is not
   Pro Tools: Windows AAX remains provisional.
-- No AudioSuite, sidechain or auxiliary outputs, meters or page tables.
+- No AudioSuite, meters or page tables.
 - The AAX category is coarse: the table has no finer AAX category (EQ, Delay…).
 - Evidence is local: macOS arm64 builds and the checks above, and a Windows x64
   cross-build whose bundle check and adapter tests pass natively on Windows 11

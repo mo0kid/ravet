@@ -19,11 +19,38 @@
 #include <climits>
 #include <cstdio>
 #include <cstring>
+#include <map>
+#include <mutex>
+#include <set>
+#include <tuple>
 
 namespace ravet::aax::plugin {
 namespace {
 
 std::atomic<const RavetPluginEntryV1 *> overrideTable{nullptr};
+// Output stems the host accepted per described effect, keyed by
+// (manufacturer, product, AAX type ID); see acceptedOutputStems(). MAIN only
+// (describe and EffectInit), guarded anyway since hosts differ.
+using StemKey = std::tuple<uint32_t, uint32_t, uint32_t>;
+std::mutex stemLock;
+std::map<StemKey, uint32_t> &stemRecords() {
+    static std::map<StemKey, uint32_t> records;
+    return records;
+}
+StemKey stemKey(const RavetPluginProductV1 &product, const RavetPluginLayoutV1 &layout) {
+    return StemKey{product.aax_manufacturer, product.aax_product, layout.aax_type_id};
+}
+void recordOutputStems(const RavetPluginProductV1 &product, const RavetPluginLayoutV1 &layout, uint32_t count) {
+    std::lock_guard<std::mutex> guard(stemLock);
+    stemRecords()[stemKey(product, layout)] = count;
+}
+// Stem names handed to the host stay alive for the library's lifetime.
+const char *keepName(const std::string &name) {
+    static std::mutex lock;
+    static std::set<std::string> names;
+    std::lock_guard<std::mutex> guard(lock);
+    return names.insert(name).first->c_str();
+}
 
 // The AAX Library forwards host calls to these methods without catching, so
 // every method that allocates (parameter objects, ID strings, state buffers,
@@ -37,10 +64,31 @@ template <class R, class F> R guarded(R failure, F &&body) noexcept {
     }
 }
 
+// The auxiliary bus records as RavetPlugin.h defines them: at most 8; each
+// named (nonblank, at most 64 bytes, unique) with 0..64 inputs and outputs,
+// not both 0.
+bool validAuxiliaries(const RavetPluginProductV1 &product) {
+    if (product.auxiliary_count > kMaximumAuxiliaries || (product.auxiliary_count && !product.auxiliaries)) return false;
+    for (uint32_t i = 0; i < product.auxiliary_count; ++i) {
+        const RavetPluginAuxiliaryBusV1 &bus = product.auxiliaries[i];
+        if (!bus.name || (!bus.inputs && !bus.outputs) || bus.inputs > kMaximumAuxiliaryChannels ||
+            bus.outputs > kMaximumAuxiliaryChannels)
+            return false;
+        size_t length = 0;
+        bool blank = true;
+        for (; length <= 64 && bus.name[length]; ++length)
+            blank = blank && (bus.name[length] == ' ' || (bus.name[length] >= '\t' && bus.name[length] <= '\r'));
+        if (length == 0 || length > 64 || blank) return false;
+        for (uint32_t j = 0; j < i; ++j)
+            if (!std::strcmp(product.auxiliaries[j].name, bus.name)) return false;
+    }
+    return true;
+}
+
 bool valid(const RavetPluginEntryV1 *table) {
     return table && table->version == RAVET_PLUGIN_VERSION_1 &&
            table->byte_size >= sizeof(RavetPluginEntryV1) && table->product &&
-           table->product->layout_count && table->product->layouts;
+           table->product->layout_count && table->product->layouts && validAuxiliaries(*table->product);
 }
 
 // Physical ↔ normalized mapping through the table (scale, steps, clamping).
@@ -171,12 +219,73 @@ bool stemFormat(uint32_t count, AAX_EStemFormat &out) {
     }
 }
 
+uint32_t acceptedOutputStems(const RavetPluginProductV1 &product, const RavetPluginLayoutV1 &layout) {
+    std::lock_guard<std::mutex> guard(stemLock);
+    const auto found = stemRecords().find(stemKey(product, layout));
+    return found == stemRecords().end() ? 0 : found->second;
+}
+
+std::string effectId(const RavetPluginProductV1 &product, const RavetPluginLayoutV1 &layout) {
+    char suffix[32];
+    std::snprintf(suffix, sizeof(suffix), ".aax.%ux%u", layout.inputs, layout.outputs);
+    return std::string(product.plugin_id) + suffix;
+}
+
+std::string stemName(const char *bus, AAX_EStemFormat stem) {
+    std::string name = bus ? bus : "";
+    std::string lower = name;
+    for (char &c : lower)
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+    const char *suffix = stem == AAX_eStemFormat_Mono ? " Mono" : stem == AAX_eStemFormat_Stereo ? " Stereo" : "";
+    if (lower.find("mono") != std::string::npos || lower.find("stereo") != std::string::npos) suffix = "";
+    const size_t room = kMaximumStemName - std::strlen(suffix);
+    if (name.size() > room) {
+        size_t cut = room;
+        while (cut > 0 && (uint8_t(name[cut]) & 0xc0) == 0x80) --cut; // keep UTF-8 whole
+        name.resize(cut);
+    }
+    return name + suffix;
+}
+
+BusPlan busPlan(const RavetPluginEntryV1 &table, const RavetPluginLayoutV1 &layout, uint32_t outputStems) {
+    const RavetPluginProductV1 &product = *table.product;
+    BusPlan plan{};
+    plan.count = std::min(product.auxiliary_count, kMaximumAuxiliaries);
+    plan.hostOutputs = layout.outputs;
+    plan.hostInputs = layout.inputs;
+    uint32_t stems = 0;
+    for (uint32_t i = 0; i < plan.count; ++i) {
+        const RavetPluginAuxiliaryBusV1 &bus = product.auxiliaries[i];
+        AuxiliaryPlan &route = plan.buses[i];
+        route.inputs = bus.inputs;
+        route.outputs = bus.outputs;
+        if (bus.inputs && !bus.outputs && !plan.sideChain) {
+            route.route = AuxiliaryRoute::SideChain;
+            plan.sideChain = true;
+        } else if (!bus.inputs && bus.outputs && stems < outputStems && stemFormat(bus.outputs, route.stem)) {
+            // Pro Tools supports only mono and stereo auxiliary output stems.
+            route.route = AuxiliaryRoute::Output;
+            route.hostChannel = plan.hostOutputs;
+            plan.hostOutputs += bus.outputs;
+            ++stems;
+        } else {
+            route.stem = AAX_eStemFormat_None;
+        }
+    }
+    // AAX reports the key as an index into the main input array; give layouts
+    // without a main input one, so a connected key's index is never 0.
+    if (plan.sideChain && !layout.inputs) plan.hostInputs = layout.outputs;
+    return plan;
+}
+
 FieldLayout fieldLayout(const RavetPluginEntryV1 &table, const RavetPluginLayoutV1 &layout) {
     FieldLayout fields{};
-    int32_t next = 3; // 0 owner, 1 frames, 2 outputs
-    if (layout.inputs) fields.inputs = next++;
+    int32_t next = 3; // 0 owner, 1 frames, 2 outputs (main, then auxiliary stems)
+    const BusPlan plan = busPlan(table, layout);
+    if (plan.hostInputs) fields.inputs = next++;
     if (table.product->note_input) fields.midiInput = next++;
     if (table.product->note_output) fields.midiOutput = next++;
+    if (plan.sideChain) fields.sideChain = next++;
     fields.count = uint32_t(next);
     return fields;
 }
@@ -253,24 +362,38 @@ AAX_Result Parameters::initialize() {
     if (status == AAX_SUCCESS) status = controller->GetOutputStemFormat(&output);
     if (status != AAX_SUCCESS) return status;
     if (!(rate > 0.)) return AAX_ERROR_INVALID_ARGUMENT;
+    // The layout whose declared stems the host reports. A side-chain gives a
+    // 0-input layout a main input stem, which can make two layouts' stems
+    // equal (0x2 and 2x2): the host's effect ID tells them apart, then the
+    // first match in table order.
+    const auto declares = [&](const RavetPluginLayoutV1 &candidate) {
+        return busPlan(*table_, candidate).hostInputs == channels(input) && candidate.outputs == channels(output);
+    };
     const RavetPluginLayoutV1 *layout = nullptr;
+    AAX_CString effect;
+    if (controller->GetEffectID(&effect) == AAX_SUCCESS)
+        for (uint32_t i = 0; i < product.layout_count && !layout; ++i)
+            if (effectId(product, product.layouts[i]) == effect.Get() && declares(product.layouts[i]))
+                layout = &product.layouts[i];
     for (uint32_t i = 0; i < product.layout_count && !layout; ++i)
-        if (product.layouts[i].inputs == channels(input) && product.layouts[i].outputs == channels(output))
-            layout = &product.layouts[i];
+        if (declares(product.layouts[i])) layout = &product.layouts[i];
     if (!layout) return AAX_ERROR_INVALID_ARGUMENT;
     owner_->fields = fieldLayout(*table_, *layout);
     owner_->inputs = layout->inputs;
     owner_->outputs = layout->outputs;
     owner_->transport = Transport();
+    prepareBuses(*layout);
 
     RavetNativeProcessorConfigV1 config{};
     config.version = 1;
     config.maximum_frames = kMaximumFrames;
     config.maximum_events = kMaximumEvents;
     config.maximum_output_events = product.note_output ? kMaximumEvents : 0;
-    config.bus_count = 1;
+    config.bus_count = 1 + owner_->plan.count;
     config.sample_rate = double(rate);
     config.buses[0] = {layout->inputs, layout->outputs};
+    for (uint32_t i = 0; i < owner_->plan.count; ++i)
+        config.buses[1 + i] = {owner_->plan.buses[i].inputs, owner_->plan.buses[i].outputs};
     if (table_->prepare(owner_->instance, &config) != 0) return AAX_ERROR_INVALID_ARGUMENT;
     prepared_ = true;
 
@@ -282,6 +405,31 @@ AAX_Result Parameters::initialize() {
     }
     owner_->ready.store(true, std::memory_order_release);
     return AAX_SUCCESS;
+}
+
+void Parameters::prepareBuses(const RavetPluginLayoutV1 &layout) {
+    Owner &owner = *owner_;
+    owner.plan = busPlan(*table_, layout, acceptedOutputStems(*table_->product, layout));
+    uint32_t inputs = 0, outputs = 0;
+    for (uint32_t i = 0; i < owner.plan.count; ++i) {
+        inputs += owner.plan.buses[i].inputs;
+        outputs += owner.plan.buses[i].outputs;
+    }
+    owner.silent.assign(kMaximumFrames, 0.f);
+    owner.scratch.assign(size_t(outputs) * kMaximumFrames, 0.f);
+    // Silent inputs and scratch outputs until the callback routes host buffers.
+    owner.auxiliaryInputs.assign(inputs, owner.silent.data());
+    owner.auxiliaryOutputs.assign(outputs, nullptr);
+    for (uint32_t c = 0; c < outputs; ++c) owner.auxiliaryOutputs[c] = owner.scratch.data() + size_t(c) * kMaximumFrames;
+    uint32_t input = 0, output = 0;
+    for (uint32_t i = 0; i < owner.plan.count; ++i) {
+        const AuxiliaryPlan &route = owner.plan.buses[i];
+        owner.buses[1 + i] = {route.inputs, route.outputs,
+                              route.inputs ? static_cast<const void *>(owner.auxiliaryInputs.data() + input) : nullptr,
+                              route.outputs ? static_cast<const void *>(owner.auxiliaryOutputs.data() + output) : nullptr};
+        input += route.inputs;
+        output += route.outputs;
+    }
 }
 
 AAX_Result Parameters::Uninitialize() {
@@ -504,11 +652,12 @@ void AAX_CALLBACK Parameters::process(void *const instances[], const void *end) 
         const int32_t frames = fields[1] ? *static_cast<const int32_t *>(fields[1]) : 0;
         float *const *outputs = static_cast<float *const *>(fields[2]);
         if (!owner->ready.load(std::memory_order_acquire) || frames < 0 || uint32_t(frames) > kMaximumFrames) {
-            silence(outputs, owner->outputs, frames);
+            silence(outputs, owner->plan.hostOutputs, frames);
             continue;
         }
         const RavetPluginEntryV1 *table = owner->table;
         const FieldLayout &layout = owner->fields;
+        const BusPlan &plan = owner->plan;
 
         // Between blocks: answer a latency query from MAIN.
         if (owner->timingRequested.exchange(false, std::memory_order_acq_rel)) {
@@ -535,15 +684,41 @@ void AAX_CALLBACK Parameters::process(void *const instances[], const void *end) 
         if (owner->transport && aaxTransport(owner->transport, snapshot)) transport = &snapshot.transport();
 
         float *const *inputs = layout.inputs >= 0 ? static_cast<float *const *>(fields[layout.inputs]) : nullptr;
-        RavetNativeProcessorBusV1 bus{owner->inputs, owner->outputs, inputs, outputs};
+        // A 0-input layout's declared main input (side-chain products) is not
+        // passed on: the processor's main bus keeps 0 inputs.
+        owner->buses[0] = {owner->inputs, owner->outputs, owner->inputs ? inputs : nullptr, outputs};
+        if (plan.count) {
+            // The key is the host input channel right after the declared main
+            // inputs (AddSideChainIn reports its index). Any other index,
+            // including 0 when no key is assigned, means no key: silence.
+            const float *key = owner->silent.data();
+            if (layout.sideChain >= 0 && inputs && fields[layout.sideChain]) {
+                const int32_t index = *static_cast<const int32_t *>(fields[layout.sideChain]);
+                if (index > 0 && uint32_t(index) == plan.hostInputs && inputs[index]) key = inputs[index];
+            }
+            uint32_t input = 0, output = 0;
+            for (uint32_t i = 0; i < plan.count; ++i) {
+                const AuxiliaryPlan &route = plan.buses[i];
+                if (route.route == AuxiliaryRoute::SideChain)
+                    for (uint32_t c = 0; c < route.inputs; ++c) owner->auxiliaryInputs[input + c] = key;
+                if (route.route == AuxiliaryRoute::Output)
+                    for (uint32_t c = 0; c < route.outputs; ++c) {
+                        float *host = outputs ? outputs[route.hostChannel + c] : nullptr;
+                        owner->auxiliaryOutputs[output + c] =
+                            host ? host : owner->scratch.data() + size_t(output + c) * kMaximumFrames;
+                    }
+                input += route.inputs;
+                output += route.outputs;
+            }
+        }
         RavetNativeProcessorResultV1 result{};
         const uint32_t capacity = layout.midiOutput >= 0 ? kMaximumEvents : 0;
-        const int32_t status = table->process(owner->instance, &bus, 1, uint32_t(frames),
+        const int32_t status = table->process(owner->instance, owner->buses.data(), 1 + plan.count, uint32_t(frames),
                                               count ? owner->input.data() : nullptr, count, transport,
                                               capacity ? owner->output.data() : nullptr, capacity, &result);
         owner->lastStatus.store(status, std::memory_order_relaxed);
         if (status != 0 || result.status == 2) {
-            silence(outputs, owner->outputs, frames);
+            silence(outputs, plan.hostOutputs, frames);
             continue;
         }
         if (layout.midiOutput >= 0 && result.event_count) {
@@ -630,6 +805,7 @@ AAX_Result describe(AAX_ICollection &collection, const RavetPluginEntryV1 &table
     if (status == AAX_SUCCESS) status = collection.AddPackageName(product.name);
     if (status == AAX_SUCCESS) status = collection.SetPackageVersion(packedVersion(product.version));
     if (status != AAX_SUCCESS) return status;
+    if (!validAuxiliaries(product)) return AAX_ERROR_INVALID_ARGUMENT;
 
     uint32_t registered = 0;
     for (uint32_t i = 0; i < product.layout_count; ++i) {
@@ -637,6 +813,8 @@ AAX_Result describe(AAX_ICollection &collection, const RavetPluginEntryV1 &table
         AAX_EStemFormat input, output;
         // AAX has no stem for other channel counts without channel roles; skip them.
         if (!stemFormat(layout.inputs, input) || !stemFormat(layout.outputs, output) || !layout.outputs) continue;
+        const BusPlan plan = busPlan(table, layout);
+        stemFormat(plan.hostInputs, input); // the declared main input for side-chain products
         AAX_IEffectDescriptor *descriptor = collection.NewDescriptor();
         if (!descriptor) return AAX_ERROR_NULL_OBJECT;
         status = descriptor->AddName(product.name);
@@ -666,6 +844,28 @@ AAX_Result describe(AAX_ICollection &collection, const RavetPluginEntryV1 &table
         if (status == AAX_SUCCESS && fields.midiOutput >= 0)
             status = component->AddMIDINode(fields.midiOutput, AAX_eMIDINodeType_LocalOutput, "MIDI Out", 0xffff);
         if (status != AAX_SUCCESS) return status;
+        // The side-chain index field. A host that refuses it gets a zeroed
+        // private int32 in its place instead (fields may not have gaps); index 0
+        // reads as "no key", so the bus stays silent there.
+        bool sideChain = false;
+        if (fields.sideChain >= 0) {
+            sideChain = component->AddSideChainIn(fields.sideChain) == AAX_SUCCESS;
+            if (!sideChain) status = component->AddPrivateData(fields.sideChain, sizeof(int32_t));
+            if (status != AAX_SUCCESS) return status;
+        }
+        // A host without auxiliary output stems refuses AddAuxOutputStem and
+        // will not provide their buffers. Stop at the first refusal (later
+        // stems would shift channels) and record what this effect accepted;
+        // instances route only those (the rest become Unrouted).
+        uint32_t stems = 0;
+        for (uint32_t b = 0; b < plan.count; ++b) {
+            const AuxiliaryPlan &route = plan.buses[b];
+            if (route.route != AuxiliaryRoute::Output) continue;
+            // The field index argument is deprecated; stems follow the main outputs.
+            const char *name = keepName(stemName(product.auxiliaries[b].name, route.stem));
+            if (component->AddAuxOutputStem(2, route.stem, name) != AAX_SUCCESS) break;
+            ++stems;
+        }
         AAX_IPropertyMap *properties = component->NewPropertyMap();
         if (!properties) return AAX_ERROR_NULL_OBJECT;
         const std::pair<AAX_EProperty, AAX_CPropertyValue> records[] = {
@@ -681,7 +881,13 @@ AAX_Result describe(AAX_ICollection &collection, const RavetPluginEntryV1 &table
             status = properties->AddProperty(record.first, record.second);
             if (status != AAX_SUCCESS) return status;
         }
-        if (product.note_input || product.note_output) {
+        if (sideChain) {
+            status = properties->AddProperty(AAX_eProperty_SupportsSideChainInput, 1);
+            if (status != AAX_SUCCESS) return status;
+        }
+        // Auxiliary output stems belong to one instance's channel set, not to
+        // each mono instance of a multi-mono insert.
+        if (product.note_input || product.note_output || stems) {
             status = properties->AddProperty(AAX_eProperty_Constraint_MultiMonoSupport, 0);
             if (status != AAX_SUCCESS) return status;
         }
@@ -689,11 +895,9 @@ AAX_Result describe(AAX_ICollection &collection, const RavetPluginEntryV1 &table
         if (status == AAX_SUCCESS) status = descriptor->AddComponent(component);
         if (status != AAX_SUCCESS) return status;
 
-        char suffix[32];
-        std::snprintf(suffix, sizeof(suffix), ".aax.%ux%u", layout.inputs, layout.outputs);
-        const std::string effectId = std::string(product.plugin_id) + suffix;
-        status = collection.AddEffect(effectId.c_str(), descriptor);
+        status = collection.AddEffect(effectId(product, layout).c_str(), descriptor);
         if (status != AAX_SUCCESS) return status;
+        recordOutputStems(product, layout, stems);
         ++registered;
     }
     return registered ? AAX_SUCCESS : AAX_ERROR_INVALID_ARGUMENT;

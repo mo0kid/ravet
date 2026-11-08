@@ -77,6 +77,24 @@ std::string unitUri(const std::string &unit) {
 }
 
 std::string uiUri(const std::string &plugin) { return plugin + (plugin.find('#') == std::string::npos ? "#ui" : "-ui"); }
+std::string groupUri(const std::string &plugin, const std::string &symbol) {
+    return plugin + (plugin.find('#') == std::string::npos ? "#" : "-") + symbol;
+}
+
+// An LV2 port group (lv2/port-groups). Mono and stereo groups designate their
+// channels (pg:center, pg:left/pg:right); wider groups only list their ports.
+struct Group {
+    std::string symbol, label;
+    bool input = false;
+    uint32_t channels = 0;
+    std::string sideChainOf;  // group symbol, or empty
+};
+
+const char *channelDesignation(uint32_t channel, uint32_t channels) {
+    if (channels == 1) return "pg:center";
+    if (channels == 2) return channel ? "pg:right" : "pg:left";
+    return nullptr;
+}
 
 void usage() {
     std::cerr << "usage: ravet_lv2_turtle <product library> <bundle directory> --binary <file> "
@@ -141,7 +159,31 @@ int main(int argc, char **argv) {
            "@prefix ui: <http://lv2plug.in/ns/extensions/ui#> .\n"
            "@prefix units: <http://lv2plug.in/ns/extensions/units#> .\n"
            "@prefix urid: <http://lv2plug.in/ns/ext/urid#> .\n"
-           "@prefix bufsz: <http://lv2plug.in/ns/ext/buf-size#> .\n\n";
+           "@prefix bufsz: <http://lv2plug.in/ns/ext/buf-size#> .\n";
+    // Port groups, only for products with auxiliary buses, so the Turtle of
+    // every other product is unchanged byte for byte.
+    std::vector<Group> groups;
+    std::string mainGroup;  // symbol of the main group side-chains refer to
+    const auto &mainLayout = product.layouts[0];
+    for (uint32_t b = 0; b < product.auxiliary_count; ++b)
+        if (product.auxiliaries[b].outputs == 0)
+            mainGroup = mainLayout.inputs ? mainInputGroup : mainOutputGroup;
+    if (!mainGroup.empty()) {
+        const bool input = mainLayout.inputs != 0;
+        groups.push_back({mainGroup, input ? "Input" : "Output", input, input ? mainLayout.inputs : mainLayout.outputs, {}});
+    }
+    for (uint32_t b = 0; b < product.auxiliary_count; ++b) {
+        const auto &bus = product.auxiliaries[b];
+        const std::string name = bus.name;
+        const bool both = bus.inputs && bus.outputs;
+        if (bus.inputs)
+            groups.push_back({auxGroupSymbol(b, true), both ? name + " In" : name, true, bus.inputs,
+                              bus.outputs ? std::string() : mainGroup});
+        if (bus.outputs)
+            groups.push_back({auxGroupSymbol(b, false), both ? name + " Out" : name, false, bus.outputs, {}});
+    }
+    if (!groups.empty()) out << "@prefix pg: <http://lv2plug.in/ns/ext/port-groups#> .\n";
+    out << "\n";
     out << "<" << uri << ">\n  a lv2:Plugin, doap:Project";
     if (product.category == RAVET_PLUGIN_INSTRUMENT) out << ", lv2:InstrumentPlugin";
     else if (product.category == RAVET_PLUGIN_MIDI_EFFECT) out << ", lv2:MIDIPlugin";
@@ -156,8 +198,20 @@ int main(int argc, char **argv) {
     out << "  opts:supportedOption bufsz:maxBlockLength, bufsz:nominalBlockLength ;\n";
     out << "  lv2:extensionData state:interface ;\n";
     if (editor) out << "  ui:ui <" << ui << "> ;\n";
+    if (!mainGroup.empty())
+        out << "  pg:" << (mainGroup == mainInputGroup ? "mainInput" : "mainOutput") << " <" << groupUri(uri, mainGroup) << "> ;\n";
 
     const auto ports = portLayout(*entry);
+    // The group of an audio port, or empty.
+    auto groupOf = [&](const Port &port) -> std::string {
+        switch (port.kind) {
+        case PortKind::AudioIn: return mainGroup == mainInputGroup ? mainGroup : std::string();
+        case PortKind::AudioOut: return mainGroup == mainOutputGroup ? mainGroup : std::string();
+        case PortKind::AuxIn: return auxGroupSymbol(port.bus, true);
+        case PortKind::AuxOut: return auxGroupSymbol(port.bus, false);
+        default: return {};
+        }
+    };
     for (size_t index = 0; index < ports.size(); ++index) {
         const auto &port = ports[index];
         out << (index ? " , [\n" : "  lv2:port [\n");
@@ -168,6 +222,17 @@ int main(int argc, char **argv) {
         switch (port.kind) {
         case PortKind::AudioIn: head("lv2:InputPort, lv2:AudioPort"); break;
         case PortKind::AudioOut: head("lv2:OutputPort, lv2:AudioPort"); break;
+        // Auxiliary buses: hosts may leave them unconnected (the adapter then
+        // supplies silence or discards the output). Inputs of input-only buses
+        // are side-chains.
+        case PortKind::AuxIn:
+            head("lv2:InputPort, lv2:AudioPort");
+            out << " ;\n    lv2:portProperty lv2:connectionOptional" << (port.sideChain ? ", lv2:isSideChain" : "");
+            break;
+        case PortKind::AuxOut:
+            head("lv2:OutputPort, lv2:AudioPort");
+            out << " ;\n    lv2:portProperty lv2:connectionOptional";
+            break;
         case PortKind::EventsIn:
             head("lv2:InputPort, atom:AtomPort");
             out << " ;\n    atom:bufferType atom:Sequence ;\n    atom:supports time:Position";
@@ -237,9 +302,26 @@ int main(int argc, char **argv) {
             break;
         }
         }
+        const std::string group = groupOf(port);
+        if (!group.empty()) {
+            uint32_t channels = 0;
+            for (const auto &g : groups) if (g.symbol == group) channels = g.channels;
+            out << " ;\n    pg:group <" << groupUri(uri, group) << ">";
+            if (const char *designation = channelDesignation(port.channel, channels))
+                out << " ;\n    lv2:designation " << designation;
+        }
         out << "\n  ]";
     }
     out << " .\n";
+
+    for (const auto &group : groups) {
+        out << "\n<" << groupUri(uri, group.symbol) << ">\n  a " << (group.input ? "pg:InputGroup" : "pg:OutputGroup");
+        if (group.channels == 1) out << ", pg:MonoGroup";
+        else if (group.channels == 2) out << ", pg:StereoGroup";
+        out << " ;\n  lv2:symbol " << literal(group.symbol) << " ;\n  rdfs:label " << literal(group.label);
+        if (!group.sideChainOf.empty()) out << " ;\n  pg:sideChainOf <" << groupUri(uri, group.sideChainOf) << ">";
+        out << " .\n";
+    }
 
     if (editor) {
         out << "\n<" << ui << ">\n  a ui:" << uiClass << " ;\n"
