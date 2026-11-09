@@ -169,6 +169,28 @@ automation/meter/hide/destroy cycles, visible protocol errors, and further audio
 processing after GUI destruction. Main-loop WebKit startup can be asynchronous;
 run this native probe separately from other WebKit startup probes.
 
+### Capture editor screenshots
+
+The `capture` example opens the first plug-in in any trusted built CLAP bundle,
+embeds its editor at the editor's own size in a hidden Cocoa parent, waits for
+the page to receive product info and writes a WebKit PNG. An optional page
+script, which must return `true`, sets values before the snapshot. The README
+images were made this way:
+
+```sh
+python3 scripts/bundle-clap.py --plugin delay
+python3 scripts/bundle-clap.py --plugin generic
+cargo run -p ravet-editor-smoke --example capture --locked -- \
+  "target/clap/release/RAVET Delay.clap" media/screenshots/delay-editor.png \
+  "ravetPlugin.set('time',375);ravetPlugin.set('feedback',42);ravetPlugin.set('tone',6500);ravetPlugin.set('mix',30);ravetPlugin.set('ping_pong',1);ravetPlugin.set('division',4);true"
+cargo run -p ravet-editor-smoke --example capture --locked -- \
+  "target/clap/release/RAVET Gain Generic.clap" media/screenshots/gain-editor.png \
+  "ravetPlugin.set('gain',1.4);true"
+```
+
+Snapshots are taken at the display's backing scale (2x on Retina). Capture runs
+no audio and checks no host behaviour; it is a documentation tool, not a probe.
+
 The original local-file C++ lifecycle probe remains available:
 
 ```sh

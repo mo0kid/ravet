@@ -32,6 +32,22 @@ API reference, and the [feature catalogue](docs/FEATURES.md). Documentation is
 updated alongside implementation; [maintenance](docs/maintenance.md) describes
 the registry, generation, and continuous checks.
 
+## Editor examples
+
+Plug-in editors are ordinary HTML pages hosted in the platform web view. These
+are WebKit snapshots of the built CLAP bundles' editors on macOS, captured with
+[`ravet-editor-smoke`'s capture example](docs/native-editor.md#capture-editor-screenshots).
+
+<p align="center">
+  <img src="media/screenshots/delay-editor.png" width="560" alt="RAVET Delay editor: Time, Feedback, Tone and Mix knobs, tempo-sync divisions, Sync, Ping-pong and Bypass buttons">
+</p>
+<p align="center"><em>Tempo-synced delay (<a href="examples/delay-plugin/editor/index.html"><code>examples/delay-plugin/editor</code></a>)</em></p>
+
+<p align="center">
+  <img src="media/screenshots/gain-editor.png" width="480" alt="RAVET Gain (generic) editor: a gain slider at 1.40 x and a bypass checkbox">
+</p>
+<p align="center"><em>Minimal gain editor with an asset stylesheet (<a href="examples/gain-plugin/editor/index.html"><code>examples/gain-plugin/editor</code></a>)</em></p>
+
 ## Build the delay plug-in
 
 ```sh

@@ -3814,9 +3814,9 @@ Bounded explicit non-loading candidate scans and trusted native entry loading pr
 
 A main-thread instance-borrowing guard owns negotiated editor creation, embedded parent attachment, bounded resizing, idempotent show/hide and guaranteed paired destruction.
 
-**Limits:** Embedded sizes 1..16384 per dimension; native parent attachment/transient lifetime is an explicit unsafe caller contract. No parent window creation/pump, host GUI request scheduling, focus/scale policy or device integration. Local Cocoa RAVET/upstream EGUI child/lifecycle fixtures pass; visual hide/accessibility, floating/other OS APIs and broad compatibility unvalidated.
+**Limits:** Embedded sizes 1..16384 per dimension; native parent attachment/transient lifetime is an explicit unsafe caller contract. No parent window creation/pump, host GUI request scheduling, focus/scale policy or device integration. Local Cocoa RAVET/upstream EGUI child/lifecycle fixtures pass; the capture example writes documentation PNGs of built RAVET editors (macOS only, no host checks); visual hide/accessibility, floating/other OS APIs and broad compatibility unvalidated.
 
-**Source:** [`crates/ravet-host/src/editor.rs`](../crates/ravet-host/src/editor.rs), [`tools/editor-smoke/examples/hosted.rs`](../tools/editor-smoke/examples/hosted.rs).
+**Source:** [`crates/ravet-host/src/editor.rs`](../crates/ravet-host/src/editor.rs), [`tools/editor-smoke/examples/hosted.rs`](../tools/editor-smoke/examples/hosted.rs), [`tools/editor-smoke/examples/capture.rs`](../tools/editor-smoke/examples/capture.rs).
 
 **Tests:** [`crates/ravet-host/tests/catalogue.rs`](../crates/ravet-host/tests/catalogue.rs), [`tools/editor-smoke/examples/hosted.rs`](../tools/editor-smoke/examples/hosted.rs), [`crates/ravet-host/tests/linked_sine.rs`](../crates/ravet-host/tests/linked_sine.rs).
 
