@@ -1,5 +1,5 @@
 #include "RavetFileDialog.h"
-#include <gtk/gtk.h>
+#include "RavetGtk.h"  // last: redirects GTK names to loaded functions
 namespace ravet::surface {
 struct DialogContext {
     FileDialogCompletion callback;
@@ -7,7 +7,7 @@ struct DialogContext {
     ~DialogContext() { if(!responded) callback({}); }
 };
 bool openFile(const FileDialogOptions& options, FileDialogCompletion callback) {
-    if (!callback || !gdk_display_get_default()) return false;
+    if (!callback || !ravet_gtk::load(ravet_gtk::Part::gtk) || !gdk_display_get_default()) return false;
     auto* dialog = gtk_file_chooser_dialog_new(options.title.c_str(), static_cast<GtkWindow*>(options.parent),
         GTK_FILE_CHOOSER_ACTION_OPEN, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, nullptr);
     if (!options.extension.empty()) {

@@ -3,12 +3,10 @@
 // an X11 window ID; X11 (including XWayland) is therefore required. Sizes are GTK
 // logical pixels. Audio/MIDI settings persistence is handled in Rust.
 #include "../../ravet-surface/native/RavetWebView.h"
-#include <gtk/gtk.h>
-#include <gtk/gtkx.h>
-#include <gdk/gdkx.h>
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include "../../ravet-surface/native/RavetGtk.h"  // last: redirects GTK names to loaded functions
 
 namespace {
 struct Host {
@@ -49,7 +47,7 @@ Host* live(void* handle) {
 
 // Allocating entry points are noexcept: no exception unwinds into Rust.
 extern "C" void* ravet_standalone_create(bool hidden, bool settings, const char* title, double width, double height, bool lockAspect) noexcept {
-    if (!title || !ravet_web_is_main_thread()) return nullptr;
+    if (!title || !ravet_web_is_main_thread() || !ravet_gtk::load(ravet_gtk::Part::web)) return nullptr;
     if (!gdk_display_get_default()) gdk_set_allowed_backends("x11");
     if (!gtk_init_check(nullptr, nullptr) || !GDK_IS_X11_DISPLAY(gdk_display_get_default())) return nullptr;
     auto w = std::make_unique<Host>();
@@ -123,6 +121,7 @@ extern "C" void* ravet_standalone_view(void* handle) {
     return reinterpret_cast<void*>(uintptr_t(gtk_socket_get_id(GTK_SOCKET(w->socket))));
 }
 extern "C" bool ravet_standalone_pump(void* handle, double seconds) {
+    if (!ravet_gtk::load(ravet_gtk::Part::gtk)) return false;
     auto* w = static_cast<Host*>(handle);
     gint64 end = g_get_monotonic_time() + gint64(std::max(0.0, seconds) * 1e6);
     for (;;) {

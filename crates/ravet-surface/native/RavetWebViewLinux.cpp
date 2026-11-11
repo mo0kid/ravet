@@ -1,10 +1,5 @@
 #include "RavetWebView.h"
 #include "RavetWebAssets.h"
-#include <gtk/gtk.h>
-#include <gtk/gtkx.h>
-#include <gdk/gdkx.h>
-#include <webkit2/webkit2.h>
-#include <json-glib/json-glib.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -17,6 +12,7 @@
 #include <thread>
 #include <dlfcn.h>
 #include <link.h>
+#include "RavetGtk.h"  // last: redirects GTK and WebKit names to loaded functions
 
 namespace {
 // Adopted by the first creation; read by every entry point.
@@ -166,6 +162,9 @@ void pinModule() {
 Owner create(double width,double height,void* context,RavetWebMessage message,RavetWebSnapshot snapshot,RavetWebSnapshotBuffer buffer) {
     if(!ravet_web_is_main_thread()||!std::isfinite(width)||!std::isfinite(height)||width<=0||height<=0||width>32767||height>32767) return {};
     if(foreignGdkLoaded()) return {};
+    // Without GTK 3, WebKitGTK 4.1 or json-glib the binary still loads; it
+    // only has no editor, and hosts show generic controls.
+    if(!ravet_gtk::load(ravet_gtk::Part::web)) return {};
     // VST3 Linux parents are X11 windows, including those supplied by XWayland.
     // Select X11 when we initialize GTK; an already initialized Wayland GTK
     // context cannot be repurposed, so fail rather than attach to the wrong display.
@@ -230,7 +229,7 @@ struct XErrorTrap {
 };
 }
 extern "C" bool ravet_web_is_main_thread() { auto ui=uiThread.load(); return ui==std::thread::id()||std::this_thread::get_id()==ui; }
-extern "C" void ravet_web_pump() { for(int i=0;i<32&&g_main_context_pending(nullptr);++i) g_main_context_iteration(nullptr,FALSE); }
+extern "C" void ravet_web_pump() { if(!ravet_gtk::load(ravet_gtk::Part::gtk)) return; for(int i=0;i<32&&g_main_context_pending(nullptr);++i) g_main_context_iteration(nullptr,FALSE); }
 extern "C" void* ravet_web_create(const char* path,double w,double h,void* context,RavetWebMessage message,RavetWebSnapshot snapshot) noexcept {
     if(!path) return nullptr; std::error_code error; auto file=std::filesystem::canonical(path,error); if(error||!std::filesystem::is_regular_file(file,error)) return nullptr;
     auto s=create(w,h,context,message,snapshot,nullptr); if(!s) return nullptr;
