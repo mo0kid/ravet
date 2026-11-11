@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "ravet"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-audio-file",
  "ravet-clap",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-audio-file"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "flacenc",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-bus-routing-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-foundation",
  "ravet-native",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-clap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-clap-smoke"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clack-extensions",
  "clack-host",
@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-core-midi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "cc",
@@ -1444,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-data"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ed25519-dalek",
  "num-bigint",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-delay-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1467,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-device"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "cpal",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-device-probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-host",
@@ -1494,7 +1494,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-editor-smoke"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1508,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-embedded"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-embedded-gain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-embedded",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-examples"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-audio-file",
@@ -1542,14 +1542,14 @@ dependencies = [
 
 [[package]]
 name = "ravet-foundation"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libm",
 ]
 
 [[package]]
 name = "ravet-foundry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-data",
  "ravet-surface",
@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-gain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet",
@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-gain-clap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1587,7 +1587,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-gain-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1600,7 +1600,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-gain-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-foundation",
  "ravet-gain",
@@ -1609,7 +1609,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-graph"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1620,7 +1620,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-instrument"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1645,11 +1645,11 @@ dependencies = [
 
 [[package]]
 name = "ravet-media"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ravet-metal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-media",
  "ravet-surface",
@@ -1657,7 +1657,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-midi-device"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "midir",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-native-dsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "libm",
@@ -1686,11 +1686,11 @@ dependencies = [
 
 [[package]]
 name = "ravet-osc"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ravet-performance-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-foundation",
  "ravet-instrument",
@@ -1699,7 +1699,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1715,7 +1715,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-preset"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-runtime",
  "ravet-state",
@@ -1723,7 +1723,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rustls",
  "serde_json",
@@ -1733,14 +1733,14 @@ dependencies = [
 
 [[package]]
 name = "ravet-runtime-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-runtime",
 ]
 
 [[package]]
 name = "ravet-sidechain-clap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-signal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1762,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-sine-clap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1776,7 +1776,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-standalone-probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ravet-device",
  "ravet-midi-device",
@@ -1785,11 +1785,11 @@ dependencies = [
 
 [[package]]
 name = "ravet-state"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ravet-surface"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "gif",
@@ -1813,7 +1813,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-synth-plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "clack-extensions",
@@ -1826,7 +1826,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-vst3-reference-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allocation-counter",
  "ravet-foundation",
@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "ravet-webview"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "pkg-config",

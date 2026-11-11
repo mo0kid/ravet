@@ -16,7 +16,7 @@
 //! through Cargo features:
 //!
 //! ```toml
-//! ravet = { git = "https://github.com/mo0kid/ravet", tag = "v0.1.0", features = ["clap", "webview"] }
+//! ravet = { git = "https://github.com/mo0kid/ravet", tag = "v0.1.1", features = ["clap", "webview"] }
 //! ```
 //!
 //! [`foundation`], [`signal`] and [`surface`] are always available. Every other

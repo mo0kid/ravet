@@ -5,7 +5,7 @@
 **Rust Audio Visual Engineering Toolkit** — a Rust framework in development
 for audio plug-ins and standalone audio applications.
 
-Version **0.1.0** exports one product description as CLAP, VST3, AUv2, AAX and
+Version **0.1.1** exports one product description as CLAP, VST3, AUv2, AAX and
 LV2 plug-ins on macOS, Windows and Linux. See the
 [release notes](docs/releases/0.1.0-notes.md), the [changelog](CHANGELOG.md) and
 the [support matrix](docs/support-matrix.md) for what is included, which hosts

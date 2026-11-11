@@ -48,7 +48,7 @@ resolver = "3"
 
 [workspace.package]
 license = "GPL-3.0-only"
-version = "0.1.0"
+version = "0.1.1"
 rust-version = "1.88"
 edition = "2024"
 publish = false
@@ -60,31 +60,31 @@ keywords = ["audio", "dsp", "plugin", "ravet"]
 categories = ["multimedia::audio"]
 
 [workspace.dependencies]
-ravet = { path = "crates/ravet", version = "0.1.0" }
-ravet-audio-file = { path = "crates/ravet-audio-file", version = "0.1.0" }
-ravet-clap = { path = "crates/ravet-clap", version = "0.1.0" }
-ravet-core-midi = { path = "crates/ravet-core-midi", version = "0.1.0" }
-ravet-data = { path = "crates/ravet-data", version = "0.1.0" }
-ravet-device = { path = "crates/ravet-device", version = "0.1.0" }
-ravet-embedded = { path = "crates/ravet-embedded", version = "0.1.0" }
-ravet-foundation = { path = "crates/ravet-foundation", version = "0.1.0" }
-ravet-graph = { path = "crates/ravet-graph", version = "0.1.0" }
-ravet-host = { path = "crates/ravet-host", version = "0.1.0" }
-ravet-instrument = { path = "crates/ravet-instrument", version = "0.1.0" }
-ravet-media = { path = "crates/ravet-media", version = "0.1.0" }
-ravet-metal = { path = "crates/ravet-metal", version = "0.1.0" }
-ravet-midi-device = { path = "crates/ravet-midi-device", version = "0.1.0" }
-ravet-native = { path = "crates/ravet-native", version = "0.1.0" }
-ravet-native-dsp = { path = "crates/ravet-native-dsp", version = "0.1.0" }
-ravet-osc = { path = "crates/ravet-osc", version = "0.1.0" }
-ravet-plugin = { path = "crates/ravet-plugin", version = "0.1.0" }
-ravet-preset = { path = "crates/ravet-preset", version = "0.1.0" }
-ravet-runtime = { path = "crates/ravet-runtime", version = "0.1.0" }
-ravet-runtime-ffi = { path = "crates/ravet-runtime-ffi", version = "0.1.0" }
-ravet-signal = { path = "crates/ravet-signal", version = "0.1.0" }
-ravet-state = { path = "crates/ravet-state", version = "0.1.0" }
-ravet-surface = { path = "crates/ravet-surface", version = "0.1.0" }
-ravet-webview = { path = "crates/ravet-webview", version = "0.1.0" }
+ravet = { path = "crates/ravet", version = "0.1.1" }
+ravet-audio-file = { path = "crates/ravet-audio-file", version = "0.1.1" }
+ravet-clap = { path = "crates/ravet-clap", version = "0.1.1" }
+ravet-core-midi = { path = "crates/ravet-core-midi", version = "0.1.1" }
+ravet-data = { path = "crates/ravet-data", version = "0.1.1" }
+ravet-device = { path = "crates/ravet-device", version = "0.1.1" }
+ravet-embedded = { path = "crates/ravet-embedded", version = "0.1.1" }
+ravet-foundation = { path = "crates/ravet-foundation", version = "0.1.1" }
+ravet-graph = { path = "crates/ravet-graph", version = "0.1.1" }
+ravet-host = { path = "crates/ravet-host", version = "0.1.1" }
+ravet-instrument = { path = "crates/ravet-instrument", version = "0.1.1" }
+ravet-media = { path = "crates/ravet-media", version = "0.1.1" }
+ravet-metal = { path = "crates/ravet-metal", version = "0.1.1" }
+ravet-midi-device = { path = "crates/ravet-midi-device", version = "0.1.1" }
+ravet-native = { path = "crates/ravet-native", version = "0.1.1" }
+ravet-native-dsp = { path = "crates/ravet-native-dsp", version = "0.1.1" }
+ravet-osc = { path = "crates/ravet-osc", version = "0.1.1" }
+ravet-plugin = { path = "crates/ravet-plugin", version = "0.1.1" }
+ravet-preset = { path = "crates/ravet-preset", version = "0.1.1" }
+ravet-runtime = { path = "crates/ravet-runtime", version = "0.1.1" }
+ravet-runtime-ffi = { path = "crates/ravet-runtime-ffi", version = "0.1.1" }
+ravet-signal = { path = "crates/ravet-signal", version = "0.1.1" }
+ravet-state = { path = "crates/ravet-state", version = "0.1.1" }
+ravet-surface = { path = "crates/ravet-surface", version = "0.1.1" }
+ravet-webview = { path = "crates/ravet-webview", version = "0.1.1" }
 clack-plugin = "=0.2.0"
 clack-host = "=0.2.0"
 clack-extensions = "=0.2.0"

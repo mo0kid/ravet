@@ -5,6 +5,18 @@ grouped in the style of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 See the [0.1.0 release notes](docs/releases/0.1.0-notes.md) and the
 [release criteria](docs/releases/0.1.0.md).
 
+## 0.1.1 — 2026-11-11
+
+### Fixed
+
+- **Linux:** binaries no longer link GTK 3, WebKitGTK 4.1 or json-glib. The
+  editor, standalone window and file dialog load them on first use, so a
+  plug-in now loads and plays where they are missing (for example a Flatpak
+  host whose runtime lacks WebKitGTK); only its editor is unavailable, and
+  hosts show generic controls. WebKitGTK older than 2.40 is handled the same
+  way. `ravet-webview`'s build script fails if a GTK, WebKit or json-glib
+  function is called without going through `RavetGtk.h`.
+
 ## 0.1.0 — 2026-11-05
 
 ### Changed

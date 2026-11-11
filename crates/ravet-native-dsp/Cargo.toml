@@ -20,7 +20,7 @@ processor = ["dep:ravet-foundation"]
 
 [dependencies]
 libm = { version = "=0.2.16", default-features = false }
-ravet-foundation = { path = "../ravet-foundation", version = "0.1.0", default-features = false, optional = true }
+ravet-foundation = { path = "../ravet-foundation", version = "0.1.1", default-features = false, optional = true }
 
 [dev-dependencies]
 allocation-counter = "=0.8.1"
