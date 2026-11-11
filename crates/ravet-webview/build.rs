@@ -18,6 +18,8 @@ fn main() {
     println!("cargo:rerun-if-changed=native/StandaloneWindowLinux.cpp");
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetWebViewWindows.cpp");
     println!("cargo:rerun-if-changed=../ravet-surface/native/RavetWebViewLinux.cpp");
+    println!("cargo:rerun-if-changed=../ravet-surface/native/RavetGtk.h");
+    println!("cargo:rerun-if-changed=../ravet-surface/native/RavetGtk.cpp");
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("macos") => {}
         Ok("windows") => return windows(),
@@ -173,17 +175,19 @@ fn windows() {
 
 /// GTK 3/WebKitGTK 4.1 backend, X11 only. Set
 /// `RAVET_WEB_LINUX_SOFTWARE_RENDERING=1` for WebKit's non-accelerated painting.
+///
+/// GTK, WebKitGTK and json-glib are compiled against but not linked: RavetGtk.cpp
+/// loads them with dlopen when the first editor or window opens, so binaries
+/// load where they are missing (a Flatpak host's runtime, for one).
 fn linux() {
     println!("cargo:rerun-if-env-changed=RAVET_WEB_LINUX_SOFTWARE_RENDERING");
+    println!("cargo:rerun-if-env-changed=NM");
     let mut build = cc::Build::new();
     build
         .cpp(true)
         .std("c++17")
         .flag_if_supported("-Wno-misleading-indentation")
         .flag_if_supported("-Wno-deprecated-declarations");
-    // Probe without emitting link flags: the static library must precede the
-    // shared GTK/WebKit libraries on the linker command line.
-    let mut libraries = Vec::new();
     for (package, version) in [("webkit2gtk-4.1", "2.40"), ("json-glib-1.0", "1.0")] {
         let library = pkg_config::Config::new()
             .atleast_version(version)
@@ -191,7 +195,6 @@ fn linux() {
             .probe(package)
             .unwrap_or_else(|error| panic!("{package} development files are required: {error}"));
         build.includes(&library.include_paths);
-        libraries.push(library);
     }
     let software = env::var("RAVET_WEB_LINUX_SOFTWARE_RENDERING").is_ok_and(|v| v == "1");
     build
@@ -199,16 +202,48 @@ fn linux() {
             "RAVET_WEB_LINUX_SOFTWARE_RENDERING",
             if software { "1" } else { "0" },
         )
+        .file("../ravet-surface/native/RavetGtk.cpp")
         .file("../ravet-surface/native/RavetWebViewLinux.cpp")
         .file("native/StandaloneWindowLinux.cpp")
         .compile("ravet_webview");
-    for library in &libraries {
-        for path in &library.link_paths {
-            println!("cargo:rustc-link-search=native={}", path.display());
-        }
-        for name in &library.libs {
-            println!("cargo:rustc-link-lib={name}");
-        }
-    }
     println!("cargo:rustc-link-lib=dl");
+    check_unlinked_gtk();
+}
+
+/// A GTK, WebKit or json-glib function called without going through RavetGtk.h
+/// would stay an undefined symbol, and the binary would fail to load wherever
+/// that library is missing: the failure this backend exists to prevent.
+fn check_unlinked_gtk() {
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let archive = out.join("libravet_webview.a");
+    let nm = env::var("NM").unwrap_or_else(|_| "nm".into());
+    let output = match Command::new(&nm)
+        .args(["--undefined-only", "--format=just-symbols"])
+        .arg(&archive)
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => {
+            println!(
+                "cargo:warning=`{nm}` could not list {}; unlinked GTK symbols were not checked",
+                archive.display()
+            );
+            return;
+        }
+    };
+    let unlinked: Vec<_> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|symbol| {
+            ["g_", "gdk_", "gtk_", "webkit_", "jsc_", "json_"]
+                .iter()
+                .any(|prefix| symbol.starts_with(prefix))
+        })
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        unlinked.is_empty(),
+        "add these to RavetGtk.h so they load at run time: {}",
+        unlinked.join(" ")
+    );
 }
