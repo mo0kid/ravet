@@ -11,7 +11,7 @@ distribution. They preserve reasons and consequences; the
 | [0003](0003-gain-session-state.md) | Gain session state | Legacy version-one record retained; CLAP protocol extended by 0012 |
 | [0004](0004-prepared-dsp-primitives.md) | Prepared DSP primitives and private consumers | Delay, feedback diffusion, fixed 2x conversion implemented; product code remains private |
 | [0005](0005-native-web-editor.md) | Local WebKit native editor | Backend prototype; Cargo/CLAP integration in 0013, scoped macOS REAPER evidence recorded |
-| [0006](0006-distribution-policy.md) | Distribution and licensing | GPLv3 plus commercial model and launch pricing selected; agreement pending |
+| [0006](0006-distribution-policy.md) | Distribution and licensing | GPLv3 plus commercial model and launch pricing selected; agreement 1.0 adopted in 0301 |
 | [0007](0007-control-data-services.md) | Explicit control-thread data services | Bounded XML, hashing, and legacy signature compatibility implemented |
 | [0008](0008-word-snapshots.md) | Bounded coherent word snapshots | Complete atomic publications and stale-update rejection implemented |
 | [0009](0009-quadrature-rotation.md) | Caller-owned quadrature rotation | Prepared arithmetic kernel implemented; consumers own phase and reanchoring |
@@ -528,3 +528,4 @@ and feature status in the same change. Preserve the earlier rationale as history
 | [0296](0296-skip-unqueryable-devices.md) | Leave unqueryable devices out of device lists | Implemented; Arch Linux PipeWire/ALSA list with a busy hardware PCM |
 | [0297](0297-latency-compensated-bypass.md) | Latency-compensated dry signal for plug-in bypass policies | Implemented in ravet-plugin; offline unit evidence only |
 | [0298](0298-plugin-auxiliary-buses.md) | Auxiliary buses and sidechains in the plug-in export layer | Prototype in ravet-plugin and the VST3, AUv2, LV2 and AAX adapters; offline macOS evidence only |
+| [0301](0301-commercial-licensing-launch.md) | Open commercial licensing | Accepted; ordering implemented and enabled on djwaudio.co, live on deploy |

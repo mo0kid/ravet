@@ -26,67 +26,61 @@ future generated templates.
 
 ## Commercial route
 
-The owner approved the following launch pricing and commercial policy on
-8 October 2026. A separate commercial agreement will permit proprietary
-distribution on its agreed terms. **This document is not a commercial licence
-grant.** Until an agreement is executed, this repository supplies the GPL route.
+Commercial licences for proprietary distribution are sold under the **RAVET
+Commercial Licence Agreement, version 1.0** (17 November 2026), published at
+<https://djwaudio.co/ravet/licences/agreement/>. Order at
+<https://djwaudio.co/ravet/licences/>. The Licensor is David Whiting, trading as
+DJW Audio. **This document is not a commercial licence grant.** Commercial
+rights start only under an accepted Order: the Order Form emailed after payment
+(Indie and Pro) or email confirmation (Starter), together with the agreement
+version it names. Without one, this repository supplies the GPL route.
 
-| Tier | Annual company revenue (USD) | Approved launch price |
+| Tier | Annual company revenue (USD) | Price |
 |---|---|---|
 | Starter | Up to and including $50,000 | Free |
 | Indie | Above $50,000, up to and including $500,000 | $199 per developer per year |
 | Pro | Above $500,000, with no upper limit | $699 per developer per year |
 
-Prices are in USD, excluding applicable taxes. Exactly $50,000 qualifies for
-Starter; exactly $500,000 qualifies for Indie. Revenue is company-wide, rather
-than limited to RAVET-based products, measured over the previous twelve months
-at purchase or renewal. These bands identify the minimum qualifying tier.
+Prices are in USD. The Licensor is not registered for VAT and charges none.
+Exactly $50,000 qualifies for Starter; exactly $500,000 qualifies for Indie.
+Revenue is company-wide, rather than limited to RAVET-based products, measured
+over the previous twelve months at purchase or renewal. These bands identify the
+minimum qualifying tier; a customer may choose a higher one.
 
-### Approved commercial policy
+### Commercial policy
 
 - Every tier includes every framework feature, supported platform, and supported
   plug-in format. This is not a promise of functionality not yet implemented.
 - Unlimited products and no royalties.
-- Paid licences include twelve months of updates and permanent commercial rights
-  to the versions received during that period. Renewal purchases further updates;
-  developers may continue building and selling products using previously licensed
-  versions after renewal stops.
+- Paid licences include a twelve-month Update Period and permanent commercial
+  rights to the versions received during it. Renewal is optional and never
+  automatic; developers may continue building and selling products using
+  previously licensed versions after renewal stops.
 - No separate licence fees for build machines or CI.
 - Revenue tier is assessed at purchase or renewal. Company growth does not
   retroactively invalidate earlier licences or their retained distribution rights.
 - Community support is available across all tiers. Paid customers receive a direct
   reporting channel. Dedicated engineering support and contractual response times
   are priced separately; the base licence includes no response-time guarantee.
-- Start with annual billing. Monthly instalments are a possible future offering,
-  not an approved launch option.
-- Keep the preview phase free. Introduce paid commercial licensing when RAVET can
-  reliably ship production plug-ins with usable editors and documentation. Preview
-  pricing does not itself grant permission to distribute proprietary products.
+- Annual billing, paid up front by card. Monthly instalments are not offered.
 
-### Commercial agreement draft
+### How an Order works
 
-A Commercial Licence Agreement draft 0.1, kept privately until it is final,
-contains the proposed contract and Order Form. It preserves the approved policy
-and lists additional drafting choices for owner and legal review. It is not an
-executed licence, and its proposed defaults have not been adopted merely by
-being drafted. The repository's GPL metadata and LICENSE remain unchanged.
+The order form at djwaudio.co records the customer's details, certified revenue,
+developer seats and express acceptance of the agreement version. Indie and Pro
+continue to card payment; Starter is confirmed by email. The completed Order
+Form (the agreement's Schedule A) is then emailed to the customer. It names the
+initial Licensed Versions as a RAVET release tag and commit, all first-party
+files in that tag excluding third-party materials, and identifies the
+third-party inventory as [dependency notices](docs/dependency-notices.md) and
+this file at that tag. Release tags published during the Update Period are the
+later commercial releases. A full refund ends a paid Order.
 
-### Contract details still needed
+Agreement terms that go beyond the policy above (seat definitions, Starter
+retained rights, revenue calculation and currency conversion, source
+distribution, verification, liability, termination and English law) are set by
+the agreement itself. Changes apply only to Orders that accept a later version.
 
-The pricing and policy above are accepted; the final agreement still needs to
-specify:
-
-- Revenue calculation, currency conversion, related entities, and funding treatment.
-- Developer-seat definition, contractor coverage, reassignment, and purchases
-  partway through a licence year.
-- Starter enrolment, eligibility reassessment, and the scope of its retained
-  commercial rights; whether customers may voluntarily select a higher tier.
-- Exact version coverage, support-channel operation, renewal, and termination
-  for breaches of the agreement.
-- Rights to modify RAVET, and permitted source/binary redistribution.
-- Licence scope and treatment of third-party components.
-
-Have the actual commercial agreement reviewed before offering it to customers.
 Do not introduce accounts, activation, telemetry, or runtime licence checks
 solely because this licensing decision exists.
 
@@ -117,7 +111,7 @@ maintainers and distributors, not legal advice.
 
 The Cargo identifier describes the open-source licence currently supplied by
 this repository. Do not label it `MIT OR Apache-2.0`, `GPL-3.0-or-later`, or use
-an invented standard SPDX identifier for the unfinished commercial agreement.
+an invented standard SPDX identifier for the commercial agreement.
 Keep `publish = false` until release preparation is intentionally completed.
 
 ## Primary references

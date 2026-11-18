@@ -101,7 +101,7 @@ track which capabilities are ready to use. Public Rust APIs remain provisional.
 | [Public publication boundary](publication.md) | Private consumer separation and Git-history review before publication |
 | [Work status](WORK_STATUS.md) | Validation history and the next bounded work packages |
 | [Decision records](decisions/README.md) | Reasons for architectural and distribution choices |
-| [Licensing](../LICENSING.md) | GPL edition and accepted commercial pricing/policy |
+| [Licensing](../LICENSING.md) | GPL edition, commercial licences, pricing and ordering |
 
 Caller-owned [local font fallback](font-fallback.md) retains exact selected faces
 through shaping and SVG/CPU rendering.

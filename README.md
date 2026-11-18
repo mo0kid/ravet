@@ -206,18 +206,18 @@ project's scope. Packages remain unpublished.
 RAVET uses **GPLv3 plus separate commercial licensing**. The repository's
 open-source edition is `GPL-3.0-only`; see [LICENSE](LICENSE).
 
-The approved commercial launch prices are **Starter: free** (company revenue up
-to $50,000), **Indie: $199 per developer per year** (above $50,000, up to
+Commercial licences for proprietary distribution are available at
+<https://djwaudio.co/ravet/licences/>: **Starter: free** (company revenue up to
+$50,000), **Indie: $199 per developer per year** (above $50,000, up to
 $500,000), and **Pro: $699 per developer per year** (above $500,000, unlimited).
-Prices are in USD excluding applicable taxes. Paid licences include twelve months
-of updates and permanent commercial rights to the versions received; renewal is
-optional for continued building and distribution with those versions. All tiers
-include all supported features, unlimited products, and no royalties.
+Prices are in USD; no VAT is charged. Paid licences include twelve months of
+updates and permanent commercial rights to the versions received; renewal is
+optional. All tiers include all supported features, unlimited products, and no
+royalties. Commercial rights come from an accepted Order under the RAVET
+Commercial Licence Agreement; this README grants none. These thresholds do not
+restrict GPL-compliant use.
 
-The final commercial agreement is pending; this README does not grant commercial
-permissions. These thresholds do not restrict GPL-compliant use.
-
-See [LICENSING.md](LICENSING.md) for the current policy, contribution and
-dependency requirements, and unresolved commercial terms.
+See [LICENSING.md](LICENSING.md) for the commercial policy, how an Order works,
+and contribution and dependency requirements.
 
 Run the [live documentation portal](docs/documentation-site.md) for searchable guides, feature limits and the workspace API reference.

@@ -9921,3 +9921,34 @@ tests pass on macOS arm64. DW-303 still uses its own CLAP layer rather than
 Open after the release: live documentation publishing from omarchy has timed
 out (45 minutes) during the FTP upload since 30 October, leaving the previous
 snapshot live; the build and site tests pass.
+
+
+### Commercial licensing opened (owner, 2026-11-17)
+
+The owner accepted the draft review as sufficient and asked for commercial
+licensing to go live ([decision 0301](decisions/0301-commercial-licensing-launch.md)).
+Agreement version 1.0 was made from draft 0.1: Licensor identified, online
+acceptance added as clause 1.3A, editorial notes removed. On 18 November the
+owner confirmed the trading address used on djwaudio.co's legal pages; it was
+added to the agreement and the website configuration enabled ordering, pending
+deployment.
+
+Ordering was built in the private website project: an order form, Starter email
+confirmation, Stripe Checkout for Indie and Pro (USD, one payment per Update
+Period, seats as quantity), a webhook branch that issues the emailed Order Form
+only on an exact amount and currency match, and refund handling. Each order
+records the agreement version and SHA-256, certified revenue, acceptance time
+and the licensed release (`v0.1.1`, `3f31584`). Evidence, all on macOS arm64:
+
+- PHP unit checks for tier boundaries, revenue parsing, validation, Update
+  Period dates (including leap days) and the Order Form text.
+- Node checks for the order page, client pricing, the published agreement hash
+  and the existing licence page behaviour.
+- An end-to-end lab run of the live endpoints in PHP 8.2 against a throwaway
+  MySQL 8.0 (Docker via colima): 18 RAVET checks, covering Starter confirmation
+  and idempotency, an underpaid session left unissued, a single issue under
+  repeated webhooks, no activation licence minted, and partial versus full
+  refunds. The existing security lab suite also passed.
+
+No live Stripe payment, real email delivery or production deployment was
+exercised.

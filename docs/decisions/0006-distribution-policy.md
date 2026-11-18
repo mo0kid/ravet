@@ -1,7 +1,7 @@
 # 0006 — GPLv3 and commercial licensing
 
 **Date:** 8 October 2026  
-**Status:** licensing model, launch prices, and commercial policy accepted; final agreement pending
+**Status:** licensing model, launch prices, and commercial policy accepted; agreement version 1.0 adopted and ordering opened in [decision 0301](0301-commercial-licensing-launch.md)
 
 ## Decision
 

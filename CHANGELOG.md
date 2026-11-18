@@ -28,6 +28,15 @@ See the [0.1.0 release notes](docs/releases/0.1.0-notes.md) and the
   [plug-in export](docs/plugin-export.md#automation-and-bypass-policies) and
   [decision 0297](docs/decisions/0297-latency-compensated-bypass.md).
 
+### Licensing
+
+- Commercial licensing is open. Starter (free), Indie ($199) and Pro ($699 per
+  developer per year) are ordered at <https://djwaudio.co/ravet/licences/> under
+  the RAVET Commercial Licence Agreement version 1.0; see
+  [LICENSING.md](LICENSING.md) and
+  [decision 0301](docs/decisions/0301-commercial-licensing-launch.md). The GPL
+  route is unchanged.
+
 ## 0.1.0 — 2026-11-05
 
 ### Changed
