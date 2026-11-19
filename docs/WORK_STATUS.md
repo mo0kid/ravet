@@ -9952,3 +9952,13 @@ and the licensed release (`v0.1.1`, `3f31584`). Evidence, all on macOS arm64:
 
 No live Stripe payment, real email delivery or production deployment was
 exercised.
+
+Correction, 19 November: the website serves `/api` from its Node application
+and runs no PHP on the host, so the PHP endpoints above would never have been
+deployed. Ordering was ported to the Node API before merge. Evidence for the
+port, on macOS arm64 against a throwaway MySQL 8.0: 13 Node checks (8 rule and
+agreement checks, 5 end-to-end covering Starter confirmation and expiry, an
+underpaid session left unissued, a single issue under repeated webhooks, no
+activation licence minted, and partial versus full refunds), the website's
+full Node API suite of 130 tests and the 6 licence page tests. The PHP checks
+listed above describe the superseded implementation.
